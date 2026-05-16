@@ -259,22 +259,92 @@ export default function PoloChukkas() {
   const [addingTo, setAddingTo] = useState(null);          // chukkaIdx where "+ Add" picker is open
   const [scheduleView, setScheduleView] = useState('cards'); // 'cards' | 'table'
   const [confirmModal, setConfirmModal] = useState(null);   // { title, message, confirmLabel, onConfirm } | null
+  const [captainMode, setCaptainMode] = useState(false);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
 
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
 
+  // Captain PIN — visible in source, this is a soft gate not real security
+  const CAPTAIN_PIN = '1907';
+
+  // Check session storage on mount — captain mode persists until tab closes
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('tppc-captain') === '1') setCaptainMode(true);
+    } catch (e) {}
+  }, []);
+
+  const openPinModal = () => {
+    setPinInput('');
+    setPinError('');
+    setPinModalOpen(true);
+  };
+
+  const submitPin = () => {
+    if (pinInput === CAPTAIN_PIN) {
+      setCaptainMode(true);
+      try { sessionStorage.setItem('tppc-captain', '1'); } catch (e) {}
+      setPinModalOpen(false);
+      setPinInput('');
+      setPinError('');
+    } else {
+      setPinError('Wrong PIN — try again.');
+      setPinInput('');
+    }
+  };
+
+  const lockCaptainMode = () => {
+    setCaptainMode(false);
+    try { sessionStorage.removeItem('tppc-captain'); } catch (e) {}
+  };
+
+  // Hard refresh — clears caches and busts iOS's web-clip HTML cache.
+  // Used by the manual refresh button and the prolonged-hidden listener below.
+  const hardRefresh = async () => {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) {}
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('_t', Date.now().toString());
+      window.location.replace(url.toString());
+    } catch (e) {
+      window.location.reload();
+    }
+  };
+
+  // Auto-refresh when the user returns to the app after being away >5 minutes.
+  // Fixes iOS PWA shortcuts that hold stale builds when Safari caches index.html.
+  useEffect(() => {
+    let hiddenAt = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+      } else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) {
+        hiddenAt = null;
+        hardRefresh();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // Load shared data
   useEffect(() => {
-    const loadAll = async () => {
+    (async () => {
       try {
         const r = await window.storage.get('roster', true);
-        if (r?.value) setPlayers(typeof r.value === 'string' ? JSON.parse(r.value) : r.value);
-        else setPlayers([]);
+        if (r?.value) setPlayers(JSON.parse(r.value));
       } catch (e) {}
       try {
         const f = await window.storage.get('fixture-interest', true);
-        if (f?.value) setInterest(typeof f.value === 'string' ? JSON.parse(f.value) : f.value);
-        else setInterest({});
+        if (f?.value) setInterest(JSON.parse(f.value));
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -282,20 +352,10 @@ export default function PoloChukkas() {
       } catch (e) {}
       try {
         const m = await window.storage.get('members', true);
-        if (m?.value) setMembers(typeof m.value === 'string' ? JSON.parse(m.value) : m.value);
-        else setMembers({});
+        if (m?.value) setMembers(JSON.parse(m.value));
       } catch (e) {}
       setLoaded(true);
-    };
-
-    loadAll();
-
-    // Live sync: when another device updates the database, refresh from storage.
-    // The deployed Firestore adapter dispatches this event; the Claude artifact
-    // ignores it (no-op).
-    const onRemoteChange = () => loadAll();
-    window.addEventListener('storage-changed', onRemoteChange);
-    return () => window.removeEventListener('storage-changed', onRemoteChange);
+    })();
   }, []);
 
   // ── Wednesday chukkas ─────────────────────────────────
@@ -341,9 +401,16 @@ export default function PoloChukkas() {
     const h = parseInt(handicap, 10);
     const c = parseInt(chukkas, 10);
     if (isNaN(c) || c < 1 || c > 8) return setError('Chukkas must be between 1 and 8.');
+    // Prevent the same person being added twice (case- and whitespace-insensitive)
+    const cleanedName = name.trim().replace(/\s+/g, ' ');
+    const normalized = cleanedName.toLowerCase();
+    const existing = players.find(p => p.name.trim().replace(/\s+/g, ' ').toLowerCase() === normalized);
+    if (existing) {
+      return setError(`${existing.name} is already on the roster${captainMode ? ' — adjust their chukkas with the +/− buttons.' : ' for this Wednesday.'}`);
+    }
     const newPlayer = {
       id: Date.now(),
-      name: name.trim(),
+      name: cleanedName,
       mobile: mobile.trim() || undefined,
       handicap: h,
       chukkas: c,
@@ -1972,7 +2039,33 @@ export default function PoloChukkas() {
 
       <div className="polo-app">
         {/* Masthead */}
-        <header className="header-bg" style={{ padding: '30px 20px 22px', textAlign: 'center' }}>
+        <header className="header-bg" style={{ padding: '30px 20px 22px', textAlign: 'center', position: 'relative' }}>
+          <button
+            onClick={hardRefresh}
+            aria-label="Refresh app"
+            title="Refresh"
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              background: 'rgba(244, 236, 216, 0.12)',
+              border: '1px solid rgba(244, 236, 216, 0.3)',
+              color: 'var(--cream, #f4ecd8)',
+              fontSize: '17px',
+              lineHeight: 1,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              zIndex: 2,
+            }}
+          >
+            ↻
+          </button>
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div className="display-italic" style={{ fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', opacity: 0.75, marginBottom: '4px' }}>
               Est. 1907
@@ -2017,57 +2110,63 @@ export default function PoloChukkas() {
                 </div>
               </div>
 
-              {/* WhatsApp group card */}
-              <div className="wa-card">
-                <span className="wa-icon">💬</span>
-                <div className="wa-label">
-                  {waLink ? (
-                    <>
-                      <strong>Club WhatsApp</strong>
-                      <div className="display-italic">Tap to join the group chat</div>
-                    </>
-                  ) : (
-                    <>
-                      <strong>WhatsApp group</strong>
-                      <div className="display-italic">Add the club's group link to publish team sheets</div>
-                    </>
-                  )}
-                </div>
-                {waEditing ? (
-                  <div style={{ flexBasis: '100%', display: 'flex', gap: '6px', marginTop: '6px' }}>
-                    <input
-                      className="input-field"
-                      type="url"
-                      placeholder="https://chat.whatsapp.com/..."
-                      value={waInput}
-                      onChange={(e) => setWaInput(e.target.value)}
-                      style={{ padding: '8px 12px', fontSize: '13px' }}
-                    />
-                    <button className="wa-btn" onClick={() => saveWaLink(waInput)}>Save</button>
-                    <button className="wa-edit-btn" onClick={() => { setWaEditing(false); setWaInput(''); }}>cancel</button>
+              {/* WhatsApp group card — only shown when link is set OR captain is editing */}
+              {(waLink || captainMode) && (
+                <div className="wa-card">
+                  <span className="wa-icon">💬</span>
+                  <div className="wa-label">
+                    {waLink ? (
+                      <>
+                        <strong>Club WhatsApp</strong>
+                        <div className="display-italic">Tap to join the group chat</div>
+                      </>
+                    ) : (
+                      <>
+                        <strong>WhatsApp group</strong>
+                        <div className="display-italic">Add the club's group link to publish team sheets</div>
+                      </>
+                    )}
                   </div>
-                ) : waLink ? (
-                  <>
-                    <a className="wa-btn" href={waLink} target="_blank" rel="noopener noreferrer">Join group</a>
-                    <button
-                      className="wa-edit-btn"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(waLink);
-                          window.alert('Group link copied to clipboard.');
-                        } catch (e) {
-                          window.prompt('Copy this link:', waLink);
-                        }
-                      }}
-                    >copy</button>
-                    <button className="wa-edit-btn" onClick={() => { setWaInput(waLink); setWaEditing(true); }}>edit</button>
-                  </>
-                ) : (
-                  <button className="wa-btn wa-btn-outline" onClick={() => { setWaInput(''); setWaEditing(true); }}>
-                    Set link
-                  </button>
-                )}
-              </div>
+                  {waEditing && captainMode ? (
+                    <div style={{ flexBasis: '100%', display: 'flex', gap: '6px', marginTop: '6px' }}>
+                      <input
+                        className="input-field"
+                        type="url"
+                        placeholder="https://chat.whatsapp.com/..."
+                        value={waInput}
+                        onChange={(e) => setWaInput(e.target.value)}
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                      />
+                      <button className="wa-btn" onClick={() => saveWaLink(waInput)}>Save</button>
+                      <button className="wa-edit-btn" onClick={() => { setWaEditing(false); setWaInput(''); }}>cancel</button>
+                    </div>
+                  ) : waLink ? (
+                    <>
+                      <a className="wa-btn" href={waLink} target="_blank" rel="noopener noreferrer">Join group</a>
+                      {captainMode && (
+                        <>
+                          <button
+                            className="wa-edit-btn"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(waLink);
+                                window.alert('Group link copied to clipboard.');
+                              } catch (e) {
+                                window.prompt('Copy this link:', waLink);
+                              }
+                            }}
+                          >copy</button>
+                          <button className="wa-edit-btn" onClick={() => { setWaInput(waLink); setWaEditing(true); }}>edit</button>
+                        </>
+                      )}
+                    </>
+                  ) : captainMode ? (
+                    <button className="wa-btn wa-btn-outline" onClick={() => { setWaInput(''); setWaEditing(true); }}>
+                      Set link
+                    </button>
+                  ) : null}
+                </div>
+              )}
 
               {/* Sign-up */}
               <section className="card" style={{ padding: '20px', marginBottom: '24px' }}>
@@ -2174,20 +2273,22 @@ export default function PoloChukkas() {
                       <div className="label-eyebrow">Tonight's field</div>
                       <h2 className="display" style={{ margin: '2px 0 0', fontSize: '22px' }}>Roster</h2>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button onClick={() => loadExample('may13')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                        load 13 May
-                      </button>
-                      <button onClick={() => loadExample('may6')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                        load 6 May
-                      </button>
-                      <button onClick={() => loadExample('apr29')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                        load 29 Apr
-                      </button>
-                      <button onClick={clearAll} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                        clear
-                      </button>
-                    </div>
+                    {captainMode && (
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button onClick={() => loadExample('may13')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          load 13 May
+                        </button>
+                        <button onClick={() => loadExample('may6')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          load 6 May
+                        </button>
+                        <button onClick={() => loadExample('apr29')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          load 29 Apr
+                        </button>
+                        <button onClick={clearAll} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          clear
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {players.map((p, i) => {
@@ -2199,7 +2300,7 @@ export default function PoloChukkas() {
                           <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                           <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
                             <span className="pref-tag">{prefLabel}</span>
-                            {p.mobile && (
+                            {p.mobile && captainMode && (
                               <>
                                 <span style={{ margin: '0 6px' }}>·</span>
                                 <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
@@ -2209,29 +2310,40 @@ export default function PoloChukkas() {
                             )}
                           </div>
                         </div>
-                        <div className="chukka-stepper" aria-label="Chukkas">
-                          <button
-                            className="step-btn"
-                            onClick={() => adjustChukkas(p.id, -1)}
-                            disabled={p.chukkas <= 1}
-                            aria-label="Decrease chukkas"
-                          >−</button>
-                          <span className="step-count">{p.chukkas}</span>
-                          <button
-                            className="step-btn"
-                            onClick={() => adjustChukkas(p.id, +1)}
-                            disabled={p.chukkas >= 8}
-                            aria-label="Increase chukkas"
-                          >+</button>
-                        </div>
-                        <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label={`Remove ${p.name}`}>×</button>
+                        {captainMode ? (
+                          <>
+                            <div className="chukka-stepper" aria-label="Chukkas">
+                              <button
+                                className="step-btn"
+                                onClick={() => adjustChukkas(p.id, -1)}
+                                disabled={p.chukkas <= 1}
+                                aria-label="Decrease chukkas"
+                              >−</button>
+                              <span className="step-count">{p.chukkas}</span>
+                              <button
+                                className="step-btn"
+                                onClick={() => adjustChukkas(p.id, +1)}
+                                disabled={p.chukkas >= 8}
+                                aria-label="Increase chukkas"
+                              >+</button>
+                            </div>
+                            <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label={`Remove ${p.name}`}>×</button>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '6px 10px', minWidth: '60px', textAlign: 'right' }}>
+                            <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
+                            <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
 
-                  <button className="btn-primary" onClick={generate} disabled={players.length < 4} style={{ marginTop: '16px' }}>
-                    {players.length < 4 ? 'Need 4+ Players' : 'Draw Schedule & Teams'}
-                  </button>
+                  {captainMode && (
+                    <>
+                      <button className="btn-primary" onClick={generate} disabled={players.length < 4} style={{ marginTop: '16px' }}>
+                        {players.length < 4 ? 'Need 4+ Players' : 'Draw Schedule & Teams'}
+                      </button>
 
                   <button
                     onClick={clearAll}
@@ -2255,6 +2367,8 @@ export default function PoloChukkas() {
                   >
                     Clear roster · start again
                   </button>
+                    </>
+                  )}
                 </section>
               )}
 
@@ -2298,7 +2412,7 @@ export default function PoloChukkas() {
                     </div>
                   </div>
 
-                  {scheduleView === 'cards' && (
+                  {scheduleView === 'cards' && captainMode && (
                     <div className="edit-hint">
                       Tap × to remove a player from a chukka. Tap a name to swap teams or move them.
                     </div>
@@ -2332,25 +2446,30 @@ export default function PoloChukkas() {
 
                     const renderPlayer = (p, teamClass) => {
                       const isActive = activePlayer && activePlayer.chukkaIdx === idx && activePlayer.playerId === p.id;
-                      const onClick = (e) => {
-                        e.stopPropagation();
-                        setActivePlayer(isActive ? null : { chukkaIdx: idx, playerId: p.id });
-                        setAddingTo(null);
-                      };
+                      const onClick = captainMode
+                        ? (e) => {
+                            e.stopPropagation();
+                            setActivePlayer(isActive ? null : { chukkaIdx: idx, playerId: p.id });
+                            setAddingTo(null);
+                          }
+                        : undefined;
                       return (
                         <div
                           key={p.id}
                           className={`team-mini-row ${teamClass} ${isActive ? 'selected' : ''}`}
                           onClick={onClick}
+                          style={captainMode ? undefined : { cursor: 'default' }}
                         >
                           <span className="hcp">{fmtH(p.handicap)}</span>
                           <span className="team-mini-name">{p.name}</span>
-                          <button
-                            className="chukka-remove"
-                            onClick={(e) => { e.stopPropagation(); removeFromChukka(idx, p.id); }}
-                            aria-label={`Remove ${p.name} from chukka ${ck.number}`}
-                            title="Remove from this chukka"
-                          >×</button>
+                          {captainMode && (
+                            <button
+                              className="chukka-remove"
+                              onClick={(e) => { e.stopPropagation(); removeFromChukka(idx, p.id); }}
+                              aria-label={`Remove ${p.name} from chukka ${ck.number}`}
+                              title="Remove from this chukka"
+                            >×</button>
+                          )}
                         </div>
                       );
                     };
@@ -2389,7 +2508,7 @@ export default function PoloChukkas() {
                               {ck.teamB.map(p => renderPlayer(p, 'white'))}
                             </div>
 
-                            {activeP && (
+                            {activeP && captainMode && (
                               <div className="action-bar">
                                 <span className="action-label">{activeP.name}:</span>
                                 <button
@@ -2425,8 +2544,8 @@ export default function PoloChukkas() {
                           </div>
                         )}
 
-                        {/* Add player to chukka */}
-                        {availableToAdd.length > 0 && (
+                        {/* Add player to chukka — captain only */}
+                        {captainMode && availableToAdd.length > 0 && (
                           <div className="add-strip">
                             {addingTo === idx ? (
                               <>
@@ -2509,55 +2628,61 @@ export default function PoloChukkas() {
                     );
                   })()}
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px' }}>
-                    <button className="wa-btn" onClick={publishToWhatsApp} style={{ padding: '14px', fontSize: '12px', width: '100%' }}>
-                      📣 Share team sheet
-                    </button>
-                    <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)' }} className="display-italic">
-                      Pick <strong style={{ fontStyle: 'normal' }}>WhatsApp</strong> (not WhatsApp Business) from your share sheet, then choose the club group.
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                      <button className="btn-secondary" onClick={exportXLSX} style={{ width: '100%' }}>
-                        📊 Export Excel
+                  {captainMode && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px' }}>
+                      <button className="wa-btn" onClick={publishToWhatsApp} style={{ padding: '14px', fontSize: '12px', width: '100%' }}>
+                        📣 Share team sheet
                       </button>
-                      <button className="btn-secondary" onClick={exportPNG} style={{ width: '100%' }}>
-                        🖼 Export PNG
+                      <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)' }} className="display-italic">
+                        Pick <strong style={{ fontStyle: 'normal' }}>WhatsApp</strong> (not WhatsApp Business) from your share sheet, then choose the club group.
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                        <button className="btn-secondary" onClick={exportXLSX} style={{ width: '100%' }}>
+                          📊 Export Excel
+                        </button>
+                        <button className="btn-secondary" onClick={exportPNG} style={{ width: '100%' }}>
+                          🖼 Export PNG
+                        </button>
+                      </div>
+                      <button className="btn-secondary" onClick={generate} style={{ width: '100%' }}>
+                        Redraw schedule
                       </button>
                     </div>
-                    <button className="btn-secondary" onClick={generate} style={{ width: '100%' }}>
-                      Redraw schedule
-                    </button>
-                  </div>
+                  )}
                 </section>
               )}
 
               {loaded && players.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '32px 20px 12px', color: 'var(--muted)' }}>
                   <div className="display-italic" style={{ fontSize: '20px', color: 'var(--ink)', marginBottom: '4px' }}>The field awaits.</div>
-                  <div style={{ fontSize: '13px', marginBottom: '18px' }}>Add the first rider to begin tonight's draw.</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'stretch', maxWidth: '320px', margin: '0 auto' }}>
-                    {Object.entries(EXAMPLES).map(([key, ex]) => (
-                      <button
-                        key={key}
-                        onClick={() => loadExample(key)}
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid var(--gold)',
-                          color: 'var(--burgundy)',
-                          padding: '10px 16px',
-                          borderRadius: '4px',
-                          fontFamily: "'Outfit', sans-serif",
-                          fontSize: '11px',
-                          fontWeight: 500,
-                          letterSpacing: '1.2px',
-                          textTransform: 'uppercase',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Load · {ex.label} <span style={{ opacity: 0.65, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic' }}>({ex.note})</span>
-                      </button>
-                    ))}
+                  <div style={{ fontSize: '13px', marginBottom: '18px' }}>
+                    {captainMode ? "Add the first rider to begin the Wednesday draw." : "Be the first to sign up for this Wednesday's chukkas."}
                   </div>
+                  {captainMode && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'stretch', maxWidth: '320px', margin: '0 auto' }}>
+                      {Object.entries(EXAMPLES).map(([key, ex]) => (
+                        <button
+                          key={key}
+                          onClick={() => loadExample(key)}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid var(--gold)',
+                            color: 'var(--burgundy)',
+                            padding: '10px 16px',
+                            borderRadius: '4px',
+                            fontFamily: "'Outfit', sans-serif",
+                            fontSize: '11px',
+                            fontWeight: 500,
+                            letterSpacing: '1.2px',
+                            textTransform: 'uppercase',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Load · {ex.label} <span style={{ opacity: 0.65, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic' }}>({ex.note})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2697,8 +2822,121 @@ export default function PoloChukkas() {
         </main>
 
         <footer style={{ textAlign: 'center', padding: '22px 20px', borderTop: '1px solid var(--line)', fontSize: '10px', color: 'var(--muted)', letterSpacing: '2px', textTransform: 'uppercase', background: 'var(--cream-warm)' }}>
-          Tedworth Park Polo Club · Tidworth, Wiltshire
+          <div>Tedworth Park Polo Club · Tidworth, Wiltshire</div>
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+            {captainMode ? (
+              <>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--burgundy)', fontWeight: 600 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--burgundy)', display: 'inline-block' }} />
+                  Captain mode
+                </span>
+                <button
+                  onClick={lockCaptainMode}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    fontSize: '10px',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    padding: 0,
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '3px',
+                  }}
+                >
+                  Lock
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={openPinModal}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--muted)',
+                  fontSize: '10px',
+                  letterSpacing: '2px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  padding: 0,
+                  opacity: 0.6,
+                }}
+              >
+                captain
+              </button>
+            )}
+          </div>
         </footer>
+
+        {/* PIN modal — captain access */}
+        {pinModalOpen && (
+          <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>
+            <div className="share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '340px' }}>
+              <div className="share-head">
+                <h3>Captain access</h3>
+                <button className="share-close" onClick={() => setPinModalOpen(false)} aria-label="Close">×</button>
+              </div>
+              <div className="share-body">
+                <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--muted)', lineHeight: 1.55, textAlign: 'center' }}>
+                  Enter the 4-digit captain PIN to unlock team management.
+                </p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
+                  value={pinInput}
+                  onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && pinInput.length === 4) submitPin(); }}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    textAlign: 'center',
+                    fontSize: '32px',
+                    letterSpacing: '14px',
+                    padding: '14px 0 14px 14px',
+                    border: '1px solid var(--line)',
+                    borderRadius: '4px',
+                    fontFamily: "'Outfit', sans-serif",
+                    color: 'var(--ink)',
+                    background: '#fff',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                {pinError && (
+                  <div style={{ color: 'var(--danger)', fontSize: '13px', marginTop: '10px', textAlign: 'center' }}>
+                    {pinError}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '18px' }}>
+                  <button className="btn-secondary" onClick={() => setPinModalOpen(false)} style={{ flex: 1 }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitPin}
+                    disabled={pinInput.length !== 4}
+                    style={{
+                      flex: 1,
+                      background: pinInput.length === 4 ? '#6b1f2a' : '#bbb',
+                      color: '#f4ecd8',
+                      border: 'none',
+                      padding: '12px 14px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    Unlock
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Confirmation modal — used for destructive actions (Clear roster, Replace roster) */}
         {confirmModal && (
