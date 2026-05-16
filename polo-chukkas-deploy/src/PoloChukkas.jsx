@@ -1,0 +1,2720 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+// 2026 Tedworth Park Polo Club grass fixtures
+const FIXTURES_2026 = [
+  { id: 'apr-3',     month: 'April',     date: 'Fri 3 April',           name: 'Area 14 Pony Club Tournament', level: 'Arena' },
+  { id: 'apr-11',    month: 'April',     date: 'Sat 11 April',          name: 'Coaching Begins · Pre-Season Welcome Drinks', level: 'Clubhouse from 16:00' },
+  { id: 'apr-18',    month: 'April',     date: 'Sat 18 & Sun 19 April', name: 'Club Chukkas', level: 'Tattoo Ground' },
+  { id: 'apr-25',    month: 'April',     date: 'Sat 25 & Sun 26 April', name: 'Club Chukkas', level: 'Tattoo Ground' },
+
+  { id: 'may-2',     month: 'May',       date: 'Sat 2 & Sun 3 May',     name: 'Club Chukkas & Tedworth Park Challenge', level: '' },
+  { id: 'may-9',     month: 'May',       date: 'Sat 9 & Sun 10 May',    name: 'The Rabbit Cup', level: '−6 to −2 Goal & −2 to 0 Goal' },
+  { id: 'may-16-a',  month: 'May',       date: 'Sat 16 & Sun 17 May',   name: 'Cholderton Cup', level: '0 to 2 Goal' },
+  { id: 'may-16-b',  month: 'May',       date: 'Sat 16 & Sun 17 May',   name: 'Grenadier Trophy', level: '−6 to −2 Goal' },
+  { id: 'may-23-a',  month: 'May',       date: 'Sat 23 & Sun 24 May',   name: 'Queens Royal Hussars Cup', level: '2 to 4 Goal' },
+  { id: 'may-23-b',  month: 'May',       date: 'Sat 23 & Sun 24 May',   name: 'Maddison Cup', level: '−4 to 0 Goal' },
+  { id: 'may-25',    month: 'May',       date: 'Mon 25 May',            name: 'Royal Artillery Cup', level: 'Open Military' },
+  { id: 'may-30-a',  month: 'May',       date: 'Sat 30 & Sun 31 May',   name: '9th Lancer Trophy', level: '−4 to 0 Goal' },
+  { id: 'may-30-b',  month: 'May',       date: 'Sat 30 & Sun 31 May',   name: "Queen's Royal Lancers Trophy", level: '2 to 4 Goal' },
+
+  { id: 'jun-6-a',   month: 'June',      date: 'Sat 6 & Sun 7 June',    name: "Ladies & Gentleman's Weekend", level: '4–8 Goal & −4 to 0 Goal' },
+  { id: 'jun-6-b',   month: 'June',      date: 'Sat 6 & Sun 7 June',    name: 'Military Ladies', level: '0 to 4 Goal' },
+  { id: 'jun-13',    month: 'June',      date: 'Sat 13 & Sun 14 June',  name: "President's Cup", level: '−2 to 0 Goal' },
+  { id: 'jun-17',    month: 'June',      date: 'Wed 17 June',           name: 'Deep Recce Strike Brigade', level: 'Open Military' },
+  { id: 'jun-20-a',  month: 'June',      date: 'Sat 20 & Sun 21 June',  name: '10th Hussars Trophy', level: '0 to 2 Goal' },
+  { id: 'jun-20-b',  month: 'June',      date: 'Sat 20 & Sun 21 June',  name: 'Dodsworth Family Challenge', level: '−6 to −2 Goal' },
+  { id: 'jun-27',    month: 'June',      date: 'Sat 27 & Sun 28 June',  name: 'Manlein Cup', level: '−4 to 0 Goal' },
+
+  { id: 'jul-4-a',   month: 'July',      date: 'Sat 4 & Sun 5 July',    name: 'Douglas Nugent', level: '−4 to 0 Goal' },
+  { id: 'jul-4-b',   month: 'July',      date: 'Sat 4 & Sun 5 July',    name: 'Kingsette Cup', level: '0 to 2 Goal' },
+  { id: 'jul-11',    month: 'July',      date: 'Sat 11 July',           name: 'Rundle Cup Day', level: 'Military · Army v Navy' },
+  { id: 'jul-18-a',  month: 'July',      date: 'Sat 18 & Sun 19 July',  name: 'The Captains & Subalterns Trophy', level: 'Open Military' },
+  { id: 'jul-18-b',  month: 'July',      date: 'Sat 18 & Sun 19 July',  name: 'Clitherow Cup', level: 'Away match at New Park' },
+  { id: 'jul-24',    month: 'July',      date: 'Fri 24 & Sun 26 July',  name: 'Queens Royal Irish Hussars Trophy', level: '0 to 2 Goal' },
+  { id: 'jul-25',    month: 'July',      date: 'Sat 25 July',           name: 'The Duke of York Trophy', level: 'RNPA v RAF' },
+
+  { id: 'aug-1-a',   month: 'August',    date: 'Sat 1 & Sun 2 August',  name: 'KRH Cup', level: '2 to 4 Goal' },
+  { id: 'aug-1-b',   month: 'August',    date: 'Sat 1 & Sun 2 August',  name: 'Kadugli Cup', level: '−4 to 0 Goal' },
+  { id: 'aug-2',     month: 'August',    date: 'Sun 2 August',          name: 'Tiger Trophy', level: 'RNPA v RAF v Army' },
+  { id: 'aug-8',     month: 'August',    date: 'Sat 8 & Sun 9 August',  name: 'Veterans Tournament', level: '−4 to 0 Goal' },
+  { id: 'aug-10',    month: 'August',    date: 'Mon 10 August',         name: 'Pony Club Friendly', level: '' },
+  { id: 'aug-15-a',  month: 'August',    date: 'Sat 15 & Sun 16 August', name: 'Barnard Trophy', level: '4 Goal VL' },
+  { id: 'aug-15-b',  month: 'August',    date: 'Sat 15 & Sun 16 August', name: 'Canada Cup', level: '−4 to 0 Goal' },
+  { id: 'aug-22',    month: 'August',    date: 'Sat 22 & Sun 23 August', name: "Polo Captain's Trophy", level: '0 to 2 & −4 to 0 Goal' },
+  { id: 'aug-29',    month: 'August',    date: 'Sat 29 & Sun 30 August', name: 'Full Swing Trophy', level: '−6 to −2 Goal' },
+  { id: 'aug-31',    month: 'August',    date: 'Mon 31 August',         name: 'AGC Cup', level: 'Open Military' },
+
+  { id: 'sep-5',     month: 'September', date: 'Sat 5 & Sun 6 September',   name: 'Frost Cup', level: '−6 to −2 & −2 to 0 Goal' },
+  { id: 'sep-12',    month: 'September', date: 'Sat 12 & Sun 13 September', name: 'Valette Cup', level: '−4 to 0 Goal' },
+  { id: 'sep-19',    month: 'September', date: 'Sat 19 & Sun 20 September', name: 'Light Infantry Trophy · Grooms Instructional · End of Season Awards', level: '−4 to 0 Goal' },
+];
+
+const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
+const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
+const PREFERENCES = [
+  { value: 'early', label: 'Early' },
+  { value: 'any',   label: 'Any time' },
+  { value: 'late',  label: 'Later' },
+];
+const CHUKKA_START_MIN = 17 * 60 + 30; // 17:30
+const CHUKKA_INTERVAL_MIN = 15;
+const SLOTS_PER_CHUKKA = 8; // 4 v 4
+const MIN_CHUKKAS = 4;
+
+// Example rosters for testing the app
+const EXAMPLES = {
+  may13: {
+    label: 'Wed 13 May',
+    note: '10 players · 5 chukkas',
+    roster: [
+      { name: 'Rosie Ross', handicap:  2, chukkas: 4, preference: 'early', mobile: '07700 900012' },
+      { name: 'Brad',       handicap:  1, chukkas: 5, preference: 'any',   mobile: '07700 900034' },
+      { name: 'Rosie L',    handicap:  0, chukkas: 4, preference: 'early', mobile: '07700 900056' },
+      { name: 'Sam Tay',    handicap:  0, chukkas: 3, preference: 'any',   mobile: '07700 900078' },
+      { name: 'Debbie B',   handicap: -1, chukkas: 4, preference: 'late',  mobile: '07700 900091' },
+      { name: 'Jo Wells',   handicap: -1, chukkas: 4, preference: 'early', mobile: '07700 900103' },
+      { name: 'William W',  handicap: -2, chukkas: 4, preference: 'early', mobile: '07700 900147' },
+      { name: 'Steve W',    handicap: -2, chukkas: 4, preference: 'early', mobile: '07700 900168' },
+      { name: 'Alfie',      handicap: -2, chukkas: 2, preference: 'late',  mobile: '07700 900192' },
+      { name: 'Helen',      handicap: -2, chukkas: 2, preference: 'early', mobile: '07700 900215' },
+    ],
+  },
+  may6: {
+    label: 'Wed 6 May',
+    note: '14 players · 8 chukkas',
+    roster: [
+      { name: 'Rosie Ross', handicap:  2, chukkas: 6, preference: 'any',   mobile: '07700 900012' },
+      { name: 'Stevie',     handicap:  2, chukkas: 4, preference: 'any',   mobile: '07700 900233' },
+      { name: 'Brad',       handicap:  1, chukkas: 6, preference: 'any',   mobile: '07700 900034' },
+      { name: 'Rosie L',    handicap:  0, chukkas: 6, preference: 'early', mobile: '07700 900056' },
+      { name: 'Alex W',     handicap:  0, chukkas: 5, preference: 'any',   mobile: '07700 900245' },
+      { name: 'Sam Tay',    handicap:  0, chukkas: 3, preference: 'early', mobile: '07700 900078' },
+      { name: 'Lizzie W',   handicap: -1, chukkas: 2, preference: 'any',   mobile: '07700 900287' },
+      { name: 'Debbie B',   handicap: -1, chukkas: 4, preference: 'early', mobile: '07700 900091' },
+      { name: 'Andy B',     handicap: -1, chukkas: 4, preference: 'any',   mobile: '07700 900298' },
+      { name: 'Jo Wells',   handicap: -1, chukkas: 4, preference: 'any',   mobile: '07700 900103' },
+      { name: 'William W',  handicap: -2, chukkas: 5, preference: 'any',   mobile: '07700 900147' },
+      { name: 'Steve W',    handicap: -2, chukkas: 4, preference: 'late',  mobile: '07700 900168' },
+      { name: 'Alfie',      handicap: -2, chukkas: 4, preference: 'late',  mobile: '07700 900192' },
+      { name: 'Helen',      handicap: -2, chukkas: 2, preference: 'late',  mobile: '07700 900215' },
+    ],
+  },
+};
+
+// Format handicap for display (using proper minus sign for negatives)
+const fmtH = (h) => h < 0 ? `−${Math.abs(h)}` : `${h}`;
+
+// Time for chukka index (0-based)
+const chukkaTime = (idx) => {
+  const total = CHUKKA_START_MIN + idx * CHUKKA_INTERVAL_MIN;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}:${m.toString().padStart(2, '0')}`;
+};
+
+// Build a full evening schedule from the roster
+function buildSchedule(players) {
+  if (players.length === 0) return null;
+
+  // Process players in signup order — earliest signup first.
+  // This is the fairness rule: late signups have to fit around existing bookings.
+  const ordered = [...players].sort((a, b) => a.id - b.id);
+
+  const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
+  const numChukkas = Math.max(MIN_CHUKKAS, Math.ceil(totalRequested / SLOTS_PER_CHUKKA));
+
+  // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
+  const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
+  const remainingCapacity = Array(numChukkas).fill(SLOTS_PER_CHUKKA);
+
+  const assignments = new Map();
+  const capped = [];   // wanted more chukkas than the evening has at all
+  const reduced = [];  // got fewer chukkas than wanted due to capacity
+
+  ordered.forEach(player => {
+    const wantedRaw = player.chukkas;
+    const wanted = Math.min(wantedRaw, numChukkas);
+    if (wanted < wantedRaw) {
+      capped.push({ player, requested: wantedRaw, given: wanted });
+    }
+
+    // Build this player's preference order: their ideal chukkas first,
+    // followed by every other chukka as fallback.
+    const ideal = new Set();
+    if (player.preference === 'early') {
+      for (let i = 0; i < wanted; i++) ideal.add(i);
+    } else if (player.preference === 'late') {
+      for (let i = 0; i < wanted; i++) ideal.add(numChukkas - wanted + i);
+    } else {
+      // 'any' — spread evenly using floor((i + 0.5) * N / C)
+      for (let i = 0; i < wanted; i++) {
+        ideal.add(Math.min(numChukkas - 1, Math.floor((i + 0.5) * numChukkas / wanted)));
+      }
+      let probe = 0;
+      while (ideal.size < wanted && probe < numChukkas) {
+        if (!ideal.has(probe)) ideal.add(probe);
+        probe++;
+      }
+    }
+    const preferenceOrder = [...ideal].sort((a, b) => a - b);
+    for (let i = 0; i < numChukkas; i++) {
+      if (!ideal.has(i)) preferenceOrder.push(i);
+    }
+
+    // Place this player into chukkas, honouring the 8-per-chukka cap
+    const myChukkas = [];
+    for (const c of preferenceOrder) {
+      if (myChukkas.length >= wanted) break;
+      if (remainingCapacity[c] > 0) {
+        myChukkas.push(c);
+        chukkaPlayers[c].push(player);
+        remainingCapacity[c]--;
+      }
+    }
+
+    if (myChukkas.length < wanted) {
+      reduced.push({ player, requested: wanted, given: myChukkas.length });
+    }
+
+    assignments.set(player.id, myChukkas.sort((a, b) => a - b));
+  });
+
+  // Build each chukka with balanced teams (max 4 per team naturally, since cap = 8)
+  const chukkas = chukkaPlayers.map((inChukka, c) => {
+    const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
+    const teamA = [], teamB = [];
+    let sumA = 0, sumB = 0;
+    sorted.forEach(p => {
+      if (teamA.length < teamB.length) { teamA.push(p); sumA += p.handicap; }
+      else if (teamB.length < teamA.length) { teamB.push(p); sumB += p.handicap; }
+      else if (sumA <= sumB) { teamA.push(p); sumA += p.handicap; }
+      else { teamB.push(p); sumB += p.handicap; }
+    });
+    return {
+      idx: c,
+      number: c + 1,
+      time: chukkaTime(c),
+      isEarly: c < numChukkas / 2,
+      teamA, teamB, sumA, sumB,
+      playerCount: inChukka.length,
+    };
+  });
+
+  return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, reduced };
+}
+
+export default function PoloChukkas() {
+  // Tabs
+  const [activeTab, setActiveTab] = useState('chukkas');
+
+  // Wednesday chukkas state
+  const [players, setPlayers] = useState([]);
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [handicap, setHandicap] = useState('');
+  const [chukkas, setChukkas] = useState('');
+  const [preference, setPreference] = useState('any');
+  const [schedule, setSchedule] = useState(null);
+  const [error, setError] = useState('');
+
+  // WhatsApp group settings
+  const [waLink, setWaLink] = useState('');
+  const [waEditing, setWaEditing] = useState(false);
+  const [waInput, setWaInput] = useState('');
+
+  // Members directory — remembers handicap/mobile/preference per name across weeks
+  const [members, setMembers] = useState({});
+
+  // Fixtures state
+  const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap }] }
+  const [expandedId, setExpandedId] = useState(null);
+  const [fName, setFName] = useState('');
+  const [fHandicap, setFHandicap] = useState('');
+  const [fError, setFError] = useState('');
+
+  // Manual schedule editing
+  const [activePlayer, setActivePlayer] = useState(null); // { chukkaIdx, playerId } | null
+  const [addingTo, setAddingTo] = useState(null);          // chukkaIdx where "+ Add" picker is open
+  const [scheduleView, setScheduleView] = useState('cards'); // 'cards' | 'table'
+  const [confirmModal, setConfirmModal] = useState(null);   // { title, message, confirmLabel, onConfirm } | null
+
+  const [loaded, setLoaded] = useState(false);
+  const scheduleRef = useRef(null);
+
+  // Load shared data
+  useEffect(() => {
+    const loadAll = async () => {
+      try {
+        const r = await window.storage.get('roster', true);
+        if (r?.value) setPlayers(typeof r.value === 'string' ? JSON.parse(r.value) : r.value);
+        else setPlayers([]);
+      } catch (e) {}
+      try {
+        const f = await window.storage.get('fixture-interest', true);
+        if (f?.value) setInterest(typeof f.value === 'string' ? JSON.parse(f.value) : f.value);
+        else setInterest({});
+      } catch (e) {}
+      try {
+        const w = await window.storage.get('wa-link', true);
+        if (w?.value) setWaLink(w.value);
+      } catch (e) {}
+      try {
+        const m = await window.storage.get('members', true);
+        if (m?.value) setMembers(typeof m.value === 'string' ? JSON.parse(m.value) : m.value);
+        else setMembers({});
+      } catch (e) {}
+      setLoaded(true);
+    };
+
+    loadAll();
+
+    // Live sync: when another device updates the database, refresh from storage.
+    // The deployed Firestore adapter dispatches this event; the Claude artifact
+    // ignores it (no-op).
+    const onRemoteChange = () => loadAll();
+    window.addEventListener('storage-changed', onRemoteChange);
+    return () => window.removeEventListener('storage-changed', onRemoteChange);
+  }, []);
+
+  // ── Wednesday chukkas ─────────────────────────────────
+  const saveRoster = async (newPlayers) => {
+    setPlayers(newPlayers);
+    try { await window.storage.set('roster', JSON.stringify(newPlayers), true); }
+    catch (e) { setError('Saved locally only — check your connection.'); }
+  };
+
+  // Update the directory with this player's details (for next time's autofill)
+  const upsertMember = async (player, extraMembers = members) => {
+    const key = (player.name || '').trim().toLowerCase();
+    if (!key) return extraMembers;
+    const updated = {
+      ...extraMembers,
+      [key]: {
+        name: player.name.trim(),
+        handicap: player.handicap,
+        mobile: player.mobile || '',
+        preference: player.preference || 'any',
+        lastUsed: Date.now(),
+      },
+    };
+    setMembers(updated);
+    try { await window.storage.set('members', JSON.stringify(updated), true); } catch (e) {}
+    return updated;
+  };
+
+  // Fill the booking form from a saved member
+  const fillFromMember = (m) => {
+    setName(m.name);
+    setMobile(m.mobile || '');
+    setHandicap(String(m.handicap));
+    setPreference(m.preference || 'any');
+    // Leave chukkas blank — varies week to week
+  };
+
+  const handleAdd = () => {
+    setError('');
+    if (!name.trim()) return setError('Please enter a name.');
+    if (handicap === '') return setError('Please select a handicap.');
+    if (!chukkas) return setError('How many chukkas?');
+    const h = parseInt(handicap, 10);
+    const c = parseInt(chukkas, 10);
+    if (isNaN(c) || c < 1 || c > 8) return setError('Chukkas must be between 1 and 8.');
+    const newPlayer = {
+      id: Date.now(),
+      name: name.trim(),
+      mobile: mobile.trim() || undefined,
+      handicap: h,
+      chukkas: c,
+      preference,
+    };
+    saveRoster([...players, newPlayer]);
+    upsertMember(newPlayer);
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setPreference('any');
+    setSchedule(null);
+  };
+
+  const removePlayer = (id) => {
+    saveRoster(players.filter(p => p.id !== id));
+    setSchedule(null);
+  };
+
+  const generate = () => {
+    if (players.length < 4) { setError('Need at least 4 players for a chukka.'); return; }
+    setError('');
+    setActivePlayer(null);
+    setAddingTo(null);
+    const result = buildSchedule(players);
+    setSchedule(result);
+    setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+
+  const clearAll = () => {
+    setConfirmModal({
+      title: 'Clear the roster?',
+      message: 'This removes all players and discards the current schedule. The members directory, fixtures, and WhatsApp link are kept.',
+      confirmLabel: 'Clear roster',
+      onConfirm: () => {
+        saveRoster([]);
+        setSchedule(null);
+      },
+    });
+  };
+
+  const loadExample = async (key) => {
+    const ex = EXAMPLES[key];
+    if (!ex) return;
+    const doLoad = async () => {
+      const now = Date.now();
+      const seeded = ex.roster.map((p, i) => ({ id: now + i, ...p }));
+      saveRoster(seeded);
+      const newMembers = { ...members };
+      seeded.forEach((p, i) => {
+        newMembers[p.name.toLowerCase()] = {
+          name: p.name,
+          handicap: p.handicap,
+          mobile: p.mobile || '',
+          preference: p.preference || 'any',
+          lastUsed: now - (seeded.length - i),
+        };
+      });
+      setMembers(newMembers);
+      try { await window.storage.set('members', JSON.stringify(newMembers), true); } catch (e) {}
+      setSchedule(null);
+    };
+    if (players.length > 0) {
+      setConfirmModal({
+        title: `Replace the roster?`,
+        message: `This replaces the current roster with the ${ex.label} example.`,
+        confirmLabel: 'Replace',
+        onConfirm: () => { doLoad(); },
+      });
+    } else {
+      doLoad();
+    }
+  };
+
+  // Adjust a player's chukka count in the roster
+  const adjustChukkas = (id, delta) => {
+    const updated = players.map(p =>
+      p.id === id
+        ? { ...p, chukkas: Math.max(1, Math.min(8, p.chukkas + delta)) }
+        : p
+    );
+    saveRoster(updated);
+    setSchedule(null); // Roster changed — invalidate the schedule
+  };
+
+  // Recompute sums and counts after a schedule mutation
+  const refreshChukka = (ck) => ({
+    ...ck,
+    sumA: ck.teamA.reduce((s, p) => s + p.handicap, 0),
+    sumB: ck.teamB.reduce((s, p) => s + p.handicap, 0),
+    playerCount: ck.teamA.length + ck.teamB.length,
+  });
+
+  const updateSchedule = (mapper) => {
+    if (!schedule) return;
+    const next = schedule.chukkas.map((ck, idx) => refreshChukka(mapper(ck, idx)));
+    setSchedule({ ...schedule, chukkas: next });
+  };
+
+  const swapPlayerTeam = (chukkaIdx, playerId) => {
+    if (!schedule) return;
+    const ck = schedule.chukkas[chukkaIdx];
+    const inA = ck.teamA.find(p => p.id === playerId);
+    const inB = ck.teamB.find(p => p.id === playerId);
+    if (inA && ck.teamB.length >= 4) {
+      window.alert('White team is already at 4 players (max). Remove someone first or use Move to another chukka.');
+      return;
+    }
+    if (inB && ck.teamA.length >= 4) {
+      window.alert('Blue team is already at 4 players (max). Remove someone first or use Move to another chukka.');
+      return;
+    }
+    updateSchedule((ck, idx) => {
+      if (idx !== chukkaIdx) return ck;
+      if (inA) {
+        return {
+          ...ck,
+          teamA: ck.teamA.filter(p => p.id !== playerId),
+          teamB: [...ck.teamB, inA],
+        };
+      }
+      if (inB) {
+        return {
+          ...ck,
+          teamB: ck.teamB.filter(p => p.id !== playerId),
+          teamA: [...ck.teamA, inB],
+        };
+      }
+      return ck;
+    });
+    setActivePlayer(null);
+  };
+
+  const removeFromChukka = (chukkaIdx, playerId) => {
+    updateSchedule((ck, idx) =>
+      idx === chukkaIdx
+        ? {
+            ...ck,
+            teamA: ck.teamA.filter(p => p.id !== playerId),
+            teamB: ck.teamB.filter(p => p.id !== playerId),
+          }
+        : ck
+    );
+    setActivePlayer(null);
+  };
+
+  const movePlayerToChukka = (fromIdx, playerId, toIdx) => {
+    if (!schedule || fromIdx === toIdx) return;
+    const target = schedule.chukkas[toIdx];
+    if (target.teamA.length >= 4 && target.teamB.length >= 4) {
+      window.alert(`Chukka ${toIdx + 1} is already full (4v4).`);
+      return;
+    }
+    const fromChukka = schedule.chukkas[fromIdx];
+    const player =
+      fromChukka.teamA.find(p => p.id === playerId) ||
+      fromChukka.teamB.find(p => p.id === playerId);
+    if (!player) return;
+
+    updateSchedule((ck, idx) => {
+      if (idx === fromIdx) {
+        return {
+          ...ck,
+          teamA: ck.teamA.filter(p => p.id !== playerId),
+          teamB: ck.teamB.filter(p => p.id !== playerId),
+        };
+      }
+      if (idx === toIdx) {
+        const already = ck.teamA.find(p => p.id === playerId) || ck.teamB.find(p => p.id === playerId);
+        if (already) return ck;
+        // Drop into the smaller team (respecting 4-per-team cap)
+        if (ck.teamA.length < 4 && (ck.teamA.length <= ck.teamB.length || ck.teamB.length >= 4)) {
+          return { ...ck, teamA: [...ck.teamA, player] };
+        }
+        return { ...ck, teamB: [...ck.teamB, player] };
+      }
+      return ck;
+    });
+    setActivePlayer(null);
+  };
+
+  const addToChukka = (chukkaIdx, playerId) => {
+    const player = players.find(p => p.id === playerId);
+    if (!player || !schedule) return;
+    const ck = schedule.chukkas[chukkaIdx];
+    if (ck.teamA.length >= 4 && ck.teamB.length >= 4) {
+      window.alert(`Chukka ${chukkaIdx + 1} is already full (4v4).`);
+      return;
+    }
+    updateSchedule((ck, idx) => {
+      if (idx !== chukkaIdx) return ck;
+      const already = ck.teamA.find(p => p.id === playerId) || ck.teamB.find(p => p.id === playerId);
+      if (already) return ck;
+      if (ck.teamA.length < 4 && (ck.teamA.length <= ck.teamB.length || ck.teamB.length >= 4)) {
+        return { ...ck, teamA: [...ck.teamA, player] };
+      }
+      return { ...ck, teamB: [...ck.teamB, player] };
+    });
+    setAddingTo(null);
+  };
+
+  // ── WhatsApp integration ─────────────────────────────
+  const saveWaLink = async (link) => {
+    const cleaned = link.trim();
+    setWaLink(cleaned);
+    try { await window.storage.set('wa-link', cleaned, true); } catch (e) {}
+    setWaEditing(false);
+  };
+
+  const generateTeamSheet = () => {
+    if (!schedule) return '';
+    const dateStr = getDateStr();
+
+    let text = `*Tedworth Park Polo Club*\n`;
+    text += `_Wednesday Evening Chukkas — ${dateStr}_\n`;
+    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0)} throw-in\n\n`;
+
+    schedule.chukkas.forEach(ck => {
+      const diff = Math.abs(ck.sumA - ck.sumB);
+      text += `*Chukka ${ck.number} · ${ck.time}*  (${ck.teamA.length}v${ck.teamB.length}`;
+      if (ck.playerCount > 0) text += ` · Δ${diff}`;
+      text += `)\n`;
+      if (ck.teamA.length > 0) {
+        text += `🔵 ${ck.teamA.map(p => `${p.name} (${fmtH(p.handicap)})`).join(', ')}\n`;
+      }
+      if (ck.teamB.length > 0) {
+        text += `⚪ ${ck.teamB.map(p => `${p.name} (${fmtH(p.handicap)})`).join(', ')}\n`;
+      }
+      if (ck.playerCount === 0) text += `_no players_\n`;
+      text += '\n';
+    });
+
+    if (schedule.reduced && schedule.reduced.length > 0) {
+      text += `_Reduced for fairness: ${schedule.reduced.map(r => `${r.player.name} (${r.given} of ${r.requested})`).join(', ')}_\n\n`;
+    }
+
+    text += `🏇 See you on the field!`;
+    return text;
+  };
+
+  // Captain-style monospace table for WhatsApp / email
+  const generateTableText = () => {
+    if (!schedule) return '';
+    const dateStr = getDateStr();
+
+    // Sort players by handicap descending (captain's convention)
+    const sorted = [...players].sort((a, b) => b.handicap - a.handicap);
+    const nameWidth = Math.max(...sorted.map(p => p.name.length), 4);
+
+    // Helper to compute what cell to show for a player in a chukka
+    const cellFor = (p, ck) => {
+      if (ck.teamA.find(x => x.id === p.id)) return 'B';
+      if (ck.teamB.find(x => x.id === p.id)) return 'W';
+      return ' ';
+    };
+
+    // Header lines
+    let header = 'Name'.padEnd(nameWidth) + ' HCP  C ';
+    schedule.chukkas.forEach((_, i) => { header += ' ' + (i + 1); });
+
+    const rows = sorted.map(p => {
+      let row = p.name.padEnd(nameWidth);
+      row += ' ' + fmtH(p.handicap).padStart(3);
+      row += '  ' + String(p.chukkas);
+      row += ' ';
+      schedule.chukkas.forEach(ck => { row += ' ' + cellFor(p, ck); });
+      return row.trimEnd();
+    });
+
+    const times = schedule.chukkas.map(c => c.time).join(' · ');
+
+    let text = `*Tedworth Park Polo Club*\n`;
+    text += `_Wednesday Evening Chukkas — ${dateStr}_\n`;
+    text += `🐎 Chukkas: ${times}\n\n`;
+    text += '```\n';
+    text += header + '\n';
+    text += rows.join('\n') + '\n';
+    text += '```';
+
+    if (schedule.reduced && schedule.reduced.length > 0) {
+      text += `\n\n_Reduced: ${schedule.reduced.map(r => `${r.player.name} (${r.given}/${r.requested})`).join(', ')}_`;
+    }
+
+    return text;
+  };
+
+  const publishToWhatsApp = async () => {
+    const blob = await generatePNGBlob();
+    if (!blob) return;
+
+    const filename = `TPPC-chukkas-${getDateSlug()}.png`;
+    const file = new File([blob], filename, { type: 'image/png' });
+
+    // Try Web Share API with files (mobile-first: lets user pick WhatsApp from
+    // the system share sheet and the image is attached to the message).
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Wednesday Evening Chukkas',
+        });
+        return;
+      } catch (err) {
+        // User cancelled — that's fine, don't fall back to download
+        if (err && err.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: download the PNG so the user can share it manually
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    window.alert('Team sheet saved as PNG. Open WhatsApp and send the image to the club group.');
+  };
+
+  const copyTeamSheet = async () => {
+    const text = scheduleView === 'table' ? generateTableText() : generateTeamSheet();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      window.alert('Team sheet copied to clipboard.');
+    } catch (e) {
+      window.alert('Could not copy automatically — long-press to copy from the preview.');
+    }
+  };
+
+  // Compute the date of the next Wednesday from today (or today if it IS Wednesday)
+  const nextWednesday = () => {
+    const d = new Date();
+    const dow = d.getDay(); // 0=Sun, 3=Wed
+    const daysUntil = (3 - dow + 7) % 7;
+    const target = new Date(d);
+    target.setHours(0, 0, 0, 0);
+    target.setDate(d.getDate() + daysUntil);
+    return target;
+  };
+
+  // Build a filename-safe date slug (YYYY-MM-DD) for the next Wednesday
+  const getDateSlug = () => nextWednesday().toISOString().slice(0, 10);
+  const getDateStr = () =>
+    nextWednesday().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  // ── Export as Excel (.xlsx) ─────────────────────────
+  // ── Export as Excel (.xls) styled to match the in-app table view ─────
+  // Uses HTML format with Office Excel namespaces — Excel/Numbers/Sheets
+  // open it as a styled spreadsheet (the same trick used for years).
+  const exportXLSX = () => {
+    if (!schedule) return;
+    const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
+    const dateStr = getDateStr();
+
+    const headerDate = `style="background-color:#6b1f2a; color:#f4ecd8; font-family:Georgia,serif; font-style:italic; font-weight:500; text-align:center; padding:10px; border:1px solid #d4c8a8; font-size:13px;"`;
+    const headerTime = `style="background-color:#e9dec3; color:#6b1f2a; font-weight:600; text-align:center; padding:8px; border:1px solid #d4c8a8; font-size:12px; mso-number-format:'\\@';"`;
+    const headerCol = `style="background-color:#6b1f2a; color:#f4ecd8; font-weight:500; text-align:center; padding:8px; border:1px solid #d4c8a8; font-size:11px;"`;
+    const headerChukka = `style="background-color:#e9dec3; color:#6b1f2a; font-weight:500; text-align:center; padding:8px; border:1px solid #d4c8a8; font-size:11px;"`;
+    const cellB = `style="background-color:#dde6f0; color:#1e3552; font-weight:700; text-align:center; padding:8px; font-family:Georgia,serif; border:1px solid #d4c8a8; font-size:14px;"`;
+    const cellW = `style="background-color:#f5ecd9; color:#6b1f2a; font-weight:700; text-align:center; padding:8px; font-family:Georgia,serif; border:1px solid #d4c8a8; font-size:14px;"`;
+    const cellEmpty = `style="background-color:#ffffff; padding:8px; border:1px solid #d4c8a8;"`;
+
+    let html = '';
+    html += `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`;
+    html += `<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">`;
+    html += `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>`;
+    html += `<x:Name>Chukkas</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>`;
+    html += `</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->`;
+    html += `<style>td { mso-number-format:'\\@'; }</style></head><body>`;
+    html += `<table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse; font-family:Arial,sans-serif;">`;
+
+    // Row 1: Date (merged cols 0–2) + time headers
+    html += `<tr>`;
+    html += `<td colspan="3" ${headerDate}>${dateStr}</td>`;
+    schedule.chukkas.forEach(ck => {
+      html += `<td ${headerTime}>${ck.time}</td>`;
+    });
+    html += `</tr>`;
+
+    // Row 2: column headers
+    html += `<tr>`;
+    html += `<td ${headerCol}>Name</td>`;
+    html += `<td ${headerCol}>Handicap</td>`;
+    html += `<td ${headerCol}>Chukkas</td>`;
+    schedule.chukkas.forEach((_, i) => {
+      html += `<td ${headerChukka}>Chukka ${i + 1}</td>`;
+    });
+    html += `</tr>`;
+
+    // Player rows
+    sortedPlayers.forEach((p, idx) => {
+      const altBg = idx % 2 === 1 ? '#faf5e6' : '#ffffff';
+      html += `<tr>`;
+      html += `<td style="background-color:${altBg}; padding:8px 12px; font-weight:500; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${p.name}</td>`;
+      html += `<td style="background-color:#ffffff; text-align:center; padding:8px; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${fmtH(p.handicap)}</td>`;
+      html += `<td style="background-color:#ffffff; text-align:center; padding:8px; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${p.chukkas}</td>`;
+      schedule.chukkas.forEach(ck => {
+        const inA = ck.teamA.find(x => x.id === p.id);
+        const inB = ck.teamB.find(x => x.id === p.id);
+        if (inA) html += `<td ${cellB}>B</td>`;
+        else if (inB) html += `<td ${cellW}>W</td>`;
+        else html += `<td ${cellEmpty}></td>`;
+      });
+      html += `</tr>`;
+    });
+
+    html += `</table></body></html>`;
+
+    // BOM helps Excel detect UTF-8 properly
+    const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TPPC-chukkas-${getDateSlug()}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  // ── Render the team-sheet to a Canvas (reusable for PNG export + WhatsApp share) ──
+  const renderScheduleCanvas = () => {
+    if (!schedule) return null;
+    const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
+    const dateStr = getDateStr();
+    const N = schedule.numChukkas;
+
+    // Layout constants (logical pixels — canvas is 2× for retina)
+    const padding = 24;
+    const titleH = 60;
+    const headerRowH = 38;
+    const rowH = 34;
+    const nameW = 160;
+    const hcpW = 60;
+    const chukkasW = 60;
+    const chukkaW = 90;
+
+    const tableW = nameW + hcpW + chukkasW + chukkaW * N;
+    const tableH = headerRowH * 2 + rowH * sortedPlayers.length;
+    const W = padding * 2 + tableW;
+    const H = padding * 2 + titleH + tableH;
+
+    // High-DPI canvas
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+
+    // Background
+    ctx.fillStyle = '#f4ecd8';
+    ctx.fillRect(0, 0, W, H);
+
+    // Title block
+    ctx.fillStyle = '#6b1f2a';
+    ctx.font = '500 22px Georgia, "Times New Roman", serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Tedworth Park Polo Club', W / 2, padding + 16);
+    ctx.fillStyle = '#6b5e4e';
+    ctx.font = 'italic 13px Georgia, "Times New Roman", serif';
+    ctx.fillText(`Wednesday Evening Chukkas · ${dateStr}`, W / 2, padding + 40);
+
+    // Table position
+    const tx = (W - tableW) / 2;
+    let y = padding + titleH;
+
+    // Row 1: date (merged across cols 0–2) + time headers
+    ctx.fillStyle = '#6b1f2a';
+    ctx.fillRect(tx, y, nameW + hcpW + chukkasW, headerRowH);
+    ctx.fillStyle = '#f4ecd8';
+    ctx.font = 'italic 500 13px Georgia, serif';
+    ctx.fillText(dateStr, tx + (nameW + hcpW + chukkasW) / 2, y + headerRowH / 2);
+
+    schedule.chukkas.forEach((ck, i) => {
+      const cx = tx + nameW + hcpW + chukkasW + i * chukkaW;
+      ctx.fillStyle = '#e9dec3';
+      ctx.fillRect(cx, y, chukkaW, headerRowH);
+      ctx.fillStyle = '#6b1f2a';
+      ctx.font = '600 12px -apple-system, "Helvetica Neue", Arial, sans-serif';
+      ctx.fillText(ck.time, cx + chukkaW / 2, y + headerRowH / 2);
+    });
+    y += headerRowH;
+
+    // Row 2: column labels
+    ctx.fillStyle = '#6b1f2a';
+    ctx.fillRect(tx, y, nameW + hcpW + chukkasW, headerRowH);
+    ctx.fillStyle = '#f4ecd8';
+    ctx.font = '500 11px -apple-system, "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('NAME', tx + nameW / 2, y + headerRowH / 2);
+    ctx.fillText('HCP', tx + nameW + hcpW / 2, y + headerRowH / 2);
+    ctx.fillText('C', tx + nameW + hcpW + chukkasW / 2, y + headerRowH / 2);
+    schedule.chukkas.forEach((_, i) => {
+      const cx = tx + nameW + hcpW + chukkasW + i * chukkaW;
+      ctx.fillStyle = '#e9dec3';
+      ctx.fillRect(cx, y, chukkaW, headerRowH);
+      ctx.fillStyle = '#6b1f2a';
+      ctx.fillText(`CHUKKA ${i + 1}`, cx + chukkaW / 2, y + headerRowH / 2);
+    });
+    y += headerRowH;
+
+    // Player rows
+    sortedPlayers.forEach((p, idx) => {
+      const isAlt = idx % 2 === 1;
+
+      // Name column (alt row shade)
+      ctx.fillStyle = isAlt ? '#faf5e6' : '#ffffff';
+      ctx.fillRect(tx, y, nameW, rowH);
+      ctx.fillStyle = '#1c1612';
+      ctx.font = '500 13px -apple-system, "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(p.name, tx + 12, y + rowH / 2);
+
+      // HCP + Chukkas columns
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(tx + nameW, y, hcpW + chukkasW, rowH);
+      ctx.fillStyle = '#1c1612';
+      ctx.font = '500 13px -apple-system, "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(fmtH(p.handicap), tx + nameW + hcpW / 2, y + rowH / 2);
+      ctx.fillText(String(p.chukkas), tx + nameW + hcpW + chukkasW / 2, y + rowH / 2);
+
+      // Chukka cells
+      schedule.chukkas.forEach((ck, ci) => {
+        const inA = ck.teamA.find(x => x.id === p.id);
+        const inB = ck.teamB.find(x => x.id === p.id);
+        const cx = tx + nameW + hcpW + chukkasW + ci * chukkaW;
+        if (inA) {
+          ctx.fillStyle = 'rgba(42, 74, 110, 0.15)';
+          ctx.fillRect(cx, y, chukkaW, rowH);
+          ctx.fillStyle = '#1e3552';
+          ctx.font = '700 15px Georgia, serif';
+          ctx.fillText('B', cx + chukkaW / 2, y + rowH / 2);
+        } else if (inB) {
+          ctx.fillStyle = 'rgba(184, 146, 74, 0.14)';
+          ctx.fillRect(cx, y, chukkaW, rowH);
+          ctx.fillStyle = '#6b1f2a';
+          ctx.font = '700 15px Georgia, serif';
+          ctx.fillText('W', cx + chukkaW / 2, y + rowH / 2);
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(cx, y, chukkaW, rowH);
+        }
+      });
+
+      y += rowH;
+    });
+
+    // Grid lines
+    ctx.strokeStyle = '#d4c8a8';
+    ctx.lineWidth = 1;
+    const colWidths = [nameW, hcpW, chukkasW, ...Array(N).fill(chukkaW)];
+    let lineX = tx;
+    for (let i = 0; i <= colWidths.length; i++) {
+      ctx.beginPath();
+      ctx.moveTo(Math.round(lineX) + 0.5, padding + titleH);
+      ctx.lineTo(Math.round(lineX) + 0.5, padding + titleH + tableH);
+      ctx.stroke();
+      if (i < colWidths.length) lineX += colWidths[i];
+    }
+    const rowHeights = [headerRowH, headerRowH, ...Array(sortedPlayers.length).fill(rowH)];
+    let lineY = padding + titleH;
+    for (let i = 0; i <= rowHeights.length; i++) {
+      ctx.beginPath();
+      ctx.moveTo(tx, Math.round(lineY) + 0.5);
+      ctx.lineTo(tx + tableW, Math.round(lineY) + 0.5);
+      ctx.stroke();
+      if (i < rowHeights.length) lineY += rowHeights[i];
+    }
+
+    return canvas;
+  };
+
+  // Async helper: render and resolve a PNG Blob
+  const generatePNGBlob = () => new Promise(resolve => {
+    const canvas = renderScheduleCanvas();
+    if (!canvas) return resolve(null);
+    canvas.toBlob(blob => resolve(blob), 'image/png');
+  });
+
+  // ── Export as PNG (download) ─────────────────────────
+  const exportPNG = async () => {
+    const blob = await generatePNGBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TPPC-chukkas-${getDateSlug()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  // ── Fixtures interest ─────────────────────────────────
+  const saveInterest = async (next) => {
+    setInterest(next);
+    try { await window.storage.set('fixture-interest', JSON.stringify(next), true); }
+    catch (e) { setFError('Saved locally only — check your connection.'); }
+  };
+
+  const registerInterest = (fixtureId) => {
+    setFError('');
+    if (!fName.trim()) return setFError('Please enter your name.');
+    if (fHandicap === '') return setFError('Please select your handicap.');
+    const entry = { id: Date.now(), name: fName.trim(), handicap: parseInt(fHandicap, 10) };
+    const list = interest[fixtureId] || [];
+    saveInterest({ ...interest, [fixtureId]: [...list, entry] });
+    setFName(''); setFHandicap('');
+  };
+
+  const removeInterest = (fixtureId, entryId) => {
+    const list = (interest[fixtureId] || []).filter(p => p.id !== entryId);
+    const next = { ...interest };
+    if (list.length === 0) delete next[fixtureId];
+    else next[fixtureId] = list;
+    saveInterest(next);
+  };
+
+  const toggleFixture = (id) => {
+    setFError('');
+    setFName(''); setFHandicap('');
+    setExpandedId(expandedId === id ? null : id);
+  };
+
+  const totalChukkas = players.reduce((s, p) => s + p.chukkas, 0);
+  const totalRegistrations = Object.values(interest).reduce((s, arr) => s + arr.length, 0);
+
+  // Autofill suggestions: members not yet in the roster, filtered by typed text
+  const nameInputLower = name.trim().toLowerCase();
+  const rosterNames = new Set(players.map(p => p.name.toLowerCase()));
+  const suggestions = Object.values(members)
+    .filter(m => !rosterNames.has(m.name.toLowerCase()))
+    .filter(m => nameInputLower === '' || m.name.toLowerCase().includes(nameInputLower))
+    .sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0))
+    .slice(0, 8);
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+        .polo-app {
+          --burgundy: #6b1f2a;
+          --burgundy-deep: #4a1419;
+          --burgundy-soft: #8a2f3a;
+          --cream: #f4ecd8;
+          --cream-warm: #e9dec3;
+          --cream-pale: #faf5e6;
+          --gold: #b8924a;
+          --gold-bright: #d4a85a;
+          --ink: #1c1612;
+          --muted: #6b5e4e;
+          --line: #d4c8a8;
+          --danger: #9a2a2a;
+          --blue: #2a4a6e;
+          --blue-deep: #1e3552;
+          --white-team: #ffffff;
+          --white-team-border: #c8b890;
+          --wa: #25D366;
+          --wa-deep: #128C7E;
+          font-family: 'Outfit', system-ui, sans-serif;
+          background: var(--cream);
+          color: var(--ink);
+          min-height: 100vh;
+          line-height: 1.4;
+        }
+        .polo-app * { box-sizing: border-box; }
+        .display { font-family: 'Fraunces', Georgia, serif; font-weight: 500; }
+        .display-italic { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; }
+        .label-eyebrow {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          color: var(--muted);
+          font-size: 13px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+        }
+        .header-bg {
+          background: var(--burgundy);
+          color: var(--cream);
+          position: relative;
+          overflow: hidden;
+        }
+        .header-bg::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background-image:
+            radial-gradient(circle at 18% 28%, rgba(212, 168, 90, 0.10) 0%, transparent 55%),
+            radial-gradient(circle at 82% 78%, rgba(212, 168, 90, 0.06) 0%, transparent 45%);
+          pointer-events: none;
+        }
+        .ornament {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          margin: 14px auto;
+        }
+        .ornament-line { width: 36px; height: 1px; background: var(--gold); }
+        .ornament-dot { width: 5px; height: 5px; background: var(--gold); transform: rotate(45deg); }
+
+        .tabs {
+          display: flex;
+          background: var(--burgundy-deep);
+          padding: 0;
+          border-bottom: 1px solid rgba(184, 146, 74, 0.4);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .tab-btn {
+          flex: 1;
+          background: transparent;
+          border: none;
+          padding: 14px 8px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: rgba(244, 236, 216, 0.55);
+          cursor: pointer;
+          transition: color 0.2s;
+          border-bottom: 2px solid transparent;
+          margin-bottom: -1px;
+        }
+        .tab-btn:hover { color: var(--cream); }
+        .tab-btn.active {
+          color: var(--cream);
+          border-bottom-color: var(--gold);
+        }
+
+        .card {
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 6px;
+        }
+        .input-field {
+          width: 100%;
+          padding: 14px 16px;
+          background: var(--cream-pale);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 16px;
+          color: var(--ink);
+          transition: all 0.2s;
+          -webkit-appearance: none;
+          appearance: none;
+        }
+        .input-field:focus {
+          outline: none;
+          border-color: var(--burgundy);
+          background: white;
+          box-shadow: 0 0 0 3px rgba(107, 31, 42, 0.10);
+        }
+        .input-field::placeholder { color: #b8ad8e; }
+        .select-field {
+          background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3e%3cpath fill='none' stroke='%236b5e4e' stroke-width='1.5' d='M1 1.5l5 5 5-5'/%3e%3c/svg%3e");
+          background-repeat: no-repeat;
+          background-position: right 16px center;
+          padding-right: 40px;
+        }
+        .btn-primary {
+          background: var(--burgundy);
+          color: var(--cream);
+          border: none;
+          padding: 15px 24px;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.2s;
+          width: 100%;
+        }
+        .btn-primary:hover:not(:disabled) { background: var(--burgundy-deep); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-secondary {
+          background: transparent;
+          color: var(--burgundy);
+          border: 1px solid var(--burgundy);
+          padding: 13px 20px;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.2s;
+          width: 100%;
+        }
+        .btn-secondary:hover { background: var(--burgundy); color: var(--cream); }
+
+        .player-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px;
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          margin-bottom: 8px;
+          transition: all 0.2s;
+        }
+        .player-row:hover { border-color: var(--gold); }
+        .handicap-badge {
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          background: var(--burgundy);
+          color: var(--cream);
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          font-size: 15px;
+        }
+        .handicap-badge.gold { background: var(--gold); }
+        .chukka-pill {
+          background: var(--cream-warm);
+          color: var(--burgundy);
+          padding: 5px 11px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 500;
+          border: 1px solid var(--line);
+          white-space: nowrap;
+        }
+        /* Inline +/− adjuster for chukka count */
+        .chukka-stepper {
+          display: inline-flex;
+          align-items: center;
+          gap: 0;
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          overflow: hidden;
+          background: var(--cream-warm);
+        }
+        .step-btn {
+          background: transparent;
+          border: none;
+          width: 26px;
+          height: 26px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 16px;
+          font-weight: 500;
+          color: var(--burgundy);
+          cursor: pointer;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+        }
+        .step-btn:hover:not(:disabled) { background: var(--burgundy); color: var(--cream); }
+        .step-btn:disabled { color: var(--muted); opacity: 0.4; cursor: not-allowed; }
+        .step-count {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--burgundy);
+          padding: 0 6px;
+          font-variant-numeric: tabular-nums;
+          min-width: 16px;
+          text-align: center;
+        }
+        .step-label {
+          font-size: 11px;
+          color: var(--muted);
+          margin-left: 2px;
+        }
+        .remove-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 22px;
+          cursor: pointer;
+          padding: 4px 10px;
+          transition: color 0.2s;
+          line-height: 1;
+        }
+        .remove-btn:hover { color: var(--danger); }
+
+        .team-card {
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 6px;
+          padding: 22px 20px;
+          position: relative;
+          overflow: hidden;
+        }
+        .team-card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: var(--burgundy);
+        }
+        .team-card.gold::before { background: var(--gold); }
+
+        /* Preference segmented control */
+        .segmented {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 0;
+          background: var(--cream-pale);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          padding: 3px;
+        }
+        .seg-btn {
+          background: transparent;
+          border: none;
+          padding: 10px 8px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          letter-spacing: 0.5px;
+          color: var(--muted);
+          cursor: pointer;
+          border-radius: 3px;
+          transition: all 0.2s;
+        }
+        .seg-btn.active {
+          background: var(--burgundy);
+          color: var(--cream);
+        }
+        .pref-tag {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 11px;
+          color: var(--muted);
+          letter-spacing: 0.5px;
+        }
+
+        /* Chukka schedule */
+        .chukka-card {
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 6px;
+          margin-bottom: 14px;
+          overflow: hidden;
+        }
+        .chukka-card.early { border-left: 3px solid var(--burgundy); }
+        .chukka-card.late  { border-left: 3px solid var(--gold); }
+        .chukka-head {
+          padding: 14px 16px;
+          background: var(--cream-pale);
+          border-bottom: 1px solid var(--line);
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+        }
+        .chukka-num {
+          font-family: 'Fraunces', serif;
+          font-weight: 500;
+          font-size: 18px;
+          color: var(--burgundy);
+        }
+        .chukka-time {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 14px;
+          color: var(--ink);
+        }
+        .chukka-diff {
+          font-size: 11px;
+          color: var(--muted);
+          font-style: italic;
+          font-family: 'Fraunces', serif;
+        }
+        .chukka-body {
+          padding: 14px 16px 16px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0;
+        }
+        .chukka-team {
+          padding: 0 10px;
+        }
+        .chukka-team:first-child {
+          border-right: 1px solid var(--line);
+          padding-left: 0;
+        }
+        .chukka-team:last-child {
+          padding-right: 0;
+        }
+        .team-mini-label {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 10px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: var(--muted);
+          margin-bottom: 4px;
+        }
+        .team-mini-total {
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          font-size: 16px;
+          margin-bottom: 8px;
+        }
+        .team-mini-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 5px 0;
+          font-size: 13px;
+          cursor: pointer;
+          border-radius: 3px;
+          transition: background 0.15s;
+        }
+        .team-mini-row:hover { background: var(--cream-pale); }
+        .team-mini-row.selected {
+          background: var(--cream-warm);
+          outline: 1px solid var(--gold);
+          padding: 5px 6px;
+          margin: 0 -6px;
+        }
+        .team-mini-row .hcp {
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          font-size: 11px;
+          background: var(--blue);
+          color: white;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .team-mini-row.white .hcp {
+          background: var(--white-team);
+          color: var(--ink);
+          border: 1.5px solid var(--blue);
+          width: 22px;
+          height: 22px;
+        }
+        .team-mini-name {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 500;
+        }
+        /* Subtle inline × on each chukka player row */
+        .chukka-remove {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 18px;
+          cursor: pointer;
+          padding: 0 2px 0 4px;
+          line-height: 1;
+          opacity: 0.35;
+          transition: opacity 0.15s, color 0.15s;
+          flex-shrink: 0;
+        }
+        .chukka-remove:hover { opacity: 1; color: var(--danger); }
+        .team-mini-row.selected .chukka-remove { opacity: 1; }
+        .chukka-warning {
+          padding: 8px 12px;
+          background: #fdf4e6;
+          border-top: 1px solid #e8d5a0;
+          font-size: 12px;
+          color: #8a5a1a;
+          font-style: italic;
+          font-family: 'Fraunces', serif;
+        }
+        /* Inline action bar that appears when a player is tapped */
+        .action-bar {
+          grid-column: 1 / -1;
+          padding: 10px 0 6px;
+          margin-top: 8px;
+          border-top: 1px dashed var(--line);
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          align-items: center;
+        }
+        .action-label {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 11px;
+          color: var(--muted);
+          letter-spacing: 0.5px;
+          margin-right: 2px;
+        }
+        .action-btn {
+          background: white;
+          border: 1px solid var(--line);
+          color: var(--burgundy);
+          padding: 6px 10px;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 0.5px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .action-btn:hover:not(:disabled) { background: var(--burgundy); color: var(--cream); border-color: var(--burgundy); }
+        .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .action-btn.danger { color: var(--danger); }
+        .action-btn.danger:hover { background: var(--danger); color: white; border-color: var(--danger); }
+        .action-btn.tiny {
+          width: 26px;
+          height: 26px;
+          padding: 0;
+          font-size: 11px;
+          font-weight: 600;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        /* Add-to-chukka strip */
+        .add-strip {
+          padding: 10px 16px 14px;
+          background: var(--cream-pale);
+          border-top: 1px dashed var(--line);
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          align-items: center;
+        }
+        .add-trigger {
+          background: transparent;
+          border: 1px dashed var(--line);
+          color: var(--muted);
+          padding: 8px 14px;
+          width: 100%;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 11px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .add-trigger:hover { border-color: var(--burgundy); color: var(--burgundy); }
+        .add-pick {
+          background: white;
+          border: 1px solid var(--line);
+          color: var(--ink);
+          padding: 6px 10px;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .add-pick:hover { background: var(--burgundy); color: var(--cream); border-color: var(--burgundy); }
+
+        .wa-card {
+          background: white;
+          border: 1px solid var(--line);
+          border-left: 3px solid var(--wa-deep);
+          border-radius: 6px;
+          padding: 12px 14px;
+          margin-bottom: 22px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .wa-icon {
+          font-size: 16px;
+          color: var(--wa-deep);
+          font-weight: 600;
+        }
+        .wa-label {
+          flex: 1;
+          min-width: 0;
+          font-size: 12px;
+          color: var(--ink);
+        }
+        .wa-label .display-italic { color: var(--muted); }
+        .wa-btn {
+          background: var(--wa-deep);
+          color: white;
+          border: none;
+          padding: 8px 14px;
+          border-radius: 4px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-block;
+          transition: background 0.15s;
+        }
+        .wa-btn:hover { background: var(--wa); }
+        .wa-btn-outline {
+          background: transparent;
+          color: var(--wa-deep);
+          border: 1px solid var(--wa-deep);
+        }
+        .wa-btn-outline:hover { background: var(--wa-deep); color: white; }
+        .wa-edit-btn {
+          background: none;
+          border: none;
+          font-size: 11px;
+          color: var(--muted);
+          cursor: pointer;
+          letter-spacing: 0.5px;
+        }
+        /* Phone link in roster row */
+        .phone-link {
+          color: var(--wa-deep);
+          font-size: 12px;
+          text-decoration: none;
+          letter-spacing: 0.3px;
+        }
+        .phone-link:hover { text-decoration: underline; }
+        /* Edit hint above schedule */
+        .edit-hint {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 12px;
+          color: var(--muted);
+          text-align: center;
+          padding: 8px 14px;
+          background: var(--cream-pale);
+          border: 1px dashed var(--line);
+          border-radius: 4px;
+          margin-bottom: 14px;
+        }
+        /* Autofill suggestion row */
+        .suggestion-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          align-items: center;
+          padding: 2px 0;
+          margin-top: -4px;
+        }
+        .suggestion-label {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 11px;
+          color: var(--muted);
+          letter-spacing: 0.3px;
+          margin-right: 2px;
+        }
+        .suggestion-chip {
+          background: var(--cream-warm);
+          border: 1px solid var(--line);
+          color: var(--burgundy);
+          padding: 5px 11px;
+          border-radius: 14px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s;
+          white-space: nowrap;
+        }
+        .suggestion-chip:hover { background: var(--burgundy); color: var(--cream); border-color: var(--burgundy); }
+        .suggestion-chip .chip-hcp {
+          opacity: 0.65;
+          margin-left: 4px;
+          font-size: 11px;
+        }
+        /* View toggle for cards/table */
+        .view-toggle {
+          display: inline-flex;
+          background: var(--cream-pale);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          padding: 3px;
+          margin-bottom: 14px;
+        }
+        .view-toggle-btn {
+          background: transparent;
+          border: none;
+          padding: 8px 18px;
+          font-family: 'Outfit', sans-serif;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: var(--muted);
+          cursor: pointer;
+          border-radius: 3px;
+          transition: all 0.2s;
+        }
+        .view-toggle-btn.active {
+          background: var(--burgundy);
+          color: var(--cream);
+        }
+        /* Captain-style table */
+        .captain-table-wrap {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          margin: 0 -16px;
+          padding: 0 16px 8px;
+          background: var(--cream-pale);
+          border-radius: 6px;
+        }
+        .captain-table {
+          border-collapse: collapse;
+          font-family: 'Outfit', sans-serif;
+          font-size: 11px;
+          margin: 14px auto;
+          background: white;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .captain-table th, .captain-table td {
+          border: 1px solid var(--line);
+          padding: 6px 8px;
+          text-align: center;
+          vertical-align: middle;
+          white-space: nowrap;
+        }
+        .captain-table .date-cell {
+          background: var(--burgundy);
+          color: var(--cream);
+          font-family: 'Fraunces', serif;
+          font-weight: 500;
+          font-size: 12px;
+          padding: 8px 10px;
+          letter-spacing: 0.3px;
+        }
+        .captain-table .ground-cell {
+          background: var(--gold-bright);
+          color: var(--burgundy-deep);
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          font-size: 12px;
+        }
+        .captain-table .time-header {
+          background: var(--cream-warm);
+          color: var(--burgundy);
+          font-weight: 600;
+          font-size: 11px;
+        }
+        .captain-table .col-header {
+          background: var(--burgundy);
+          color: var(--cream);
+          font-size: 10px;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          font-weight: 500;
+        }
+        .captain-table .chukka-header {
+          background: var(--cream-warm);
+          color: var(--burgundy);
+          font-size: 10px;
+          letter-spacing: 0.5px;
+        }
+        .captain-table tbody td.name-cell {
+          text-align: left;
+          font-weight: 500;
+          color: var(--ink);
+        }
+        .captain-table .blue-cell {
+          background: rgba(42, 74, 110, 0.12);
+          color: var(--blue-deep);
+          font-weight: 700;
+          font-family: 'Fraunces', serif;
+        }
+        .captain-table .white-cell {
+          background: rgba(184, 146, 74, 0.10);
+          color: var(--burgundy);
+          font-weight: 700;
+          font-family: 'Fraunces', serif;
+        }
+        .captain-table .empty-cell {
+          background: white;
+        }
+        .captain-table tbody tr:nth-child(even) td.name-cell {
+          background: var(--cream-pale);
+        }
+
+        /* Share modal */
+        .share-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(28, 22, 18, 0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          z-index: 1000;
+          animation: fadeIn 0.18s ease-out;
+        }
+        .share-modal {
+          background: white;
+          border-radius: 8px;
+          max-width: 480px;
+          width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+          box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+          display: flex;
+          flex-direction: column;
+        }
+        .share-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 18px 20px 12px;
+          border-bottom: 1px solid var(--line);
+        }
+        .share-head h3 {
+          font-family: 'Fraunces', serif;
+          font-weight: 500;
+          font-size: 20px;
+          margin: 0;
+          color: var(--burgundy);
+        }
+        .share-close {
+          background: transparent;
+          border: none;
+          font-size: 24px;
+          color: var(--muted);
+          cursor: pointer;
+          padding: 0 4px;
+          line-height: 1;
+        }
+        .share-close:hover { color: var(--ink); }
+        .share-body { padding: 14px 20px 18px; }
+        .share-status {
+          padding: 10px 12px;
+          border-radius: 4px;
+          font-size: 13px;
+          margin-bottom: 12px;
+        }
+        .share-status.ok {
+          background: rgba(37, 211, 102, 0.10);
+          border-left: 3px solid var(--wa);
+          color: var(--wa-deep);
+        }
+        .share-status.warn {
+          background: #fdf4e6;
+          border-left: 3px solid #b8924a;
+          color: #8a5a1a;
+        }
+        .share-textarea {
+          width: 100%;
+          height: 180px;
+          padding: 10px 12px;
+          font-family: 'SF Mono', Menlo, Consolas, monospace;
+          font-size: 11px;
+          line-height: 1.5;
+          background: var(--cream-pale);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          resize: vertical;
+          color: var(--ink);
+          -webkit-user-select: all;
+          user-select: all;
+        }
+        .share-textarea:focus {
+          outline: none;
+          border-color: var(--burgundy);
+        }
+        .share-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 14px;
+        }
+        .share-link {
+          display: block;
+          text-align: center;
+          padding: 13px 16px;
+          border-radius: 4px;
+          text-decoration: none;
+          font-family: 'Outfit', sans-serif;
+          font-size: 12px;
+          font-weight: 500;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          transition: all 0.2s;
+        }
+        .share-link.primary {
+          background: var(--wa-deep);
+          color: white;
+        }
+        .share-link.primary:hover { background: var(--wa); }
+        .share-link.secondary {
+          background: white;
+          color: var(--burgundy);
+          border: 1px solid var(--burgundy);
+        }
+        .share-link.secondary:hover { background: var(--burgundy); color: var(--cream); }
+        .share-hint {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 12px;
+          color: var(--muted);
+          text-align: center;
+          margin-top: 10px;
+          line-height: 1.5;
+        }
+
+        .month-header {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          margin: 28px 0 14px;
+        }
+        .month-header:first-of-type { margin-top: 8px; }
+        .month-header .line {
+          flex: 1;
+          height: 1px;
+          background: linear-gradient(90deg, var(--gold), transparent);
+        }
+
+        .fixture-card {
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 6px;
+          margin-bottom: 10px;
+          overflow: hidden;
+          transition: border-color 0.2s;
+        }
+        .fixture-card:hover { border-color: var(--gold); }
+        .fixture-card.expanded { border-color: var(--burgundy); }
+        .fixture-header {
+          padding: 14px 16px;
+          cursor: pointer;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+        .fixture-date {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-size: 11px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          flex-shrink: 0;
+          width: 86px;
+          padding-top: 2px;
+          line-height: 1.35;
+        }
+        .fixture-name {
+          font-weight: 500;
+          font-size: 14px;
+          color: var(--ink);
+          line-height: 1.35;
+        }
+        .fixture-level {
+          font-size: 12px;
+          color: var(--burgundy);
+          margin-top: 3px;
+          font-weight: 400;
+        }
+        .fixture-meta {
+          flex-shrink: 0;
+          text-align: right;
+          font-size: 11px;
+          color: var(--muted);
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          min-width: 50px;
+        }
+        .fixture-count {
+          font-size: 16px;
+          color: var(--burgundy);
+          font-weight: 600;
+          font-style: normal;
+          font-family: 'Outfit', sans-serif;
+          line-height: 1;
+        }
+        .fixture-body {
+          padding: 0 16px 16px;
+          border-top: 1px solid var(--line);
+          background: var(--cream-pale);
+        }
+        .interested-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 0;
+          border-bottom: 1px dashed var(--line);
+        }
+        .interested-row:last-of-type { border-bottom: none; }
+        .mini-badge {
+          background: var(--burgundy);
+          color: var(--cream);
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          font-size: 12px;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .register-form {
+          margin-top: 14px;
+          padding: 14px;
+          background: white;
+          border: 1px solid var(--line);
+          border-radius: 4px;
+        }
+
+        .anim-in { animation: fadeIn 0.45s ease-out backwards; }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInScale {
+          from { opacity: 0; transform: scale(0.97); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .reveal { animation: fadeInScale 0.4s ease-out; }
+      `}</style>
+
+      <div className="polo-app">
+        {/* Masthead */}
+        <header className="header-bg" style={{ padding: '30px 20px 22px', textAlign: 'center' }}>
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div className="display-italic" style={{ fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', opacity: 0.75, marginBottom: '4px' }}>
+              Est. 1907
+            </div>
+            <h1 className="display" style={{ fontSize: '30px', margin: 0, lineHeight: 1.05, letterSpacing: '-0.3px' }}>
+              Tedworth Park
+            </h1>
+            <div className="display-italic" style={{ fontSize: '20px', opacity: 0.95, marginTop: '-2px' }}>
+              Polo Club
+            </div>
+            <div className="ornament">
+              <span className="ornament-line" />
+              <span className="ornament-dot" />
+              <span className="ornament-line" />
+            </div>
+            <div className="display-italic" style={{ fontSize: '11px', opacity: 0.8, letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+              Home of Military Polo
+            </div>
+          </div>
+        </header>
+
+        {/* Tabs */}
+        <nav className="tabs">
+          <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
+            Wed Chukkas
+          </button>
+          <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
+            Fixtures 2026
+          </button>
+        </nav>
+
+        <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
+
+          {/* ─── WEDNESDAY CHUKKAS TAB ─── */}
+          {activeTab === 'chukkas' && (
+            <div className="reveal">
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div className="label-eyebrow">Wednesdays · 17:30</div>
+                <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                  {players.length} {players.length === 1 ? 'rider' : 'riders'} · {totalChukkas} chukkas booked
+                </div>
+              </div>
+
+              {/* WhatsApp group card */}
+              <div className="wa-card">
+                <span className="wa-icon">💬</span>
+                <div className="wa-label">
+                  {waLink ? (
+                    <>
+                      <strong>Club WhatsApp</strong>
+                      <div className="display-italic">Tap to join the group chat</div>
+                    </>
+                  ) : (
+                    <>
+                      <strong>WhatsApp group</strong>
+                      <div className="display-italic">Add the club's group link to publish team sheets</div>
+                    </>
+                  )}
+                </div>
+                {waEditing ? (
+                  <div style={{ flexBasis: '100%', display: 'flex', gap: '6px', marginTop: '6px' }}>
+                    <input
+                      className="input-field"
+                      type="url"
+                      placeholder="https://chat.whatsapp.com/..."
+                      value={waInput}
+                      onChange={(e) => setWaInput(e.target.value)}
+                      style={{ padding: '8px 12px', fontSize: '13px' }}
+                    />
+                    <button className="wa-btn" onClick={() => saveWaLink(waInput)}>Save</button>
+                    <button className="wa-edit-btn" onClick={() => { setWaEditing(false); setWaInput(''); }}>cancel</button>
+                  </div>
+                ) : waLink ? (
+                  <>
+                    <a className="wa-btn" href={waLink} target="_blank" rel="noopener noreferrer">Join group</a>
+                    <button
+                      className="wa-edit-btn"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(waLink);
+                          window.alert('Group link copied to clipboard.');
+                        } catch (e) {
+                          window.prompt('Copy this link:', waLink);
+                        }
+                      }}
+                    >copy</button>
+                    <button className="wa-edit-btn" onClick={() => { setWaInput(waLink); setWaEditing(true); }}>edit</button>
+                  </>
+                ) : (
+                  <button className="wa-btn wa-btn-outline" onClick={() => { setWaInput(''); setWaEditing(true); }}>
+                    Set link
+                  </button>
+                )}
+              </div>
+
+              {/* Sign-up */}
+              <section className="card" style={{ padding: '20px', marginBottom: '24px' }}>
+                <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Sign up</div>
+                <h2 className="display" style={{ margin: '0 0 16px', fontSize: '22px' }}>Add a Player</h2>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <input
+                    className="input-field"
+                    type="text"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
+                  />
+                  {suggestions.length > 0 && (
+                    <div className="suggestion-row">
+                      <span className="suggestion-label">
+                        {nameInputLower ? 'Did you mean:' : 'Quick add:'}
+                      </span>
+                      {suggestions.map(s => (
+                        <button
+                          key={s.name}
+                          type="button"
+                          className="suggestion-chip"
+                          onClick={() => fillFromMember(s)}
+                        >
+                          {s.name}<span className="chip-hcp">{fmtH(s.handicap)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    className="input-field"
+                    type="tel"
+                    placeholder="Mobile (optional)"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    autoComplete="tel"
+                    inputMode="tel"
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Handicap</label>
+                      <select
+                        className="input-field select-field"
+                        value={handicap}
+                        onChange={(e) => setHandicap(e.target.value)}
+                      >
+                        <option value="">Select…</option>
+                        {HANDICAP_OPTIONS.map(h => (
+                          <option key={h} value={h}>{fmtH(h)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Chukkas</label>
+                      <input
+                        className="input-field"
+                        type="number"
+                        placeholder="e.g. 3"
+                        min="1"
+                        max="8"
+                        value={chukkas}
+                        onChange={(e) => setChukkas(e.target.value)}
+                        inputMode="numeric"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Start preference</label>
+                    <div className="segmented" role="radiogroup" aria-label="Start preference">
+                      {PREFERENCES.map(pref => (
+                        <button
+                          key={pref.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={preference === pref.value}
+                          className={`seg-btn ${preference === pref.value ? 'active' : ''}`}
+                          onClick={() => setPreference(pref.value)}
+                        >
+                          {pref.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div style={{ fontSize: '13px', color: 'var(--danger)', padding: '10px 14px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
+                      {error}
+                    </div>
+                  )}
+
+                  <button className="btn-primary" onClick={handleAdd}>Add to Roster</button>
+                </div>
+              </section>
+
+              {/* Roster */}
+              {players.length > 0 && (
+                <section style={{ marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <div>
+                      <div className="label-eyebrow">Tonight's field</div>
+                      <h2 className="display" style={{ margin: '2px 0 0', fontSize: '22px' }}>Roster</h2>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <button onClick={() => loadExample('may13')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                        load 13 May
+                      </button>
+                      <button onClick={() => loadExample('may6')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                        load 6 May
+                      </button>
+                      <button onClick={clearAll} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                        clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {players.map((p, i) => {
+                    const prefLabel = p.preference === 'early' ? 'early' : p.preference === 'late' ? 'later' : 'any time';
+                    return (
+                      <div key={p.id} className="player-row anim-in" style={{ animationDelay: `${i * 0.04}s` }}>
+                        <div className="handicap-badge">{fmtH(p.handicap)}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                            <span className="pref-tag">{prefLabel}</span>
+                            {p.mobile && (
+                              <>
+                                <span style={{ margin: '0 6px' }}>·</span>
+                                <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
+                                  {p.mobile}
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="chukka-stepper" aria-label="Chukkas">
+                          <button
+                            className="step-btn"
+                            onClick={() => adjustChukkas(p.id, -1)}
+                            disabled={p.chukkas <= 1}
+                            aria-label="Decrease chukkas"
+                          >−</button>
+                          <span className="step-count">{p.chukkas}</span>
+                          <button
+                            className="step-btn"
+                            onClick={() => adjustChukkas(p.id, +1)}
+                            disabled={p.chukkas >= 8}
+                            aria-label="Increase chukkas"
+                          >+</button>
+                        </div>
+                        <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label={`Remove ${p.name}`}>×</button>
+                      </div>
+                    );
+                  })}
+
+                  <button className="btn-primary" onClick={generate} disabled={players.length < 4} style={{ marginTop: '16px' }}>
+                    {players.length < 4 ? 'Need 4+ Players' : 'Draw Schedule & Teams'}
+                  </button>
+
+                  <button
+                    onClick={clearAll}
+                    style={{
+                      marginTop: '10px',
+                      width: '100%',
+                      background: 'transparent',
+                      border: '1px solid rgba(107, 31, 42, 0.25)',
+                      color: '#6b1f2a',
+                      padding: '10px 14px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(107, 31, 42, 0.06)'; e.currentTarget.style.borderColor = 'rgba(107, 31, 42, 0.45)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(107, 31, 42, 0.25)'; }}
+                  >
+                    Clear roster · start again
+                  </button>
+                </section>
+              )}
+
+              {/* Schedule */}
+              {schedule && (
+                <section ref={scheduleRef} className="reveal" style={{ marginTop: '36px' }}>
+                  <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                    <h2 className="display" style={{ margin: '4px 0', fontSize: '26px' }}>Wednesday Evening Chukkas</h2>
+                    <div className="ornament">
+                      <span className="ornament-line" />
+                      <span className="ornament-dot" />
+                      <span className="ornament-line" />
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
+                      <span className="display-italic">{schedule.numChukkas} chukkas</span>
+                      {' · '}
+                      {chukkaTime(0)} — {chukkaTime(schedule.numChukkas - 1)}
+                      {' · '}
+                      {schedule.totalSlots} player-slots
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <div className="view-toggle" role="tablist" aria-label="Schedule view">
+                      <button
+                        className={`view-toggle-btn ${scheduleView === 'cards' ? 'active' : ''}`}
+                        onClick={() => setScheduleView('cards')}
+                        role="tab"
+                        aria-selected={scheduleView === 'cards'}
+                      >
+                        Cards
+                      </button>
+                      <button
+                        className={`view-toggle-btn ${scheduleView === 'table' ? 'active' : ''}`}
+                        onClick={() => setScheduleView('table')}
+                        role="tab"
+                        aria-selected={scheduleView === 'table'}
+                      >
+                        Table
+                      </button>
+                    </div>
+                  </div>
+
+                  {scheduleView === 'cards' && (
+                    <div className="edit-hint">
+                      Tap × to remove a player from a chukka. Tap a name to swap teams or move them.
+                    </div>
+                  )}
+
+                  {schedule.reduced && schedule.reduced.length > 0 && (
+                    <div style={{ marginBottom: '14px', padding: '12px 14px', background: '#fdf4e6', border: '1px solid #e8d5a0', borderRadius: '4px', fontSize: '13px', color: '#8a5a1a' }}>
+                      <strong>Reduced for fairness:</strong>{' '}
+                      {schedule.reduced.map(r => `${r.player.name} (wanted ${r.requested}, playing ${r.given})`).join(', ')}
+                      <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.85 }} className="display-italic">
+                        Late signups give way to players who booked earlier — teams stay max 4 a side.
+                      </div>
+                    </div>
+                  )}
+
+                  {schedule.capped && schedule.capped.length > 0 && (
+                    <div style={{ marginBottom: '14px', padding: '12px 14px', background: '#fdf4e6', border: '1px solid #e8d5a0', borderRadius: '4px', fontSize: '13px', color: '#8a5a1a' }}>
+                      <strong>Capped at {schedule.numChukkas}:</strong>{' '}
+                      {schedule.capped.map(u => `${u.player.name} (wanted ${u.requested})`).join(', ')}
+                      <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.85 }} className="display-italic">
+                        Requested more chukkas than the evening has — playing all available.
+                      </div>
+                    </div>
+                  )}
+
+                  {scheduleView === 'cards' && schedule.chukkas.map((ck, idx) => {
+                    const diff = Math.abs(ck.sumA - ck.sumB);
+                    const teamAFour = ck.teamA.length;
+                    const teamBFour = ck.teamB.length;
+                    const tooFew = ck.playerCount < 4;
+
+                    const renderPlayer = (p, teamClass) => {
+                      const isActive = activePlayer && activePlayer.chukkaIdx === idx && activePlayer.playerId === p.id;
+                      const onClick = (e) => {
+                        e.stopPropagation();
+                        setActivePlayer(isActive ? null : { chukkaIdx: idx, playerId: p.id });
+                        setAddingTo(null);
+                      };
+                      return (
+                        <div
+                          key={p.id}
+                          className={`team-mini-row ${teamClass} ${isActive ? 'selected' : ''}`}
+                          onClick={onClick}
+                        >
+                          <span className="hcp">{fmtH(p.handicap)}</span>
+                          <span className="team-mini-name">{p.name}</span>
+                          <button
+                            className="chukka-remove"
+                            onClick={(e) => { e.stopPropagation(); removeFromChukka(idx, p.id); }}
+                            aria-label={`Remove ${p.name} from chukka ${ck.number}`}
+                            title="Remove from this chukka"
+                          >×</button>
+                        </div>
+                      );
+                    };
+
+                    const isActionOpenHere = activePlayer && activePlayer.chukkaIdx === idx;
+                    const activeP = isActionOpenHere
+                      ? [...ck.teamA, ...ck.teamB].find(p => p.id === activePlayer.playerId)
+                      : null;
+
+                    const playerIdsInChukka = new Set([...ck.teamA, ...ck.teamB].map(p => p.id));
+                    const availableToAdd = players.filter(p => !playerIdsInChukka.has(p.id));
+
+                    return (
+                      <div key={ck.idx} className={`chukka-card anim-in ${ck.isEarly ? 'early' : 'late'}`} style={{ animationDelay: `${idx * 0.06}s` }}>
+                        <div className="chukka-head">
+                          <div>
+                            <div className="chukka-num">Chukka {ck.number}</div>
+                            <div className="chukka-time">{ck.time}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div className="chukka-diff">
+                              {ck.playerCount === 0 ? 'no players' : `${teamAFour}v${teamBFour} · Δ${diff}`}
+                            </div>
+                          </div>
+                        </div>
+                        {ck.playerCount > 0 ? (
+                          <div className="chukka-body">
+                            <div className="chukka-team">
+                              <div className="team-mini-label">Blue</div>
+                              <div className="team-mini-total" style={{ color: 'var(--blue)' }}>HCP {ck.sumA}</div>
+                              {ck.teamA.map(p => renderPlayer(p, ''))}
+                            </div>
+                            <div className="chukka-team">
+                              <div className="team-mini-label">White</div>
+                              <div className="team-mini-total" style={{ color: 'var(--muted)' }}>HCP {ck.sumB}</div>
+                              {ck.teamB.map(p => renderPlayer(p, 'white'))}
+                            </div>
+
+                            {activeP && (
+                              <div className="action-bar">
+                                <span className="action-label">{activeP.name}:</span>
+                                <button
+                                  className="action-btn"
+                                  onClick={() => swapPlayerTeam(idx, activeP.id)}
+                                >Swap team</button>
+                                <button
+                                  className="action-btn danger"
+                                  onClick={() => removeFromChukka(idx, activeP.id)}
+                                >Remove</button>
+                                <span style={{ flexBasis: '100%', height: 0 }} />
+                                <span className="action-label">Move to →</span>
+                                {schedule.chukkas.map((_, otherIdx) => (
+                                  <button
+                                    key={otherIdx}
+                                    className="action-btn tiny"
+                                    disabled={otherIdx === idx}
+                                    onClick={() => movePlayerToChukka(idx, activeP.id, otherIdx)}
+                                  >{otherIdx + 1}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ padding: '20px', textAlign: 'center', fontSize: '13px', color: 'var(--muted)' }} className="display-italic">
+                            No players assigned to this chukka.
+                          </div>
+                        )}
+
+                        {tooFew && ck.playerCount > 0 && (
+                          <div className="chukka-warning">
+                            {ck.playerCount} player{ck.playerCount === 1 ? '' : 's'} — short of a full chukka, but plays as {teamAFour}v{teamBFour}.
+                          </div>
+                        )}
+
+                        {/* Add player to chukka */}
+                        {availableToAdd.length > 0 && (
+                          <div className="add-strip">
+                            {addingTo === idx ? (
+                              <>
+                                <span className="action-label">Add to chukka {ck.number}:</span>
+                                {availableToAdd.map(p => (
+                                  <button
+                                    key={p.id}
+                                    className="add-pick"
+                                    onClick={() => addToChukka(idx, p.id)}
+                                  >
+                                    {p.name} ({fmtH(p.handicap)})
+                                  </button>
+                                ))}
+                                <button
+                                  className="action-btn"
+                                  onClick={() => setAddingTo(null)}
+                                >Cancel</button>
+                              </>
+                            ) : (
+                              <button
+                                className="add-trigger"
+                                onClick={() => { setAddingTo(idx); setActivePlayer(null); }}
+                              >+ Add player to chukka {ck.number}</button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {scheduleView === 'table' && (() => {
+                    const today = new Date();
+                    const dateStr = today.toLocaleDateString('en-GB', {
+                      weekday: 'long', day: 'numeric', month: 'long',
+                    });
+                    const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
+                    return (
+                      <div className="captain-table-wrap">
+                        <table className="captain-table">
+                          <thead>
+                            <tr>
+                              <th colSpan={3} className="date-cell">{dateStr}</th>
+                              {schedule.chukkas.map(ck => (
+                                <th key={ck.idx} className="time-header">{ck.time}</th>
+                              ))}
+                            </tr>
+                            <tr>
+                              <th className="col-header">Name</th>
+                              <th className="col-header">HCP</th>
+                              <th className="col-header">C</th>
+                              {schedule.chukkas.map(ck => (
+                                <th key={ck.idx} className="chukka-header">Chukka {ck.number}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedPlayers.map(p => (
+                              <tr key={p.id}>
+                                <td className="name-cell">{p.name}</td>
+                                <td>{fmtH(p.handicap)}</td>
+                                <td>{p.chukkas}</td>
+                                {schedule.chukkas.map(ck => {
+                                  const inA = ck.teamA.find(x => x.id === p.id);
+                                  const inB = ck.teamB.find(x => x.id === p.id);
+                                  const cls = inA ? 'blue-cell' : inB ? 'white-cell' : 'empty-cell';
+                                  return (
+                                    <td key={ck.idx} className={cls}>
+                                      {inA ? 'B' : inB ? 'W' : ''}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', paddingBottom: '8px' }} className="display-italic">
+                          B = Blue · W = White · Scroll sideways to see all chukkas
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px' }}>
+                    <button className="wa-btn" onClick={publishToWhatsApp} style={{ padding: '14px', fontSize: '12px', width: '100%' }}>
+                      📣 Share team sheet
+                    </button>
+                    <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)' }} className="display-italic">
+                      Pick <strong style={{ fontStyle: 'normal' }}>WhatsApp</strong> (not WhatsApp Business) from your share sheet, then choose the club group.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                      <button className="btn-secondary" onClick={exportXLSX} style={{ width: '100%' }}>
+                        📊 Export Excel
+                      </button>
+                      <button className="btn-secondary" onClick={exportPNG} style={{ width: '100%' }}>
+                        🖼 Export PNG
+                      </button>
+                    </div>
+                    <button className="btn-secondary" onClick={generate} style={{ width: '100%' }}>
+                      Redraw schedule
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {loaded && players.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px 20px 12px', color: 'var(--muted)' }}>
+                  <div className="display-italic" style={{ fontSize: '20px', color: 'var(--ink)', marginBottom: '4px' }}>The field awaits.</div>
+                  <div style={{ fontSize: '13px', marginBottom: '18px' }}>Add the first rider to begin tonight's draw.</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'stretch', maxWidth: '320px', margin: '0 auto' }}>
+                    {Object.entries(EXAMPLES).map(([key, ex]) => (
+                      <button
+                        key={key}
+                        onClick={() => loadExample(key)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid var(--gold)',
+                          color: 'var(--burgundy)',
+                          padding: '10px 16px',
+                          borderRadius: '4px',
+                          fontFamily: "'Outfit', sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 500,
+                          letterSpacing: '1.2px',
+                          textTransform: 'uppercase',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Load · {ex.label} <span style={{ opacity: 0.65, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic' }}>({ex.note})</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── FIXTURES TAB ─── */}
+          {activeTab === 'fixtures' && (
+            <div className="reveal">
+              <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                <div className="label-eyebrow">Grass Season</div>
+                <h2 className="display" style={{ margin: '2px 0 0', fontSize: '26px' }}>Fixtures 2026</h2>
+                <div className="ornament">
+                  <span className="ornament-line" />
+                  <span className="ornament-dot" />
+                  <span className="ornament-line" />
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
+                  Tap a fixture to register your interest and see who else has signed up.
+                </div>
+                {totalRegistrations > 0 && (
+                  <div style={{ fontSize: '12px', color: 'var(--burgundy)', marginTop: '8px', fontWeight: 500 }}>
+                    {totalRegistrations} {totalRegistrations === 1 ? 'registration' : 'registrations'} across the season
+                  </div>
+                )}
+              </div>
+
+              {MONTHS_ORDER.map(month => {
+                const monthFixtures = FIXTURES_2026.filter(f => f.month === month);
+                if (monthFixtures.length === 0) return null;
+                return (
+                  <div key={month}>
+                    <div className="month-header">
+                      <span className="line" />
+                      <span className="display" style={{ fontSize: '18px', color: 'var(--burgundy)' }}>{month}</span>
+                      <span className="line" style={{ transform: 'scaleX(-1)' }} />
+                    </div>
+
+                    {monthFixtures.map((fx) => {
+                      const registered = interest[fx.id] || [];
+                      const isExpanded = expandedId === fx.id;
+                      return (
+                        <div key={fx.id} className={`fixture-card ${isExpanded ? 'expanded' : ''}`}>
+                          <div className="fixture-header" onClick={() => toggleFixture(fx.id)}>
+                            <div className="fixture-date">{fx.date}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="fixture-name">{fx.name}</div>
+                              {fx.level && <div className="fixture-level">{fx.level}</div>}
+                            </div>
+                            <div className="fixture-meta">
+                              {registered.length > 0 ? (
+                                <>
+                                  <div className="fixture-count">{registered.length}</div>
+                                  <div>signed up</div>
+                                </>
+                              ) : (
+                                <div style={{ fontSize: '20px', color: 'var(--muted)', lineHeight: 1 }}>{isExpanded ? '−' : '+'}</div>
+                              )}
+                            </div>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="fixture-body reveal">
+                              {registered.length > 0 ? (
+                                <div style={{ paddingTop: '10px' }}>
+                                  <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '4px' }}>Registered Interest</div>
+                                  {registered.map(p => (
+                                    <div key={p.id} className="interested-row">
+                                      <div className="mini-badge">{fmtH(p.handicap)}</div>
+                                      <div style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{p.name}</div>
+                                      <button className="remove-btn" onClick={() => removeInterest(fx.id, p.id)} aria-label={`Remove ${p.name}`} style={{ fontSize: '18px' }}>×</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div style={{ paddingTop: '14px', textAlign: 'center', fontSize: '13px', color: 'var(--muted)' }} className="display-italic">
+                                  Be the first to register.
+                                </div>
+                              )}
+
+                              <div className="register-form">
+                                <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Register your interest</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  <input
+                                    className="input-field"
+                                    type="text"
+                                    placeholder="Your name"
+                                    value={fName}
+                                    onChange={(e) => setFName(e.target.value)}
+                                    style={{ padding: '12px 14px', fontSize: '15px' }}
+                                  />
+                                  <select
+                                    className="input-field select-field"
+                                    value={fHandicap}
+                                    onChange={(e) => setFHandicap(e.target.value)}
+                                    style={{ padding: '12px 14px', fontSize: '15px' }}
+                                  >
+                                    <option value="">Select your handicap…</option>
+                                    {HANDICAP_OPTIONS.map(h => (
+                                      <option key={h} value={h}>{fmtH(h)}</option>
+                                    ))}
+                                  </select>
+                                  {fError && (
+                                    <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
+                                      {fError}
+                                    </div>
+                                  )}
+                                  <button className="btn-primary" onClick={() => registerInterest(fx.id)} style={{ padding: '13px', fontSize: '12px' }}>
+                                    Register Interest
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              <div style={{ textAlign: 'center', marginTop: '28px', padding: '18px 0 4px', borderTop: '1px solid var(--line)' }}>
+                <div className="display-italic" style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '10px' }}>
+                  Source: official 2026 fixture list
+                </div>
+                <a
+                  href="https://tedworthparkpolo.com/grass-fixture-list-2026/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '11px', color: 'var(--burgundy)', letterSpacing: '1.5px', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid var(--gold)', paddingBottom: '2px' }}
+                >
+                  View on tedworthparkpolo.com ↗
+                </a>
+              </div>
+            </div>
+          )}
+
+        </main>
+
+        <footer style={{ textAlign: 'center', padding: '22px 20px', borderTop: '1px solid var(--line)', fontSize: '10px', color: 'var(--muted)', letterSpacing: '2px', textTransform: 'uppercase', background: 'var(--cream-warm)' }}>
+          Tedworth Park Polo Club · Tidworth, Wiltshire
+        </footer>
+
+        {/* Confirmation modal — used for destructive actions (Clear roster, Replace roster) */}
+        {confirmModal && (
+          <div className="share-backdrop" onClick={() => setConfirmModal(null)}>
+            <div className="share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '380px' }}>
+              <div className="share-head">
+                <h3>{confirmModal.title}</h3>
+                <button className="share-close" onClick={() => setConfirmModal(null)} aria-label="Close">×</button>
+              </div>
+              <div className="share-body">
+                <p style={{ margin: '0 0 18px', fontSize: '14px', color: 'var(--ink)', lineHeight: 1.55 }}>
+                  {confirmModal.message}
+                </p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn-secondary" onClick={() => setConfirmModal(null)} style={{ flex: 1 }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                    style={{
+                      flex: 1,
+                      background: '#6b1f2a',
+                      color: '#f4ecd8',
+                      border: 'none',
+                      padding: '12px 14px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {confirmModal.confirmLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}

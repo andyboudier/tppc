@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Burgundy background -->
+  <rect width="512" height="512" rx="96" ry="96" fill="#6b1f2a"/>
+
+  <!-- Subtle radial highlight -->
+  <defs>
+    <radialGradient id="glow" cx="30%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#d4a85a" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#d4a85a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#glow)"/>
+
+  <!-- Crossed polo mallets, gold -->
+  <g stroke="#b8924a" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- mallet 1 (top-left to bottom-right) -->
+    <line x1="120" y1="120" x2="380" y2="380" stroke-width="14"/>
+    <!-- mallet 2 (top-right to bottom-left) -->
+    <line x1="392" y1="120" x2="132" y2="380" stroke-width="14"/>
+  </g>
+
+  <!-- Mallet heads (cylindrical, gold) -->
+  <g fill="#d4a85a" stroke="#b8924a" stroke-width="4">
+    <ellipse cx="380" cy="380" rx="36" ry="14" transform="rotate(45 380 380)"/>
+    <ellipse cx="132" cy="380" rx="36" ry="14" transform="rotate(-45 132 380)"/>
+  </g>
+
+  <!-- Center polo ball (cream) -->
+  <circle cx="256" cy="256" r="34" fill="#f4ecd8"/>
+  <circle cx="256" cy="256" r="34" fill="none" stroke="#b8924a" stroke-width="3"/>
+
+  <!-- TPPC monogram below -->
+  <text x="256" y="455" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="36" font-weight="500" font-style="italic"
+        fill="#d4a85a" letter-spacing="6">TPPC</text>
+</svg>
