@@ -303,17 +303,23 @@ export default function PoloChukkas() {
 
   // Hard refresh — clears caches and busts iOS's web-clip HTML cache.
   // Used by the manual refresh button and the prolonged-hidden listener below.
+  const [refreshing, setRefreshing] = useState(false);
+
   const hardRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
     try {
       if ('caches' in window) {
         const keys = await caches.keys();
         await Promise.all(keys.map(k => caches.delete(k)));
       }
     } catch (e) {}
+    // small delay so the user sees the spinner — proves the tap registered
+    await new Promise(r => setTimeout(r, 400));
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('_t', Date.now().toString());
-      window.location.replace(url.toString());
+      window.location.href = url.toString();
     } catch (e) {
       window.location.reload();
     }
@@ -2034,38 +2040,25 @@ export default function PoloChukkas() {
           from { opacity: 0; transform: scale(0.97); }
           to { opacity: 1; transform: scale(1); }
         }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
         .reveal { animation: fadeInScale 0.4s ease-out; }
       `}</style>
 
       <div className="polo-app">
         {/* Masthead */}
-        <header className="header-bg" style={{ padding: '30px 20px 22px', textAlign: 'center', position: 'relative' }}>
-          <button
-            onClick={hardRefresh}
-            aria-label="Refresh app"
-            title="Refresh"
-            style={{
-              position: 'absolute',
-              top: '10px',
-              right: '10px',
-              width: '34px',
-              height: '34px',
-              borderRadius: '50%',
-              background: 'rgba(244, 236, 216, 0.12)',
-              border: '1px solid rgba(244, 236, 216, 0.3)',
-              color: 'var(--cream, #f4ecd8)',
-              fontSize: '17px',
-              lineHeight: 1,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              zIndex: 2,
-            }}
-          >
-            ↻
-          </button>
+        <header
+          className="header-bg"
+          style={{
+            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 30px)',
+            paddingRight: 'calc(env(safe-area-inset-right, 0px) + 20px)',
+            paddingBottom: '22px',
+            paddingLeft: 'calc(env(safe-area-inset-left, 0px) + 20px)',
+            textAlign: 'center',
+            position: 'relative',
+          }}
+        >
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div className="display-italic" style={{ fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', opacity: 0.75, marginBottom: '4px' }}>
               Est. 1907
@@ -2088,12 +2081,49 @@ export default function PoloChukkas() {
         </header>
 
         {/* Tabs */}
-        <nav className="tabs">
+        <nav className="tabs" style={{ position: 'relative' }}>
           <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
             Wed Chukkas
           </button>
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
             Fixtures 2026
+          </button>
+          <button
+            onClick={hardRefresh}
+            disabled={refreshing}
+            aria-label={refreshing ? 'Refreshing…' : 'Refresh app'}
+            title="Refresh"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              right: '12px',
+              transform: 'translateY(-50%)',
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              background: refreshing ? 'rgba(107, 31, 42, 0.12)' : 'transparent',
+              border: '1px solid rgba(107, 31, 42, 0.35)',
+              color: 'var(--burgundy, #6b1f2a)',
+              fontSize: '16px',
+              lineHeight: 1,
+              cursor: refreshing ? 'progress' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              WebkitTapHighlightColor: 'transparent',
+              touchAction: 'manipulation',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                transformOrigin: 'center',
+                animation: refreshing ? 'spin 0.7s linear infinite' : 'none',
+              }}
+            >
+              ↻
+            </span>
           </button>
         </nav>
 
