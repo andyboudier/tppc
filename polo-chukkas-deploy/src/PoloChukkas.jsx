@@ -360,6 +360,10 @@ export default function PoloChukkas() {
         const m = await window.storage.get('members', true);
         if (m?.value) setMembers(JSON.parse(m.value));
       } catch (e) {}
+      try {
+        const s = await window.storage.get('schedule', true);
+        if (s?.value) setSchedule(JSON.parse(s.value));
+      } catch (e) {}
       setLoaded(true);
     })();
   }, []);
@@ -369,6 +373,21 @@ export default function PoloChukkas() {
     setPlayers(newPlayers);
     try { await window.storage.set('roster', JSON.stringify(newPlayers), true); }
     catch (e) { setError('Saved locally only — check your connection.'); }
+  };
+
+  // Save schedule to Firestore so it syncs across devices.
+  // Pass null to clear (e.g. when roster changes invalidate the draw).
+  const saveSchedule = async (nextSchedule) => {
+    setSchedule(nextSchedule);
+    try {
+      if (nextSchedule === null) {
+        await window.storage.delete('schedule', true);
+      } else {
+        await window.storage.set('schedule', JSON.stringify(nextSchedule), true);
+      }
+    } catch (e) {
+      setError('Schedule saved locally only — check your connection.');
+    }
   };
 
   // Update the directory with this player's details (for next time's autofill)
@@ -425,12 +444,12 @@ export default function PoloChukkas() {
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
     setName(''); setMobile(''); setHandicap(''); setChukkas(''); setPreference('any');
-    setSchedule(null);
+    saveSchedule(null);
   };
 
   const removePlayer = (id) => {
     saveRoster(players.filter(p => p.id !== id));
-    setSchedule(null);
+    saveSchedule(null);
   };
 
   const generate = () => {
@@ -439,7 +458,7 @@ export default function PoloChukkas() {
     setActivePlayer(null);
     setAddingTo(null);
     const result = buildSchedule(players);
-    setSchedule(result);
+    saveSchedule(result);
     setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   };
 
@@ -450,7 +469,7 @@ export default function PoloChukkas() {
       confirmLabel: 'Clear roster',
       onConfirm: () => {
         saveRoster([]);
-        setSchedule(null);
+        saveSchedule(null);
       },
     });
   };
@@ -474,7 +493,7 @@ export default function PoloChukkas() {
       });
       setMembers(newMembers);
       try { await window.storage.set('members', JSON.stringify(newMembers), true); } catch (e) {}
-      setSchedule(null);
+      saveSchedule(null);
     };
     if (players.length > 0) {
       setConfirmModal({
@@ -496,7 +515,7 @@ export default function PoloChukkas() {
         : p
     );
     saveRoster(updated);
-    setSchedule(null); // Roster changed — invalidate the schedule
+    saveSchedule(null); // Roster changed — invalidate the schedule
   };
 
   // Recompute sums and counts after a schedule mutation
@@ -510,7 +529,7 @@ export default function PoloChukkas() {
   const updateSchedule = (mapper) => {
     if (!schedule) return;
     const next = schedule.chukkas.map((ck, idx) => refreshChukka(mapper(ck, idx)));
-    setSchedule({ ...schedule, chukkas: next });
+    saveSchedule({ ...schedule, chukkas: next });
   };
 
   const swapPlayerTeam = (chukkaIdx, playerId) => {
@@ -2098,19 +2117,21 @@ export default function PoloChukkas() {
               top: '50%',
               right: '12px',
               transform: 'translateY(-50%)',
-              width: '34px',
-              height: '34px',
+              width: '36px',
+              height: '36px',
               borderRadius: '50%',
-              background: refreshing ? 'rgba(107, 31, 42, 0.12)' : 'transparent',
-              border: '1px solid rgba(107, 31, 42, 0.35)',
+              background: '#ffffff',
+              border: '1px solid rgba(107, 31, 42, 0.6)',
               color: 'var(--burgundy, #6b1f2a)',
-              fontSize: '16px',
+              fontSize: '17px',
+              fontWeight: 600,
               lineHeight: 1,
               cursor: refreshing ? 'progress' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               padding: 0,
+              boxShadow: '0 1px 4px rgba(0, 0, 0, 0.12)',
               WebkitTapHighlightColor: 'transparent',
               touchAction: 'manipulation',
             }}
