@@ -263,6 +263,7 @@ export default function PoloChukkas() {
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
@@ -2322,6 +2323,16 @@ export default function PoloChukkas() {
                   )}
 
                   <button className="btn-primary" onClick={handleAdd}>Add to Roster</button>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', lineHeight: 1.45 }}>
+                    By signing up, you agree to your name, handicap and (if given) mobile number being used to organise the Wednesday chukkas.{' '}
+                    <button
+                      type="button"
+                      onClick={() => setPrivacyOpen(true)}
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'var(--burgundy, #6b1f2a)', cursor: 'pointer', textDecoration: 'underline', fontSize: '11px', fontFamily: 'inherit' }}
+                    >
+                      Privacy notice
+                    </button>
+                  </div>
                 </div>
               </section>
 
@@ -2883,7 +2894,25 @@ export default function PoloChukkas() {
 
         <footer style={{ textAlign: 'center', padding: '22px 20px', borderTop: '1px solid var(--line)', fontSize: '10px', color: 'var(--muted)', letterSpacing: '2px', textTransform: 'uppercase', background: 'var(--cream-warm)' }}>
           <div>Tedworth Park Polo Club · Tidworth, Wiltshire</div>
-          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+          <div style={{ marginTop: '4px', fontSize: '9px', opacity: 0.7 }}>© ACT Systems Ltd. 2026</div>
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setPrivacyOpen(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--muted)',
+                fontSize: '10px',
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                padding: 0,
+                opacity: 0.7,
+              }}
+            >
+              Privacy
+            </button>
+            <span style={{ opacity: 0.3 }}>·</span>
             {captainMode ? (
               <>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--burgundy)', fontWeight: 600 }}>
@@ -2993,6 +3022,127 @@ export default function PoloChukkas() {
                     Unlock
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Privacy notice modal */}
+        {privacyOpen && (
+          <div className="share-backdrop" onClick={() => setPrivacyOpen(false)}>
+            <div
+              className="share-modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '520px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+            >
+              <div className="share-head">
+                <h3>Privacy notice</h3>
+                <button className="share-close" onClick={() => setPrivacyOpen(false)} aria-label="Close">×</button>
+              </div>
+              <div
+                className="share-body"
+                style={{
+                  overflowY: 'auto',
+                  fontSize: '13px',
+                  lineHeight: 1.6,
+                  color: 'var(--ink)',
+                  textAlign: 'left',
+                  paddingRight: '4px',
+                }}
+              >
+                <p style={{ marginTop: 0, fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>
+                  Last updated: May 2026
+                </p>
+                <p>
+                  This notice explains how the Committee of Tedworth Park Polo Club handles your personal information when you use this Wednesday Chukkas booking page. We aim to comply with UK GDPR and the Data Protection Act 2018.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Who we are</h4>
+                <p style={{ marginTop: 0 }}>
+                  The Committee of Tedworth Park Polo Club, Tidworth, Wiltshire is the data controller for the information you provide via this page. For any privacy queries — including requests to access, correct or delete your data — contact the Club Captain.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>What we collect</h4>
+                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
+                  <li>Your name (when you sign up to play or register interest in a fixture)</li>
+                  <li>Your mobile number (optional — only if you choose to give it)</li>
+                  <li>Your polo handicap</li>
+                  <li>How many chukkas you'd like to play, and your time preference</li>
+                </ul>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Why we collect it</h4>
+                <p style={{ marginTop: 0 }}>
+                  Solely to organise Wednesday chukkas and 2026 club fixtures. The Captain uses your details to draw balanced teams and chukka schedules, contact you about your booking when necessary, and track who is interested in upcoming matches. Our lawful basis for processing is <strong>legitimate interest</strong> — coordinating member play at a sports club — under Article 6(1)(f) of UK GDPR.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Where it's stored</h4>
+                <p style={{ marginTop: 0 }}>
+                  Data is stored in Google Cloud Firestore, hosted within the EU region. Google Cloud Platform is a UK GDPR-compliant processor that publishes its own data protection terms. We do not transfer your data outside the EU/UK in normal operation.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Who can see it</h4>
+                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
+                  <li><strong>Mobile numbers</strong> are visible only to the Captain (PIN-protected)</li>
+                  <li><strong>Names and handicaps</strong> on the roster are visible to anyone with the page URL — this is intentional, so members can see who's signed up</li>
+                  <li>The Captain can see and edit everything via the PIN-gated management view</li>
+                </ul>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>How long we keep it</h4>
+                <p style={{ marginTop: 0 }}>
+                  Roster entries are overwritten when the Captain clears the roster for the next week. The members directory (names + handicaps for autofill) is retained while this booking page is in use. Fixture interest data is retained until the end of the 2026 season. You can request earlier deletion at any time.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Your rights</h4>
+                <p style={{ marginTop: 0, marginBottom: '4px' }}>
+                  Under UK GDPR you have the right to:
+                </p>
+                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
+                  <li>Access the personal data we hold about you</li>
+                  <li>Have inaccurate data corrected</li>
+                  <li>Request deletion of your data</li>
+                  <li>Object to processing or restrict it</li>
+                  <li>Lodge a complaint with the UK Information Commissioner's Office at{' '}
+                    <a href="https://ico.org.uk" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--burgundy)' }}>ico.org.uk</a>
+                  </li>
+                </ul>
+                <p>
+                  To exercise any of these rights, ask the Club Captain to remove or amend your details — typically done in person at the club or via WhatsApp.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Cookies and tracking</h4>
+                <p style={{ marginTop: 0 }}>
+                  This page does not set tracking cookies or run analytics. We use your browser's session storage only to remember whether you've entered the Captain PIN (cleared automatically when you close the tab).
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Children</h4>
+                <p style={{ marginTop: 0 }}>
+                  This page is intended for use by polo-playing members of the club, who are typically adults. If a member under 18 wishes to sign up, a parent or guardian should do so on their behalf or contact the Captain directly.
+                </p>
+
+                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Changes to this notice</h4>
+                <p style={{ marginTop: 0 }}>
+                  We may update this notice from time to time. The "Last updated" date at the top reflects the most recent version. Material changes will be communicated to members via the WhatsApp group.
+                </p>
+              </div>
+              <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
+                <button
+                  onClick={() => setPrivacyOpen(false)}
+                  style={{
+                    width: '100%',
+                    background: '#6b1f2a',
+                    color: '#f4ecd8',
+                    border: 'none',
+                    padding: '12px 14px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
