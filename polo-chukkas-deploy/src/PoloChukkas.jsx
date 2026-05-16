@@ -1737,14 +1737,23 @@ export default function PoloChukkas() {
           background: var(--burgundy);
           color: var(--cream);
         }
-        /* Captain-style table */
+        /* Captain-style table — breaks out of the 540px main wrapper
+           so wide schedules (7-8 chukkas) get the full viewport width.
+           Uses the classic "full-bleed" trick: position relative to the
+           viewport rather than the parent. */
         .captain-table-wrap {
+          position: relative;
+          left: 50%;
+          right: 50%;
+          margin-left: -50vw;
+          margin-right: -50vw;
+          width: 100vw;
+          max-width: 100vw;
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
-          margin: 0 -16px;
           padding: 0 16px 8px;
           background: var(--cream-pale);
-          border-radius: 6px;
+          box-sizing: border-box;
         }
         .captain-table {
           border-collapse: collapse;
