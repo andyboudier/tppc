@@ -99,6 +99,28 @@ const EXAMPLES = {
       { name: 'Helen',      handicap: -2, chukkas: 2, preference: 'late',  mobile: '07700 900215' },
     ],
   },
+  apr29: {
+    label: 'Wed 29 April',
+    note: '16 players · 8 chukkas',
+    roster: [
+      { name: 'Rosie Ross',     handicap:  2, chukkas: 6, preference: 'any',   mobile: '07700 900012' },
+      { name: 'Brad',           handicap:  1, chukkas: 5, preference: 'any',   mobile: '07700 900034' },
+      { name: 'Jose',           handicap:  1, chukkas: 8, preference: 'any',   mobile: '07700 900321' },
+      { name: 'Alex Welham',    handicap:  0, chukkas: 3, preference: 'any',   mobile: '07700 900245' },
+      { name: 'Rosie Lawrance', handicap:  0, chukkas: 5, preference: 'any',   mobile: '07700 900056' },
+      { name: 'Piers F',        handicap:  0, chukkas: 2, preference: 'early', mobile: '07700 900334' },
+      { name: 'Andy B',         handicap: -1, chukkas: 4, preference: 'any',   mobile: '07700 900298' },
+      { name: 'Jo W',           handicap: -1, chukkas: 4, preference: 'any',   mobile: '07700 900103' },
+      { name: 'Debbie',         handicap: -1, chukkas: 4, preference: 'early', mobile: '07700 900091' },
+      { name: 'Alfie',          handicap: -2, chukkas: 2, preference: 'late',  mobile: '07700 900192' },
+      { name: 'Helen',          handicap: -2, chukkas: 2, preference: 'any',   mobile: '07700 900215' },
+      { name: 'Steve W',        handicap: -2, chukkas: 4, preference: 'late',  mobile: '07700 900168' },
+      { name: 'Karen Reeve',    handicap:  0, chukkas: 4, preference: 'early', mobile: '07700 900347' },
+      { name: 'Charlie Wilding',handicap: -2, chukkas: 2, preference: 'early', mobile: '07700 900356' },
+      { name: 'Milly Till',     handicap: -2, chukkas: 2, preference: 'early', mobile: '07700 900369' },
+      { name: 'Gabe Lewis',     handicap: -2, chukkas: 2, preference: 'early', mobile: '07700 900372' },
+    ],
+  },
 };
 
 // Format handicap for display (using proper minus sign for negatives)
@@ -2158,6 +2180,9 @@ export default function PoloChukkas() {
                       </button>
                       <button onClick={() => loadExample('may6')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                         load 6 May
+                      </button>
+                      <button onClick={() => loadExample('apr29')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                        load 29 Apr
                       </button>
                       <button onClick={clearAll} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                         clear
