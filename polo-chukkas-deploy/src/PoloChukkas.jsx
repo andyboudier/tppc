@@ -2893,10 +2893,7 @@ export default function PoloChukkas() {
                   })}
 
                   {scheduleView === 'table' && (() => {
-                    const today = new Date();
-                    const dateStr = today.toLocaleDateString('en-GB', {
-                      weekday: 'long', day: 'numeric', month: 'long',
-                    });
+                    const dateStr = getDateStr();
                     const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
                     return (
                       <div className="captain-table-wrap">
