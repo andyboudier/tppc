@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TPPC · Book & Pay for Chukkas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --burgundy: #6b1f2a;
+    --burgundy-deep: #5a1924;
+    --cream: #f4ecd8;
+    --cream-pale: #faf6ed;
+    --cream-warm: #f7f1e0;
+    --gold: #b8924a;
+    --gold-bright: #d6ad60;
+    --ink: #2a2a2a;
+    --muted: #8a8175;
+    --line: #e6dec9;
+    --stripe: #635bff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--cream);
+    font-family: 'Outfit', sans-serif;
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .display { font-family: 'Fraunces', serif; font-weight: 500; }
+  .display-italic { font-family: 'Fraunces', serif; font-style: italic; font-weight: 400; }
+  .label-eyebrow {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--burgundy);
+    opacity: 0.78;
+    font-weight: 500;
+  }
+  
+  /* Header */
+  .header-bg {
+    background: linear-gradient(135deg, #6b1f2a 0%, #5a1924 60%, #4f1620 100%);
+    color: var(--cream);
+    padding: 30px 20px 24px;
+    text-align: center;
+    position: relative;
+  }
+  .header-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(184, 146, 74, 0.1) 1px, transparent 1px);
+    background-size: 16px 16px;
+    opacity: 0.5;
+  }
+  .header-bg > * { position: relative; z-index: 1; }
+  .ornament {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 8px;
+  }
+  .ornament-line { width: 38px; height: 1px; background: var(--gold); }
+  .ornament-dot { width: 5px; height: 5px; transform: rotate(45deg); background: var(--gold); }
+  
+  /* Container */
+  .container { max-width: 540px; margin: 0 auto; padding: 24px 16px 60px; }
+  
+  /* Cards */
+  .card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  
+  /* Category cards */
+  .cat-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .cat-card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 12px 12px 10px;
+    background: var(--cream-pale);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+    position: relative;
+  }
+  .cat-card:hover { border-color: var(--gold); }
+  .cat-card.selected {
+    border-color: var(--burgundy);
+    background: white;
+    box-shadow: 0 0 0 2px rgba(107, 31, 42, 0.18);
+  }
+  .cat-card.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 8px; right: 10px;
+    color: var(--burgundy);
+    font-weight: bold;
+    font-size: 14px;
+  }
+  .cat-card h4 {
+    margin: 0 0 6px;
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    padding-right: 16px;
+  }
+  .cat-card .price {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    color: var(--burgundy);
+    font-weight: 500;
+    line-height: 1;
+  }
+  .cat-card .sub {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+  
+  /* Stepper */
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    background: white;
+  }
+  .stepper button {
+    background: white;
+    border: none;
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--burgundy);
+    font-weight: 600;
+  }
+  .stepper button:disabled { opacity: 0.25; cursor: not-allowed; }
+  .stepper button:hover:not(:disabled) { background: var(--cream-pale); }
+  .stepper-count {
+    width: 44px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 16px;
+  }
+  
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  
+  /* Inputs */
+  input[type="text"], input[type="email"], input[type="tel"], select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    background: var(--cream-pale);
+    color: var(--ink);
+  }
+  input:focus, select:focus { outline: none; border-color: var(--burgundy); background: white; }
+  
+  /* Pony toggle */
+  .toggle {
+    display: inline-flex;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .toggle button {
+    background: white;
+    border: none;
+    padding: 8px 14px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--ink);
+    transition: all 0.15s ease;
+  }
+  .toggle button.active {
+    background: var(--burgundy);
+    color: var(--cream);
+  }
+  
+  /* Summary */
+  .summary {
+    background: var(--cream-warm);
+    border: 1px solid var(--gold);
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .summary-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .summary-row.total {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 500;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid var(--gold);
+    color: var(--burgundy);
+  }
+  
+  /* Primary button */
+  .btn-primary {
+    width: 100%;
+    padding: 16px;
+    background: var(--burgundy);
+    color: var(--cream);
+    border: none;
+    border-radius: 4px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: background 0.15s ease;
+  }
+  .btn-primary:hover { background: var(--burgundy-deep); }
+  .btn-primary .stripe-logo {
+    background: white;
+    color: var(--stripe);
+    padding: 3px 7px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  
+  .small { font-size: 12px; color: var(--muted); }
+  
+  /* Flow diagram */
+  .flow {
+    margin: 36px 0 12px;
+    padding: 22px;
+    background: white;
+    border-radius: 4px;
+    border: 1px dashed var(--gold);
+  }
+  .flow-steps {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 14px;
+  }
+  .flow-step {
+    padding: 12px 10px;
+    background: var(--cream-warm);
+    border-radius: 4px;
+    font-size: 11px;
+    text-align: center;
+    flex: 1;
+    min-width: 100px;
+    border: 1px solid var(--line);
+    line-height: 1.4;
+  }
+  .flow-step strong { color: var(--burgundy); font-family: 'Fraunces', serif; }
+  .flow-arrow { 
+    font-size: 18px; 
+    color: var(--gold); 
+    display: flex;
+    align-items: center;
+  }
+  
+  /* Stripe checkout preview (the modal that shows when you "pay") */
+  .stripe-preview-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 18, 14, 0.6);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 8vh;
+    z-index: 100;
+  }
+  .stripe-preview-backdrop.open { display: flex; }
+  .stripe-modal {
+    max-width: 420px;
+    width: calc(100% - 32px);
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+    overflow: hidden;
+    font-family: 'Outfit', sans-serif;
+  }
+  .stripe-head {
+    background: var(--stripe);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .stripe-head .stripe-brand {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .stripe-head .close {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .stripe-body { padding: 20px; }
+  .stripe-merchant {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 14px;
+  }
+  .stripe-merchant-logo {
+    width: 38px; height: 38px;
+    background: var(--burgundy);
+    color: var(--cream);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+  }
+  .stripe-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+  }
+  .stripe-line.total {
+    font-weight: 600;
+    font-size: 18px;
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid #eee;
+  }
+  .stripe-form {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #eee;
+  }
+  .stripe-input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #d6d3cf;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fafafa;
+    margin-bottom: 10px;
+    color: #aaa;
+  }
+  .stripe-pay-btn {
+    width: 100%;
+    padding: 13px;
+    background: #0a2540;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+  
+  /* Success screen */
+  .success-screen {
+    display: none;
+    text-align: center;
+    padding: 28px 20px;
+  }
+  .success-screen.show { display: block; }
+  .success-icon {
+    width: 64px; height: 64px;
+    background: #d9f5e1;
+    color: #1f7a3a;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 14px;
+    font-size: 32px;
+  }
+  
+  .mock-note {
+    background: #fef6e6;
+    border-left: 3px solid var(--gold);
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #6b5a2a;
+    margin: 14px 0;
+    border-radius: 0 4px 4px 0;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<header class="header-bg">
+  <div class="display-italic" style="font-size: 11px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.75; margin-bottom: 4px;">Est. 1907</div>
+  <h1 class="display" style="font-size: 30px; margin: 0; line-height: 1.05;">Tedworth Park</h1>
+  <div class="display-italic" style="font-size: 20px; opacity: 0.95; margin-top: -2px;">Polo Club</div>
+  <div class="ornament">
+    <span class="ornament-line"></span>
+    <span class="ornament-dot"></span>
+    <span class="ornament-line"></span>
+  </div>
+  <div class="display-italic" style="font-size: 11px; opacity: 0.85; letter-spacing: 1.5px; text-transform: uppercase;">Wednesday Chukkas · Book &amp; Pay</div>
+</header>
+
+<div class="container">
+
+<div class="mock-note">
+  <strong>This is an interactive mockup.</strong> Choose options, the total updates live. Tap "Pay &amp; Book" to see the Stripe Checkout step that would follow in production.
+</div>
+
+<!-- Step 1 -->
+<div class="card">
+  <div class="label-eyebrow">Step 1 · Your category</div>
+  <h3 class="display" style="margin: 4px 0 14px; font-size: 18px;">Who's playing?</h3>
+  <div class="cat-options">
+    <div class="cat-card selected" data-cat="civ-day" data-price="16">
+      <h4>Civilian Day Member</h4>
+      <div class="price">£16</div>
+      <div class="sub">PER CHUKKA</div>
+    </div>
+    <div class="cat-card" data-cat="civ-nonmem" data-price="26">
+      <h4>Civilian Guest</h4>
+      <div class="price">£26</div>
+      <div class="sub">PER CHUKKA</div>
+    </div>
+    <div class="cat-card" data-cat="mil-mem" data-price="11">
+      <h4>Military Member</h4>
+      <div class="price">£11</div>
+      <div class="sub">PER CHUKKA</div>
+    </div>
+    <div class="cat-card" data-cat="mil-nonmem" data-price="20">
+      <h4>Military Guest</h4>
+      <div class="price">£20</div>
+      <div class="sub">PER CHUKKA</div>
+    </div>
+    <div class="cat-card" data-cat="civ-pro" data-price="10">
+      <h4>Civilian Pro Guest</h4>
+      <div class="price">£10</div>
+      <div class="sub">PER CHUKKA</div>
+    </div>
+  </div>
+  <div class="small" style="margin-top: 12px;">
+    Annual playing members already include chukka fees in their subscription — sign up directly in the <a href="#" style="color: var(--burgundy);">booking app</a>, no payment needed here.
+  </div>
+</div>
+
+<!-- Step 2 -->
+<div class="card">
+  <div class="label-eyebrow">Step 2 · Chukkas</div>
+  <h3 class="display" style="margin: 4px 0 14px; font-size: 18px;">How many?</h3>
+  <div class="row">
+    <span>Chukkas this Wednesday</span>
+    <div class="stepper">
+      <button id="ck-minus" aria-label="Decrease">−</button>
+      <span class="stepper-count" id="ck-count">2</span>
+      <button id="ck-plus" aria-label="Increase">+</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3 -->
+<div class="card">
+  <div class="label-eyebrow">Step 3 · Pony hire</div>
+  <h3 class="display" style="margin: 4px 0 14px; font-size: 18px;">Do you need a pony?</h3>
+  <div class="row">
+    <span>Pony hire</span>
+    <div class="toggle">
+      <button id="pony-no" class="active">No · own ponies</button>
+      <button id="pony-yes">Yes</button>
+    </div>
+  </div>
+  <div id="pony-detail" style="display:none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line);">
+    <div class="row">
+      <span>Pony chukkas <span class="small" id="pony-rate-text">(£100 each)</span></span>
+      <div class="stepper">
+        <button id="p-minus" aria-label="Decrease">−</button>
+        <span class="stepper-count" id="p-count">1</span>
+        <button id="p-plus" aria-label="Increase">+</button>
+      </div>
+    </div>
+    <div class="small" style="margin-top: 8px;">Supplied by Polo Biz Ltd (Rosie Ross) via the club. Military rate £95.</div>
+  </div>
+</div>
+
+<!-- Step 4 -->
+<div class="card">
+  <div class="label-eyebrow">Step 4 · Your details</div>
+  <h3 class="display" style="margin: 4px 0 14px; font-size: 18px;">Who are we booking?</h3>
+  <div style="display:flex; flex-direction:column; gap:10px;">
+    <input type="text" placeholder="Full name" id="name-input">
+    <input type="email" placeholder="Email · for booking confirmation" id="email-input">
+    <input type="tel" placeholder="Mobile · for the captain (optional)" id="mobile-input">
+    <div style="display:flex; gap:10px;">
+      <div style="flex:1;">
+        <div class="label-eyebrow" style="margin-bottom:4px;">Handicap</div>
+        <select id="handicap-input">
+          <option value="-2">−2</option><option value="-1">−1</option><option value="0" selected>0</option>
+          <option value="1">+1</option><option value="2">+2</option><option value="3">+3</option><option value="4">+4</option>
+        </select>
+      </div>
+      <div style="flex:1;">
+        <div class="label-eyebrow" style="margin-bottom:4px;">Preference</div>
+        <select>
+          <option>Early chukkas</option>
+          <option selected>Any time</option>
+          <option>Later chukkas</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Order summary -->
+<div class="summary">
+  <div class="label-eyebrow" style="margin-bottom: 10px;">Order summary</div>
+  <div class="summary-row">
+    <span id="line-1">Civilian Day Member · 2 chukkas @ £16</span>
+    <span id="line-1-total">£32</span>
+  </div>
+  <div class="summary-row" id="line-2-row" style="display:none;">
+    <span id="line-2">Pony hire · 2 chukkas @ £100</span>
+    <span id="line-2-total">£200</span>
+  </div>
+  <div class="summary-row total">
+    <span>Total</span>
+    <span id="grand-total">£32</span>
+  </div>
+</div>
+
+<button class="btn-primary" id="pay-btn">
+  Pay &amp; Book My Place
+  <span class="stripe-logo">stripe</span>
+</button>
+
+<div class="small" style="text-align:center; margin-top: 14px; line-height: 1.6;">
+  Secure payment via Stripe. By tapping pay you agree to the <a href="#" style="color: var(--burgundy);">privacy notice</a> and the club's chukka booking terms.
+</div>
+
+<!-- Flow diagram showing what happens behind the scenes -->
+<div class="flow">
+  <div class="label-eyebrow" style="text-align:center;">Behind the scenes</div>
+  <h4 class="display" style="text-align:center; margin: 4px 0 6px; font-size: 15px;">What happens after you pay</h4>
+  <div class="flow-steps">
+    <div class="flow-step"><strong>1.</strong><br>Stripe Checkout opens</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><strong>2.</strong><br>Payment confirmed</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><strong>3.</strong><br>Roster entry created in Firestore</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><strong>4.</strong><br>Email receipt + redirect to booking app</div>
+  </div>
+</div>
+
+</div>
+
+<!-- Stripe checkout modal (preview) -->
+<div class="stripe-preview-backdrop" id="stripe-modal-backdrop">
+  <div class="stripe-modal">
+    <div class="stripe-head">
+      <div class="stripe-brand">stripe</div>
+      <button class="close" id="stripe-close">×</button>
+    </div>
+    <div class="stripe-body" id="stripe-body-content">
+      <div class="stripe-merchant">
+        <div class="stripe-merchant-logo">T</div>
+        <div>
+          <div style="font-weight:500;">Tedworth Park Polo Club</div>
+          <div style="font-size:12px; color:#777;">tedworthparkpolo.com</div>
+        </div>
+      </div>
+      <div class="stripe-line">
+        <span id="stripe-line-1">Civilian Day Member · 2 chukkas</span>
+        <span id="stripe-line-1-amt">£32.00</span>
+      </div>
+      <div class="stripe-line" id="stripe-line-2" style="display:none;">
+        <span id="stripe-line-2-text">Pony hire · 2 chukkas</span>
+        <span id="stripe-line-2-amt">£200.00</span>
+      </div>
+      <div class="stripe-line total">
+        <span>Total due</span>
+        <span id="stripe-total">£32.00</span>
+      </div>
+      <div class="stripe-form">
+        <input class="stripe-input" placeholder="Email">
+        <input class="stripe-input" placeholder="Card number  ·  1234 1234 1234 1234">
+        <div style="display:flex; gap:10px;">
+          <input class="stripe-input" placeholder="MM / YY" style="flex:1;">
+          <input class="stripe-input" placeholder="CVC" style="flex:1;">
+        </div>
+        <input class="stripe-input" placeholder="Cardholder name">
+        <button class="stripe-pay-btn" id="stripe-pay-confirm">Pay <span id="stripe-pay-btn-amt">£32.00</span></button>
+      </div>
+    </div>
+    <div class="success-screen" id="stripe-success">
+      <div class="success-icon">✓</div>
+      <h3 class="display" style="margin: 6px 0; color: var(--burgundy);">Payment successful</h3>
+      <p style="margin: 4px 0 14px; color: var(--muted); font-size: 14px;">
+        You've been added to the Wednesday Chukkas roster.<br>
+        A receipt has been emailed to you.
+      </p>
+      <button class="stripe-pay-btn" id="stripe-go-to-app" style="background: var(--burgundy);">
+        Take me to the booking app →
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // State
+  const state = {
+    category: 'civ-day',
+    pricePerChukka: 16,
+    chukkas: 2,
+    ponyHire: false,
+    ponyCount: 2,
+  };
+  
+  const labels = {
+    'civ-day': 'Civilian Day Member',
+    'civ-nonmem': 'Civilian Guest',
+    'civ-pro': 'Civilian Pro Guest',
+    'mil-mem': 'Military Member',
+    'mil-nonmem': 'Military Guest',
+  };
+  
+  // Category selection
+  document.querySelectorAll('.cat-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      state.category = card.dataset.cat;
+      state.pricePerChukka = parseInt(card.dataset.price, 10);
+      update();
+    });
+  });
+  
+  // Chukka stepper
+  document.getElementById('ck-minus').onclick = () => {
+    if (state.chukkas > 1) { state.chukkas--; state.ponyCount = Math.min(state.ponyCount, state.chukkas); update(); }
+  };
+  document.getElementById('ck-plus').onclick = () => {
+    if (state.chukkas < 8) { state.chukkas++; update(); }
+  };
+  
+  // Pony toggle
+  document.getElementById('pony-no').onclick = () => {
+    state.ponyHire = false;
+    document.getElementById('pony-no').classList.add('active');
+    document.getElementById('pony-yes').classList.remove('active');
+    document.getElementById('pony-detail').style.display = 'none';
+    update();
+  };
+  document.getElementById('pony-yes').onclick = () => {
+    state.ponyHire = true;
+    state.ponyCount = state.chukkas;
+    document.getElementById('pony-yes').classList.add('active');
+    document.getElementById('pony-no').classList.remove('active');
+    document.getElementById('pony-detail').style.display = 'block';
+    update();
+  };
+  document.getElementById('p-minus').onclick = () => {
+    if (state.ponyCount > 1) { state.ponyCount--; update(); }
+  };
+  document.getElementById('p-plus').onclick = () => {
+    if (state.ponyCount < state.chukkas) { state.ponyCount++; update(); }
+  };
+  
+  function ponyRate() { return state.category.startsWith('mil') ? 95 : 100; }
+  
+  function update() {
+    document.getElementById('ck-count').textContent = state.chukkas;
+    document.getElementById('p-count').textContent = state.ponyCount;
+    document.getElementById('pony-rate-text').textContent = '(£' + ponyRate() + ' each)';
+    
+    const chukkaTotal = state.chukkas * state.pricePerChukka;
+    const ponyTotal = state.ponyHire ? state.ponyCount * ponyRate() : 0;
+    const grand = chukkaTotal + ponyTotal;
+    
+    document.getElementById('line-1').textContent = labels[state.category] + ' · ' + state.chukkas + ' chukka' + (state.chukkas === 1 ? '' : 's') + ' @ £' + state.pricePerChukka;
+    document.getElementById('line-1-total').textContent = '£' + chukkaTotal;
+    
+    if (state.ponyHire) {
+      document.getElementById('line-2').textContent = 'Pony hire · ' + state.ponyCount + ' chukka' + (state.ponyCount === 1 ? '' : 's') + ' @ £' + ponyRate();
+      document.getElementById('line-2-total').textContent = '£' + ponyTotal;
+      document.getElementById('line-2-row').style.display = 'flex';
+    } else {
+      document.getElementById('line-2-row').style.display = 'none';
+    }
+    
+    document.getElementById('grand-total').textContent = '£' + grand;
+    
+    // Update the Stripe preview modal contents too
+    document.getElementById('stripe-line-1').textContent = labels[state.category] + ' · ' + state.chukkas + ' chukka' + (state.chukkas === 1 ? '' : 's');
+    document.getElementById('stripe-line-1-amt').textContent = '£' + chukkaTotal.toFixed(2);
+    document.getElementById('stripe-line-2-text').textContent = 'Pony hire · ' + state.ponyCount + ' chukka' + (state.ponyCount === 1 ? '' : 's');
+    document.getElementById('stripe-line-2-amt').textContent = '£' + ponyTotal.toFixed(2);
+    document.getElementById('stripe-line-2').style.display = state.ponyHire ? 'flex' : 'none';
+    document.getElementById('stripe-total').textContent = '£' + grand.toFixed(2);
+    document.getElementById('stripe-pay-btn-amt').textContent = '£' + grand.toFixed(2);
+  }
+  
+  // Open Stripe preview
+  document.getElementById('pay-btn').onclick = () => {
+    document.getElementById('stripe-modal-backdrop').classList.add('open');
+    document.getElementById('stripe-body-content').style.display = 'block';
+    document.getElementById('stripe-success').classList.remove('show');
+  };
+  document.getElementById('stripe-close').onclick = () => {
+    document.getElementById('stripe-modal-backdrop').classList.remove('open');
+  };
+  document.getElementById('stripe-pay-confirm').onclick = () => {
+    // Mock the "payment processing" then show success
+    document.getElementById('stripe-pay-confirm').textContent = 'Processing...';
+    document.getElementById('stripe-pay-confirm').disabled = true;
+    setTimeout(() => {
+      document.getElementById('stripe-body-content').style.display = 'none';
+      document.getElementById('stripe-success').classList.add('show');
+      document.getElementById('stripe-pay-confirm').textContent = 'Pay';
+      document.getElementById('stripe-pay-confirm').disabled = false;
+    }, 1100);
+  };
+  document.getElementById('stripe-go-to-app').onclick = () => {
+    alert('In production, this redirects to https://tppc-chukkas.vercel.app — and the player\'s entry already exists on the roster.');
+    document.getElementById('stripe-modal-backdrop').classList.remove('open');
+  };
+  
+  update();
+</script>
+
+</body>
+</html>
