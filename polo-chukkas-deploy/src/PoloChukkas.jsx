@@ -271,6 +271,36 @@ export default function PoloChukkas() {
   // Captain PIN — visible in source, this is a soft gate not real security
   const CAPTAIN_PIN = '1907';
 
+  // Booking cutoff: no public sign-ups within 24h of Wednesday 17:30 throw-in.
+  // Captain can still make changes; public users are redirected to email.
+  const CUTOFF_HOURS = 24;
+  const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
+
+  // Target Wednesday's 17:30 datetime. Rolls forward to next week after the
+  // current Wednesday's 17:30 has passed.
+  const targetWednesdayThrowIn = () => {
+    const now = new Date();
+    const dow = now.getDay(); // 0=Sun, 3=Wed
+    let daysAhead;
+    if (dow === 3) {
+      // On Wednesday itself — has 17:30 passed?
+      const mins = now.getHours() * 60 + now.getMinutes();
+      daysAhead = mins < (17 * 60 + 30) ? 0 : 7;
+    } else {
+      daysAhead = (3 - dow + 7) % 7;
+    }
+    const wed = new Date(now);
+    wed.setDate(now.getDate() + daysAhead);
+    wed.setHours(17, 30, 0, 0);
+    return wed;
+  };
+
+  const isBookingClosed = () => {
+    const cutoff = targetWednesdayThrowIn().getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
+    return Date.now() >= cutoff;
+  };
+
+
   // Check session storage on mount — captain mode persists until tab closes
   useEffect(() => {
     try {
@@ -344,14 +374,16 @@ export default function PoloChukkas() {
 
   // Load shared data
   useEffect(() => {
-    (async () => {
+    const loadAll = async () => {
       try {
         const r = await window.storage.get('roster', true);
-        if (r?.value) setPlayers(JSON.parse(r.value));
+        if (r?.value) setPlayers(typeof r.value === 'string' ? JSON.parse(r.value) : r.value);
+        else setPlayers([]);
       } catch (e) {}
       try {
         const f = await window.storage.get('fixture-interest', true);
-        if (f?.value) setInterest(JSON.parse(f.value));
+        if (f?.value) setInterest(typeof f.value === 'string' ? JSON.parse(f.value) : f.value);
+        else setInterest({});
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -359,14 +391,25 @@ export default function PoloChukkas() {
       } catch (e) {}
       try {
         const m = await window.storage.get('members', true);
-        if (m?.value) setMembers(JSON.parse(m.value));
+        if (m?.value) setMembers(typeof m.value === 'string' ? JSON.parse(m.value) : m.value);
+        else setMembers({});
       } catch (e) {}
       try {
         const s = await window.storage.get('schedule', true);
-        if (s?.value) setSchedule(JSON.parse(s.value));
+        if (s?.value) setSchedule(typeof s.value === 'string' ? JSON.parse(s.value) : s.value);
+        else setSchedule(null);
       } catch (e) {}
       setLoaded(true);
-    })();
+    };
+
+    loadAll();
+
+    // Live sync: when another device updates the database, refresh from storage.
+    // The deployed Firestore adapter dispatches this event; the Claude artifact
+    // ignores it (no-op).
+    const onRemoteChange = () => loadAll();
+    window.addEventListener('storage-changed', onRemoteChange);
+    return () => window.removeEventListener('storage-changed', onRemoteChange);
   }, []);
 
   // ── Wednesday chukkas ─────────────────────────────────
@@ -421,6 +464,10 @@ export default function PoloChukkas() {
 
   const handleAdd = () => {
     setError('');
+    // Booking cutoff: 24h before Wednesday 17:30. Captain bypasses.
+    if (!captainMode && isBookingClosed()) {
+      return setError(`Bookings are now closed for this Wednesday. To be added at short notice, please contact the captain by email at ${CONTACT_EMAIL}.`);
+    }
     if (!name.trim()) return setError('Please enter a name.');
     if (handicap === '') return setError('Please select a handicap.');
     if (!chukkas) return setError('How many chukkas?');
@@ -2234,6 +2281,43 @@ export default function PoloChukkas() {
                 <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Sign up</div>
                 <h2 className="display" style={{ margin: '0 0 16px', fontSize: '22px' }}>Add a Player</h2>
 
+                {/* Booking cutoff banner — public only, within 24h of Wednesday 17:30 */}
+                {!captainMode && isBookingClosed() && (
+                  <div
+                    role="alert"
+                    style={{
+                      background: '#fef0ee',
+                      border: '1px solid #d27a6f',
+                      borderLeft: '4px solid var(--burgundy)',
+                      borderRadius: '4px',
+                      padding: '14px 16px',
+                      marginBottom: '16px',
+                      fontSize: '13px',
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--burgundy)', marginBottom: '6px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>
+                      Bookings closed for this Wednesday
+                    </div>
+                    <div style={{ color: 'var(--ink)' }}>
+                      Sign-ups close 24 hours before throw-in (Tuesday 17:30). To be added at short notice, please email the captain:
+                    </div>
+                    <a
+                      href={`mailto:${CONTACT_EMAIL}?subject=Wednesday%20Chukkas%20-%20late%20sign-up`}
+                      style={{
+                        display: 'inline-block',
+                        marginTop: '8px',
+                        color: 'var(--burgundy)',
+                        fontWeight: 500,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '3px',
+                      }}
+                    >
+                      {CONTACT_EMAIL}
+                    </a>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <input
                     className="input-field"
@@ -2322,7 +2406,14 @@ export default function PoloChukkas() {
                     </div>
                   )}
 
-                  <button className="btn-primary" onClick={handleAdd}>Add to Roster</button>
+                  <button
+                    className="btn-primary"
+                    onClick={handleAdd}
+                    disabled={!captainMode && isBookingClosed()}
+                    style={!captainMode && isBookingClosed() ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                  >
+                    {(!captainMode && isBookingClosed()) ? 'Bookings closed · email captain' : 'Add to Roster'}
+                  </button>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', lineHeight: 1.45 }}>
                     By signing up, you agree to your name, handicap and (if given) mobile number being used to organise the Wednesday chukkas.{' '}
                     <button
