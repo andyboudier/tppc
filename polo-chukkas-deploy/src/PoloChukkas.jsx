@@ -310,10 +310,12 @@ export default function PoloChukkas() {
   const [members, setMembers] = useState({});
 
   // Fixtures state
-  const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap }] }
+  const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
   const [expandedId, setExpandedId] = useState(null);
   const [fName, setFName] = useState('');
   const [fHandicap, setFHandicap] = useState('');
+  const [fMobile, setFMobile] = useState('');
+  const [fEmail, setFEmail] = useState('');
   const [fError, setFError] = useState('');
 
   // Manual schedule editing
@@ -507,8 +509,7 @@ export default function PoloChukkas() {
     loadAll();
 
     // Live sync: when another device updates Firestore, the storage adapter
-    // dispatches a 'storage-changed' event so we re-pull. Only relevant in the
-    // deployment; the Claude artifact runtime ignores it.
+    // dispatches a 'storage-changed' event so we re-pull.
     const onRemoteChange = () => loadAll();
     window.addEventListener('storage-changed', onRemoteChange);
     return () => window.removeEventListener('storage-changed', onRemoteChange);
@@ -1208,10 +1209,20 @@ export default function PoloChukkas() {
     setFError('');
     if (!fName.trim()) return setFError('Please enter your name.');
     if (fHandicap === '') return setFError('Please select your handicap.');
-    const entry = { id: Date.now(), name: fName.trim(), handicap: parseInt(fHandicap, 10) };
+    const cleanedEmail = fEmail.trim();
+    if (cleanedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail)) {
+      return setFError('That email address looks off — please double-check.');
+    }
+    const entry = {
+      id: Date.now(),
+      name: fName.trim(),
+      handicap: parseInt(fHandicap, 10),
+    };
+    if (fMobile.trim()) entry.mobile = fMobile.trim();
+    if (cleanedEmail) entry.email = cleanedEmail;
     const list = interest[fixtureId] || [];
     saveInterest({ ...interest, [fixtureId]: [...list, entry] });
-    setFName(''); setFHandicap('');
+    setFName(''); setFHandicap(''); setFMobile(''); setFEmail('');
   };
 
   const removeInterest = (fixtureId, entryId) => {
@@ -1224,7 +1235,7 @@ export default function PoloChukkas() {
 
   const toggleFixture = (id) => {
     setFError('');
-    setFName(''); setFHandicap('');
+    setFName(''); setFHandicap(''); setFMobile(''); setFEmail('');
     setExpandedId(expandedId === id ? null : id);
   };
 
@@ -2276,7 +2287,7 @@ export default function PoloChukkas() {
         </header>
 
         {/* Tabs */}
-        <nav className="tabs" style={{ position: 'relative' }}>
+        <nav className="tabs">
           <button className={`tab-btn ${activeTab === 'wed' ? 'active' : ''}`} onClick={() => setActiveTab('wed')}>
             Wed
           </button>
@@ -2288,45 +2299,6 @@ export default function PoloChukkas() {
           </button>
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
             Fixtures
-          </button>
-          <button
-            onClick={hardRefresh}
-            disabled={refreshing}
-            aria-label={refreshing ? 'Refreshing…' : 'Refresh app'}
-            title="Refresh"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              right: '12px',
-              transform: 'translateY(-50%)',
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: '#ffffff',
-              border: '1px solid rgba(107, 31, 42, 0.6)',
-              color: 'var(--burgundy, #6b1f2a)',
-              fontSize: '17px',
-              fontWeight: 600,
-              lineHeight: 1,
-              cursor: refreshing ? 'progress' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              boxShadow: '0 1px 4px rgba(0, 0, 0, 0.12)',
-              WebkitTapHighlightColor: 'transparent',
-              touchAction: 'manipulation',
-            }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                transformOrigin: 'center',
-                animation: refreshing ? 'spin 0.7s linear infinite' : 'none',
-              }}
-            >
-              ↻
-            </span>
           </button>
         </nav>
 
@@ -2367,6 +2339,22 @@ export default function PoloChukkas() {
                         if (parsed === null) return;
                         setThrowInMins(prev => ({ ...prev, [activeDay]: parsed }));
                         try { await window.storage.set(storageKey('throwin', activeDay), throwInInput, true); } catch (e) {}
+
+                        // If a schedule already exists for this day, recompute
+                        // each chukka's time using the new throw-in — teams
+                        // and counts stay exactly as drawn.
+                        const existing = schedules[activeDay];
+                        if (existing && existing.chukkas) {
+                          const updated = {
+                            ...existing,
+                            chukkas: existing.chukkas.map(ck => ({
+                              ...ck,
+                              time: chukkaTime(ck.idx, parsed),
+                            })),
+                          };
+                          saveSchedule(updated, activeDay);
+                        }
+
                         setThrowInEditing(false);
                       }}
                       style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', borderRadius: '4px', padding: '8px 14px', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer' }}
@@ -3079,8 +3067,26 @@ export default function PoloChukkas() {
                                   {registered.map(p => (
                                     <div key={p.id} className="interested-row">
                                       <div className="mini-badge">{fmtH(p.handicap)}</div>
-                                      <div style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{p.name}</div>
-                                      <button className="remove-btn" onClick={() => removeInterest(fx.id, p.id)} aria-label={`Remove ${p.name}`} style={{ fontSize: '18px' }}>×</button>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 500, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                        {captainMode && (p.mobile || p.email) && (
+                                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
+                                            {p.mobile && (
+                                              <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
+                                                {p.mobile}
+                                              </a>
+                                            )}
+                                            {p.email && (
+                                              <a href={`mailto:${p.email}`} className="phone-link" onClick={(e) => e.stopPropagation()} style={{ textTransform: 'none', letterSpacing: 0 }}>
+                                                {p.email}
+                                              </a>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                      {captainMode && (
+                                        <button className="remove-btn" onClick={() => removeInterest(fx.id, p.id)} aria-label={`Remove ${p.name}`} style={{ fontSize: '18px' }}>×</button>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -3112,6 +3118,25 @@ export default function PoloChukkas() {
                                       <option key={h} value={h}>{fmtH(h)}</option>
                                     ))}
                                   </select>
+                                  <input
+                                    className="input-field"
+                                    type="tel"
+                                    placeholder="Mobile (optional, captain only)"
+                                    value={fMobile}
+                                    onChange={(e) => setFMobile(e.target.value)}
+                                    style={{ padding: '12px 14px', fontSize: '15px' }}
+                                  />
+                                  <input
+                                    className="input-field"
+                                    type="email"
+                                    placeholder="Email (optional, captain only)"
+                                    value={fEmail}
+                                    onChange={(e) => setFEmail(e.target.value)}
+                                    style={{ padding: '12px 14px', fontSize: '15px' }}
+                                  />
+                                  <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
+                                    Your name and handicap will be visible to other members. Mobile and email are visible only to the Captain — used for fixture coordination.
+                                  </div>
                                   {fError && (
                                     <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
                                       {fError}
@@ -3214,6 +3239,47 @@ export default function PoloChukkas() {
             )}
           </div>
         </footer>
+
+        {/* Floating refresh button — fixed bottom-right, respects iPhone safe area */}
+        <button
+          onClick={hardRefresh}
+          disabled={refreshing}
+          aria-label={refreshing ? 'Refreshing…' : 'Refresh app'}
+          title="Refresh"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+            right: 'calc(env(safe-area-inset-right, 0px) + 16px)',
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            background: '#ffffff',
+            border: '1px solid rgba(107, 31, 42, 0.6)',
+            color: 'var(--burgundy, #6b1f2a)',
+            fontSize: '20px',
+            fontWeight: 600,
+            lineHeight: 1,
+            cursor: refreshing ? 'progress' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)',
+            WebkitTapHighlightColor: 'transparent',
+            touchAction: 'manipulation',
+            zIndex: 90,
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-block',
+              transformOrigin: 'center',
+              animation: refreshing ? 'spin 0.7s linear infinite' : 'none',
+            }}
+          >
+            ↻
+          </span>
+        </button>
 
         {/* PIN modal — captain access */}
         {pinModalOpen && (
