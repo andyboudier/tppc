@@ -2586,7 +2586,7 @@ export default function PoloChukkas() {
                 <section style={{ marginBottom: '24px' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div>
-                      <div className="label-eyebrow">Tonight's field</div>
+                      <div className="label-eyebrow">{activeDayConfig.fullLabel}'s field</div>
                       <h2 className="display" style={{ margin: '2px 0 0', fontSize: '22px' }}>Roster</h2>
                     </div>
                     {captainMode && (
