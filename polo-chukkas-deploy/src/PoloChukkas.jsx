@@ -375,6 +375,21 @@ export default function PoloChukkas() {
   // Load shared data
   useEffect(() => {
     const loadAll = async () => {
+      // Auto-clear stale roster: if it was stamped for a past Wednesday, last
+      // week's chukkas are done — wipe it from Firestore so the next person
+      // sees a fresh empty roster for the new Wednesday.
+      try {
+        const rw = await window.storage.get('roster-week', true);
+        const storedWeek = rw?.value;
+        if (storedWeek && storedWeek < currentWednesdayISO()) {
+          await Promise.all([
+            window.storage.delete('roster', true).catch(() => {}),
+            window.storage.delete('roster-week', true).catch(() => {}),
+            window.storage.delete('schedule', true).catch(() => {}),
+          ]);
+        }
+      } catch (e) {}
+
       try {
         const r = await window.storage.get('roster', true);
         if (r?.value) setPlayers(typeof r.value === 'string' ? JSON.parse(r.value) : r.value);
@@ -415,8 +430,16 @@ export default function PoloChukkas() {
   // ── Wednesday chukkas ─────────────────────────────────
   const saveRoster = async (newPlayers) => {
     setPlayers(newPlayers);
-    try { await window.storage.set('roster', JSON.stringify(newPlayers), true); }
-    catch (e) { setError('Saved locally only — check your connection.'); }
+    try {
+      await window.storage.set('roster', JSON.stringify(newPlayers), true);
+      // Stamp which Wednesday this roster is for, so we can auto-clear after.
+      // Only stamp non-empty rosters; clearing means no stamp.
+      if (newPlayers.length > 0) {
+        await window.storage.set('roster-week', currentWednesdayISO(), true);
+      } else {
+        try { await window.storage.delete('roster-week', true); } catch (e) {}
+      }
+    } catch (e) { setError('Saved locally only — check your connection.'); }
   };
 
   // Save schedule to Firestore so it syncs across devices.
@@ -822,6 +845,12 @@ export default function PoloChukkas() {
     target.setDate(d.getDate() + daysUntil);
     return target;
   };
+
+  // Local-time ISO date string (YYYY-MM-DD) — avoids UTC drift in BST/GMT.
+  // Used to stamp the roster's Wednesday so the app can auto-clear last week's data.
+  const localISO = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const currentWednesdayISO = () => localISO(nextWednesday());
 
   // Build a filename-safe date slug (YYYY-MM-DD) for the next Wednesday
   const getDateSlug = () => nextWednesday().toISOString().slice(0, 10);
