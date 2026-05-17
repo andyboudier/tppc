@@ -56,10 +56,39 @@ const PREFERENCES = [
   { value: 'any',   label: 'Any time' },
   { value: 'late',  label: 'Later' },
 ];
-const CHUKKA_START_MIN = 17 * 60 + 30; // 17:30
+const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
+const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
+const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
 const CHUKKA_INTERVAL_MIN = 15;
 const SLOTS_PER_CHUKKA = 8; // 4 v 4
 const MIN_CHUKKAS = 4;
+
+// Day configuration. Each day key gets its own roster, schedule, week stamp,
+// and configurable throw-in time stored independently in Firestore.
+const DAY_CONFIG = {
+  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',  defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas' },
+  sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',   defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas' },
+  sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday', defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
+};
+const DAY_KEYS = ['wed', 'sat', 'sun'];
+
+// Format minutes-since-midnight as HH:MM
+const fmtTime = (mins) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}:${m.toString().padStart(2, '0')}`;
+};
+
+// Parse HH:MM string back to minutes
+const parseTime = (str) => {
+  if (!str || typeof str !== 'string') return null;
+  const m = str.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+};
 
 // Example rosters for testing the app
 const EXAMPLES = {
@@ -126,16 +155,16 @@ const EXAMPLES = {
 // Format handicap for display (using proper minus sign for negatives)
 const fmtH = (h) => h < 0 ? `−${Math.abs(h)}` : `${h}`;
 
-// Time for chukka index (0-based)
-const chukkaTime = (idx) => {
-  const total = CHUKKA_START_MIN + idx * CHUKKA_INTERVAL_MIN;
+// Time for chukka index (0-based), given the day's throw-in start time (in minutes since midnight)
+const chukkaTime = (idx, startMin) => {
+  const total = startMin + idx * CHUKKA_INTERVAL_MIN;
   const h = Math.floor(total / 60);
   const m = total % 60;
   return `${h}:${m.toString().padStart(2, '0')}`;
 };
 
 // Build a full evening schedule from the roster
-function buildSchedule(players) {
+function buildSchedule(players, startMin) {
   if (players.length === 0) return null;
 
   // Process players in signup order — earliest signup first.
@@ -215,7 +244,7 @@ function buildSchedule(players) {
     return {
       idx: c,
       number: c + 1,
-      time: chukkaTime(c),
+      time: chukkaTime(c, startMin),
       isEarly: c < numChukkas / 2,
       teamA, teamB, sumA, sumB,
       playerCount: inChukka.length,
@@ -226,18 +255,51 @@ function buildSchedule(players) {
 }
 
 export default function PoloChukkas() {
-  // Tabs
-  const [activeTab, setActiveTab] = useState('chukkas');
+  // Tabs: 'wed' | 'sat' | 'sun' (chukka days) | 'fixtures'
+  const [activeTab, setActiveTab] = useState('wed');
 
-  // Wednesday chukkas state
-  const [players, setPlayers] = useState([]);
+  // Per-day chukkas state — rosters, schedules, throw-in times all keyed by day.
+  // Default throw-ins come from DAY_CONFIG; captain can override them per day.
+  const [rosters, setRosters] = useState({ wed: [], sat: [], sun: [] });
+  const [schedules, setSchedules] = useState({ wed: null, sat: null, sun: null });
+  const [throwInMins, setThrowInMins] = useState({
+    wed: DAY_CONFIG.wed.defaultStartMin,
+    sat: DAY_CONFIG.sat.defaultStartMin,
+    sun: DAY_CONFIG.sun.defaultStartMin,
+  });
+
+  // Form state (shared across days — the form belongs to whichever day is active)
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [handicap, setHandicap] = useState('');
   const [chukkas, setChukkas] = useState('');
   const [preference, setPreference] = useState('any');
-  const [schedule, setSchedule] = useState(null);
   const [error, setError] = useState('');
+
+  // Throw-in time editor (captain mode)
+  const [throwInEditing, setThrowInEditing] = useState(false);
+  const [throwInInput, setThrowInInput] = useState('');
+
+  // Active day — used to index into the day-keyed state. Defaults to 'wed' when
+  // on the fixtures tab so derived values are always defined.
+  const activeDay = DAY_KEYS.includes(activeTab) ? activeTab : 'wed';
+  const activeDayConfig = DAY_CONFIG[activeDay];
+
+  // Convenience accessors so the existing component code can keep using
+  // `players`, `schedule`, etc. without knowing about the day dimension.
+  const players = rosters[activeDay];
+  const schedule = schedules[activeDay];
+  const throwInMin = throwInMins[activeDay];
+
+  // Setters that update only the active day's slice
+  const setPlayers = (next) => setRosters(prev => ({
+    ...prev,
+    [activeDay]: typeof next === 'function' ? next(prev[activeDay]) : next,
+  }));
+  const setSchedule = (next) => setSchedules(prev => ({
+    ...prev,
+    [activeDay]: typeof next === 'function' ? next(prev[activeDay]) : next,
+  }));
 
   // WhatsApp group settings
   const [waLink, setWaLink] = useState('');
@@ -276,30 +338,32 @@ export default function PoloChukkas() {
   const CUTOFF_HOURS = 24;
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
 
-  // Target Wednesday's 17:30 datetime. Rolls forward to next week after the
-  // current Wednesday's 17:30 has passed.
-  const targetWednesdayThrowIn = () => {
+  // Target throw-in datetime for a given day. Rolls forward to next week
+  // after that day's throw-in time has passed. Uses the day's configured
+  // throw-in time (which the captain may have customised).
+  const targetDayThrowIn = (dayKey) => {
+    const cfg = DAY_CONFIG[dayKey];
+    const startMin = throwInMins[dayKey];
     const now = new Date();
-    const dow = now.getDay(); // 0=Sun, 3=Wed
+    const dow = now.getDay();
     let daysAhead;
-    if (dow === 3) {
-      // On Wednesday itself — has 17:30 passed?
+    if (dow === cfg.dow) {
+      // On the target day itself — has the throw-in passed?
       const mins = now.getHours() * 60 + now.getMinutes();
-      daysAhead = mins < (17 * 60 + 30) ? 0 : 7;
+      daysAhead = mins < startMin ? 0 : 7;
     } else {
-      daysAhead = (3 - dow + 7) % 7;
+      daysAhead = (cfg.dow - dow + 7) % 7;
     }
-    const wed = new Date(now);
-    wed.setDate(now.getDate() + daysAhead);
-    wed.setHours(17, 30, 0, 0);
-    return wed;
+    const target = new Date(now);
+    target.setDate(now.getDate() + daysAhead);
+    target.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
+    return target;
   };
 
-  const isBookingClosed = () => {
-    const cutoff = targetWednesdayThrowIn().getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
+  const isBookingClosed = (dayKey = activeDay) => {
+    const cutoff = targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
     return Date.now() >= cutoff;
   };
-
 
   // Check session storage on mount — captain mode persists until tab closes
   useEffect(() => {
@@ -372,33 +436,62 @@ export default function PoloChukkas() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
+  // Storage keys are suffixed by day, except Wed which keeps its original
+  // un-suffixed keys to preserve existing Firestore data.
+  const storageKey = (base, dayKey) => dayKey === 'wed' ? base : `${base}-${dayKey}`;
+
   // Load shared data
   useEffect(() => {
     const loadAll = async () => {
-      // Auto-clear stale roster: if it was stamped for a past Wednesday, last
-      // week's chukkas are done — wipe it from Firestore so the next person
-      // sees a fresh empty roster for the new Wednesday.
-      try {
-        const rw = await window.storage.get('roster-week', true);
-        const storedWeek = rw?.value;
-        if (storedWeek && storedWeek < currentWednesdayISO()) {
-          await Promise.all([
-            window.storage.delete('roster', true).catch(() => {}),
-            window.storage.delete('roster-week', true).catch(() => {}),
-            window.storage.delete('schedule', true).catch(() => {}),
-          ]);
-        }
-      } catch (e) {}
+      // Auto-clear stale rosters per day: if a roster was stamped for a past
+      // day, that day's chukkas are done — wipe it from Firestore so the next
+      // person sees a fresh empty roster for the upcoming day.
+      for (const dk of DAY_KEYS) {
+        try {
+          const rw = await window.storage.get(storageKey('roster-week', dk), true);
+          const storedWeek = rw?.value;
+          if (storedWeek && storedWeek < currentDayISO(dk)) {
+            await Promise.all([
+              window.storage.delete(storageKey('roster', dk), true).catch(() => {}),
+              window.storage.delete(storageKey('roster-week', dk), true).catch(() => {}),
+              window.storage.delete(storageKey('schedule', dk), true).catch(() => {}),
+            ]);
+          }
+        } catch (e) {}
+      }
+
+      // Load per-day rosters, schedules and throw-in times
+      const nextRosters = { wed: [], sat: [], sun: [] };
+      const nextSchedules = { wed: null, sat: null, sun: null };
+      const nextThrowIns = {
+        wed: DAY_CONFIG.wed.defaultStartMin,
+        sat: DAY_CONFIG.sat.defaultStartMin,
+        sun: DAY_CONFIG.sun.defaultStartMin,
+      };
+      for (const dk of DAY_KEYS) {
+        try {
+          const r = await window.storage.get(storageKey('roster', dk), true);
+          if (r?.value) nextRosters[dk] = JSON.parse(r.value);
+        } catch (e) {}
+        try {
+          const s = await window.storage.get(storageKey('schedule', dk), true);
+          if (s?.value) nextSchedules[dk] = JSON.parse(s.value);
+        } catch (e) {}
+        try {
+          const t = await window.storage.get(storageKey('throwin', dk), true);
+          if (t?.value) {
+            const parsed = parseTime(t.value);
+            if (parsed !== null) nextThrowIns[dk] = parsed;
+          }
+        } catch (e) {}
+      }
+      setRosters(nextRosters);
+      setSchedules(nextSchedules);
+      setThrowInMins(nextThrowIns);
 
       try {
-        const r = await window.storage.get('roster', true);
-        if (r?.value) setPlayers(typeof r.value === 'string' ? JSON.parse(r.value) : r.value);
-        else setPlayers([]);
-      } catch (e) {}
-      try {
         const f = await window.storage.get('fixture-interest', true);
-        if (f?.value) setInterest(typeof f.value === 'string' ? JSON.parse(f.value) : f.value);
-        else setInterest({});
+        if (f?.value) setInterest(JSON.parse(f.value));
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -406,51 +499,45 @@ export default function PoloChukkas() {
       } catch (e) {}
       try {
         const m = await window.storage.get('members', true);
-        if (m?.value) setMembers(typeof m.value === 'string' ? JSON.parse(m.value) : m.value);
-        else setMembers({});
-      } catch (e) {}
-      try {
-        const s = await window.storage.get('schedule', true);
-        if (s?.value) setSchedule(typeof s.value === 'string' ? JSON.parse(s.value) : s.value);
-        else setSchedule(null);
+        if (m?.value) setMembers(JSON.parse(m.value));
       } catch (e) {}
       setLoaded(true);
     };
 
     loadAll();
 
-    // Live sync: when another device updates the database, refresh from storage.
-    // The deployed Firestore adapter dispatches this event; the Claude artifact
-    // ignores it (no-op).
+    // Live sync: when another device updates Firestore, the storage adapter
+    // dispatches a 'storage-changed' event so we re-pull. Only relevant in the
+    // deployment; the Claude artifact runtime ignores it.
     const onRemoteChange = () => loadAll();
     window.addEventListener('storage-changed', onRemoteChange);
     return () => window.removeEventListener('storage-changed', onRemoteChange);
   }, []);
 
-  // ── Wednesday chukkas ─────────────────────────────────
-  const saveRoster = async (newPlayers) => {
-    setPlayers(newPlayers);
+  // ── Chukkas — day-aware save helpers ─────────────────────────────────
+  const saveRoster = async (newPlayers, dayKey = activeDay) => {
+    setRosters(prev => ({ ...prev, [dayKey]: newPlayers }));
     try {
-      await window.storage.set('roster', JSON.stringify(newPlayers), true);
-      // Stamp which Wednesday this roster is for, so we can auto-clear after.
+      await window.storage.set(storageKey('roster', dayKey), JSON.stringify(newPlayers), true);
+      // Stamp which day this roster is for, so we can auto-clear after.
       // Only stamp non-empty rosters; clearing means no stamp.
       if (newPlayers.length > 0) {
-        await window.storage.set('roster-week', currentWednesdayISO(), true);
+        await window.storage.set(storageKey('roster-week', dayKey), currentDayISO(dayKey), true);
       } else {
-        try { await window.storage.delete('roster-week', true); } catch (e) {}
+        try { await window.storage.delete(storageKey('roster-week', dayKey), true); } catch (e) {}
       }
     } catch (e) { setError('Saved locally only — check your connection.'); }
   };
 
   // Save schedule to Firestore so it syncs across devices.
   // Pass null to clear (e.g. when roster changes invalidate the draw).
-  const saveSchedule = async (nextSchedule) => {
-    setSchedule(nextSchedule);
+  const saveSchedule = async (nextSchedule, dayKey = activeDay) => {
+    setSchedules(prev => ({ ...prev, [dayKey]: nextSchedule }));
     try {
       if (nextSchedule === null) {
-        await window.storage.delete('schedule', true);
+        await window.storage.delete(storageKey('schedule', dayKey), true);
       } else {
-        await window.storage.set('schedule', JSON.stringify(nextSchedule), true);
+        await window.storage.set(storageKey('schedule', dayKey), JSON.stringify(nextSchedule), true);
       }
     } catch (e) {
       setError('Schedule saved locally only — check your connection.');
@@ -489,7 +576,7 @@ export default function PoloChukkas() {
     setError('');
     // Booking cutoff: 24h before Wednesday 17:30. Captain bypasses.
     if (!captainMode && isBookingClosed()) {
-      return setError(`Bookings are now closed for this Wednesday. To be added at short notice, please contact the captain by email at ${CONTACT_EMAIL}.`);
+      return setError(`Bookings are now closed for this ${activeDayConfig.fullLabel}. To be added at short notice, please contact the captain by email at ${CONTACT_EMAIL}.`);
     }
     if (!name.trim()) return setError('Please enter a name.');
     if (handicap === '') return setError('Please select a handicap.');
@@ -528,7 +615,7 @@ export default function PoloChukkas() {
     setError('');
     setActivePlayer(null);
     setAddingTo(null);
-    const result = buildSchedule(players);
+    const result = buildSchedule(players, throwInMin);
     saveSchedule(result);
     setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   };
@@ -718,8 +805,8 @@ export default function PoloChukkas() {
     const dateStr = getDateStr();
 
     let text = `*Tedworth Park Polo Club*\n`;
-    text += `_Wednesday Evening Chukkas — ${dateStr}_\n`;
-    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0)} throw-in\n\n`;
+    text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
+    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0, throwInMin)} throw-in\n\n`;
 
     schedule.chukkas.forEach(ck => {
       const diff = Math.abs(ck.sumA - ck.sumB);
@@ -776,7 +863,7 @@ export default function PoloChukkas() {
     const times = schedule.chukkas.map(c => c.time).join(' · ');
 
     let text = `*Tedworth Park Polo Club*\n`;
-    text += `_Wednesday Evening Chukkas — ${dateStr}_\n`;
+    text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
     text += `🐎 Chukkas: ${times}\n\n`;
     text += '```\n';
     text += header + '\n';
@@ -803,7 +890,7 @@ export default function PoloChukkas() {
       try {
         await navigator.share({
           files: [file],
-          title: 'Wednesday Evening Chukkas',
+          title: `${activeDayConfig.fullLabel} Chukkas`,
         });
         return;
       } catch (err) {
@@ -835,27 +922,30 @@ export default function PoloChukkas() {
     }
   };
 
-  // Compute the date of the next Wednesday from today (or today if it IS Wednesday)
-  const nextWednesday = () => {
+  // Compute the date of the next occurrence of a given day-of-week from today
+  // (or today if today IS that day). Returns local-midnight on the target day.
+  const nextDayOfWeek = (targetDow) => {
     const d = new Date();
-    const dow = d.getDay(); // 0=Sun, 3=Wed
-    const daysUntil = (3 - dow + 7) % 7;
+    const dow = d.getDay();
+    const daysUntil = (targetDow - dow + 7) % 7;
     const target = new Date(d);
     target.setHours(0, 0, 0, 0);
     target.setDate(d.getDate() + daysUntil);
     return target;
   };
+  const nextChukkaDate = (dayKey = activeDay) => nextDayOfWeek(DAY_CONFIG[dayKey].dow);
 
   // Local-time ISO date string (YYYY-MM-DD) — avoids UTC drift in BST/GMT.
-  // Used to stamp the roster's Wednesday so the app can auto-clear last week's data.
+  // Used to stamp the roster's day so the app can auto-clear last week's data.
   const localISO = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const currentWednesdayISO = () => localISO(nextWednesday());
+  const currentDayISO = (dayKey = activeDay) => localISO(nextChukkaDate(dayKey));
 
-  // Build a filename-safe date slug (YYYY-MM-DD) for the next Wednesday
-  const getDateSlug = () => nextWednesday().toISOString().slice(0, 10);
-  const getDateStr = () =>
-    nextWednesday().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  // Build a filename-safe date slug (YYYY-MM-DD) and human date string for the
+  // active day's next occurrence (used in exports, share text, etc.)
+  const getDateSlug = (dayKey = activeDay) => localISO(nextChukkaDate(dayKey));
+  const getDateStr = (dayKey = activeDay) =>
+    nextChukkaDate(dayKey).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
   // ── Export as Excel (.xlsx) ─────────────────────────
   // ── Export as Excel (.xls) styled to match the in-app table view ─────
@@ -974,7 +1064,7 @@ export default function PoloChukkas() {
     ctx.fillText('Tedworth Park Polo Club', W / 2, padding + 16);
     ctx.fillStyle = '#6b5e4e';
     ctx.font = 'italic 13px Georgia, "Times New Roman", serif';
-    ctx.fillText(`Wednesday Evening Chukkas · ${dateStr}`, W / 2, padding + 40);
+    ctx.fillText(`${activeDayConfig.fullLabel} Chukkas · ${dateStr}`, W / 2, padding + 40);
 
     // Table position
     const tx = (W - tableW) / 2;
@@ -2187,11 +2277,17 @@ export default function PoloChukkas() {
 
         {/* Tabs */}
         <nav className="tabs" style={{ position: 'relative' }}>
-          <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
-            Wed Chukkas
+          <button className={`tab-btn ${activeTab === 'wed' ? 'active' : ''}`} onClick={() => setActiveTab('wed')}>
+            Wed
+          </button>
+          <button className={`tab-btn ${activeTab === 'sat' ? 'active' : ''}`} onClick={() => setActiveTab('sat')}>
+            Sat
+          </button>
+          <button className={`tab-btn ${activeTab === 'sun' ? 'active' : ''}`} onClick={() => setActiveTab('sun')}>
+            Sun
           </button>
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
-            Fixtures 2026
+            Fixtures
           </button>
           <button
             onClick={hardRefresh}
@@ -2236,11 +2332,52 @@ export default function PoloChukkas() {
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
 
-          {/* ─── WEDNESDAY CHUKKAS TAB ─── */}
-          {activeTab === 'chukkas' && (
+          {/* ─── DAY CHUKKAS TABS (Wed/Sat/Sun) ─── */}
+          {DAY_KEYS.includes(activeTab) && (
             <div className="reveal">
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <div className="label-eyebrow">Wednesdays · 17:30</div>
+                <div className="label-eyebrow">
+                  {activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}
+                  {captainMode && !throwInEditing && (
+                    <button
+                      type="button"
+                      onClick={() => { setThrowInInput(fmtTime(throwInMin)); setThrowInEditing(true); }}
+                      style={{
+                        background: 'none', border: 'none', marginLeft: '8px',
+                        fontSize: '10px', color: 'var(--burgundy)',
+                        cursor: 'pointer', textDecoration: 'underline',
+                        textUnderlineOffset: '3px', fontFamily: 'inherit',
+                        letterSpacing: '1px', textTransform: 'uppercase',
+                      }}
+                    >edit time</button>
+                  )}
+                </div>
+                {captainMode && throwInEditing ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', margin: '10px 0' }}>
+                    <input
+                      type="time"
+                      value={throwInInput}
+                      onChange={(e) => setThrowInInput(e.target.value)}
+                      style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '15px', fontFamily: 'inherit' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const parsed = parseTime(throwInInput);
+                        if (parsed === null) return;
+                        setThrowInMins(prev => ({ ...prev, [activeDay]: parsed }));
+                        try { await window.storage.set(storageKey('throwin', activeDay), throwInInput, true); } catch (e) {}
+                        setThrowInEditing(false);
+                      }}
+                      style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', borderRadius: '4px', padding: '8px 14px', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer' }}
+                    >Save</button>
+                    <button
+                      type="button"
+                      onClick={() => { setThrowInEditing(false); setThrowInInput(''); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                    >cancel</button>
+                  </div>
+                ) : null}
                 <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
                   {players.length} {players.length === 1 ? 'rider' : 'riders'} · {totalChukkas} chukkas booked
@@ -2310,7 +2447,7 @@ export default function PoloChukkas() {
                 <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Sign up</div>
                 <h2 className="display" style={{ margin: '0 0 16px', fontSize: '22px' }}>Add a Player</h2>
 
-                {/* Booking cutoff banner — public only, within 24h of Wednesday 17:30 */}
+                {/* Booking cutoff banner — public only, within 24h of this day's throw-in */}
                 {!captainMode && isBookingClosed() && (
                   <div
                     role="alert"
@@ -2326,13 +2463,13 @@ export default function PoloChukkas() {
                     }}
                   >
                     <div style={{ fontWeight: 600, color: 'var(--burgundy)', marginBottom: '6px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>
-                      Bookings closed for this Wednesday
+                      Bookings closed for this {activeDayConfig.fullLabel}
                     </div>
                     <div style={{ color: 'var(--ink)' }}>
-                      Sign-ups close 24 hours before throw-in (Tuesday 17:30). To be added at short notice, please email the captain:
+                      Sign-ups close 24 hours before throw-in ({activeDayConfig.eveningPrev} {fmtTime(throwInMin)}). To be added at short notice, please email the captain:
                     </div>
                     <a
-                      href={`mailto:${CONTACT_EMAIL}?subject=Wednesday%20Chukkas%20-%20late%20sign-up`}
+                      href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(activeDayConfig.fullLabel + ' Chukkas - late sign-up')}`}
                       style={{
                         display: 'inline-block',
                         marginTop: '8px',
@@ -2567,7 +2704,7 @@ export default function PoloChukkas() {
               {schedule && (
                 <section ref={scheduleRef} className="reveal" style={{ marginTop: '36px' }}>
                   <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                    <h2 className="display" style={{ margin: '4px 0', fontSize: '26px' }}>Wednesday Evening Chukkas</h2>
+                    <h2 className="display" style={{ margin: '4px 0', fontSize: '26px' }}>{activeDayConfig.fullLabel} Chukkas</h2>
                     <div className="ornament">
                       <span className="ornament-line" />
                       <span className="ornament-dot" />
@@ -2576,7 +2713,7 @@ export default function PoloChukkas() {
                     <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
                       <span className="display-italic">{schedule.numChukkas} chukkas</span>
                       {' · '}
-                      {chukkaTime(0)} — {chukkaTime(schedule.numChukkas - 1)}
+                      {chukkaTime(0, throwInMin)} — {chukkaTime(schedule.numChukkas - 1, throwInMin)}
                       {' · '}
                       {schedule.totalSlots} player-slots
                     </div>
