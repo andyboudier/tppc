@@ -3277,6 +3277,16 @@ export default function PoloChukkas() {
                               </tr>
                             ))}
                           </tbody>
+                          <tfoot>
+                            <tr>
+                              <td colSpan={3} style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', padding: '6px 8px', textAlign: 'right', borderTop: '2px solid var(--line)' }}>Players</td>
+                              {schedule.chukkas.map(ck => (
+                                <td key={ck.idx} style={{ textAlign: 'center', fontWeight: 600, fontSize: '12px', color: 'var(--ink)', padding: '6px 4px', borderTop: '2px solid var(--line)', whiteSpace: 'nowrap' }}>
+                                  {ck.teamA.length} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>vs</span> {ck.teamB.length}
+                                </td>
+                              ))}
+                            </tr>
+                          </tfoot>
                         </table>
                         <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', paddingBottom: '8px' }} className="display-italic">
                           B = Blue · W = White · Scroll sideways to see all chukkas
