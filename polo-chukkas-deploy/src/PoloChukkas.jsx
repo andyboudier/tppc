@@ -673,6 +673,16 @@ export default function PoloChukkas() {
     return () => window.removeEventListener('storage-changed', onRemoteChange);
   }, []);
 
+  // When the throw-in time changes, clear any pending availableFrom / availableTo
+  // values that no longer correspond to a valid option in the updated dropdowns.
+  // This prevents the selects showing a stale time that isn't in the option list.
+  useEffect(() => {
+    const fromOptions = new Set([0, 1, 2, 3].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
+    const toOptions   = new Set([4, 5, 6, 7].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
+    if (availableFrom && !fromOptions.has(availableFrom)) setAvailableFrom('');
+    if (availableTo   && !toOptions.has(availableTo))     setAvailableTo('');
+  }, [throwInMin]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Chukkas — day-aware save helpers ─────────────────────────────────
   const saveRoster = async (newPlayers, dayKey = activeDay) => {
     setRosters(prev => ({ ...prev, [dayKey]: newPlayers }));
