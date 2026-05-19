@@ -51,11 +51,6 @@ const FIXTURES_2026 = [
 
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
-const PREFERENCES = [
-  { value: 'early', label: 'Early' },
-  { value: 'any',   label: 'Any time' },
-  { value: 'late',  label: 'Later' },
-];
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
 const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
@@ -238,41 +233,37 @@ function buildSchedule(players, startMin) {
 
   ordered.forEach(player => {
     const wantedRaw = player.chukkas;
-    const wanted = Math.min(wantedRaw, numChukkas);
-    if (wanted < wantedRaw) {
-      capped.push({ player, requested: wantedRaw, given: wanted });
-    }
 
-    // Build this player's preference order: their ideal chukkas first,
-    // followed by every other chukka as fallback.
-    const ideal = new Set();
-    if (player.preference === 'early') {
-      for (let i = 0; i < wanted; i++) ideal.add(i);
-    } else if (player.preference === 'late') {
-      for (let i = 0; i < wanted; i++) ideal.add(numChukkas - wanted + i);
-    } else {
-      // 'any' — spread evenly using floor((i + 0.5) * N / C)
-      for (let i = 0; i < wanted; i++) {
-        ideal.add(Math.min(numChukkas - 1, Math.floor((i + 0.5) * numChukkas / wanted)));
-      }
-      let probe = 0;
-      while (ideal.size < wanted && probe < numChukkas) {
-        if (!ideal.has(probe)) ideal.add(probe);
-        probe++;
+    // Resolve "available from" into a starting chukka index.
+    // - availableFrom is a HH:MM string. Default (missing/legacy data) = throw-in time.
+    // - availableIdx is the first chukka at or after that time. Players with
+    //   availableFrom earlier than throw-in get availableIdx = 0 (treated as
+    //   "from throw-in" — e.g. happens when captain pushes the throw-in time
+    //   later AFTER a player already signed up).
+    let availableIdx = 0;
+    if (player.availableFrom) {
+      const targetMin = parseTime(player.availableFrom);
+      if (targetMin !== null) {
+        availableIdx = Math.max(0, Math.ceil((targetMin - startMin) / CHUKKA_INTERVAL_MIN));
       }
     }
-    const preferenceOrder = [...ideal].sort((a, b) => a - b);
-    for (let i = 0; i < numChukkas; i++) {
-      if (!ideal.has(i)) preferenceOrder.push(i);
-    }
+    const availableCount = Math.max(0, numChukkas - availableIdx);
 
-    // Place this player into chukkas, honouring the 8-per-chukka cap AND
-    // the configured conflict pairs (e.g. Ed and William not in the same
-    // chukka). If conflicts block enough chukkas that the player can't get
-    // their requested count, they'll show up in the `reduced` list below —
-    // captain can review and adjust manually.
+    // First cap: by total chukkas in the schedule (existing behaviour)
+    const cappedWanted = Math.min(wantedRaw, numChukkas);
+    if (cappedWanted < wantedRaw) {
+      capped.push({ player, requested: wantedRaw, given: cappedWanted });
+    }
+    // Second cap: by the chukkas actually available from their start time
+    const wanted = Math.min(cappedWanted, availableCount);
+
+    // Place this player into chukkas, starting from their earliest available
+    // and going forward. Respects the 8-per-chukka cap AND the configured
+    // conflict pairs (e.g. Ed and William not in the same chukka). Any
+    // shortfall (whether from availability, capacity, or conflicts) shows up
+    // in the `reduced` list — captain can review and adjust manually.
     const myChukkas = [];
-    for (const c of preferenceOrder) {
+    for (let c = availableIdx; c < numChukkas; c++) {
       if (myChukkas.length >= wanted) break;
       if (remainingCapacity[c] <= 0) continue;
       if (chukkaHasConflictWith(chukkaPlayers[c], player.name)) continue;
@@ -281,8 +272,8 @@ function buildSchedule(players, startMin) {
       remainingCapacity[c]--;
     }
 
-    if (myChukkas.length < wanted) {
-      reduced.push({ player, requested: wanted, given: myChukkas.length });
+    if (myChukkas.length < cappedWanted) {
+      reduced.push({ player, requested: cappedWanted, given: myChukkas.length });
     }
 
     assignments.set(player.id, myChukkas.sort((a, b) => a - b));
@@ -372,7 +363,10 @@ export default function PoloChukkas() {
   const [mobile, setMobile] = useState('');
   const [handicap, setHandicap] = useState('');
   const [chukkas, setChukkas] = useState('');
-  const [preference, setPreference] = useState('any');
+  // Player's earliest available start time (HH:MM string matching one of the
+  // first four chukka start times for the active day). Empty string means
+  // "available from throw-in" — the default.
+  const [availableFrom, setAvailableFrom] = useState('');
   const [error, setError] = useState('');
 
   // Throw-in time editor (captain mode)
@@ -405,7 +399,7 @@ export default function PoloChukkas() {
   const [waEditing, setWaEditing] = useState(false);
   const [waInput, setWaInput] = useState('');
 
-  // Members directory — remembers handicap/mobile/preference per name across weeks
+  // Members directory — remembers handicap/mobile/availability per name across weeks
   const [members, setMembers] = useState({});
 
   // Fixtures state
@@ -650,7 +644,7 @@ export default function PoloChukkas() {
         name: player.name.trim(),
         handicap: player.handicap,
         mobile: player.mobile || '',
-        preference: player.preference || 'any',
+        availableFrom: player.availableFrom || '',
         lastUsed: Date.now(),
       },
     };
@@ -664,7 +658,7 @@ export default function PoloChukkas() {
     setName(m.name);
     setMobile(m.mobile || '');
     setHandicap(String(m.handicap));
-    setPreference(m.preference || 'any');
+    setAvailableFrom(m.availableFrom || '');
     // Leave chukkas blank — varies week to week
   };
 
@@ -693,11 +687,12 @@ export default function PoloChukkas() {
       mobile: mobile.trim() || undefined,
       handicap: h,
       chukkas: c,
-      preference,
+      // Stored as HH:MM string; empty = available from the throw-in (default)
+      availableFrom: availableFrom || fmtTime(throwInMin),
     };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setPreference('any');
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom('');
     saveSchedule(null);
   };
 
@@ -741,7 +736,7 @@ export default function PoloChukkas() {
           name: p.name,
           handicap: p.handicap,
           mobile: p.mobile || '',
-          preference: p.preference || 'any',
+          availableFrom: p.availableFrom || '',
           lastUsed: now - (seeded.length - i),
         };
       });
@@ -2632,20 +2627,24 @@ export default function PoloChukkas() {
                   </div>
 
                   <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Start preference</label>
-                    <div className="segmented" role="radiogroup" aria-label="Start preference">
-                      {PREFERENCES.map(pref => (
-                        <button
-                          key={pref.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={preference === pref.value}
-                          className={`seg-btn ${preference === pref.value ? 'active' : ''}`}
-                          onClick={() => setPreference(pref.value)}
-                        >
-                          {pref.label}
-                        </button>
-                      ))}
+                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Available from</label>
+                    <select
+                      className="input-field select-field"
+                      value={availableFrom || fmtTime(throwInMin)}
+                      onChange={(e) => setAvailableFrom(e.target.value)}
+                      aria-label="Earliest chukka you can play"
+                    >
+                      {[0, 1, 2, 3].map(i => {
+                        const t = fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN);
+                        return (
+                          <option key={t} value={t}>
+                            {t}{i === 0 ? ' (throw-in)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                      Pick the earliest chukka you can be on the field. If fewer chukkas are available from then, your chukka count is reduced.
                     </div>
                   </div>
 
@@ -2703,17 +2702,21 @@ export default function PoloChukkas() {
                   </div>
 
                   {players.map((p, i) => {
-                    const prefLabel = p.preference === 'early' ? 'early' : p.preference === 'late' ? 'later' : 'any time';
+                    // Show "from HH:MM" if they nominated a start time later than the throw-in
+                    // (i.e. they're arriving late). Otherwise hide — "from throw-in" is the default.
+                    const targetMin = p.availableFrom ? parseTime(p.availableFrom) : null;
+                    const isLateArriver = targetMin !== null && targetMin > throwInMin;
+                    const availLabel = isLateArriver ? `from ${p.availableFrom}` : null;
                     return (
                       <div key={p.id} className="player-row anim-in" style={{ animationDelay: `${i * 0.04}s` }}>
                         <div className="handicap-badge">{fmtH(p.handicap)}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                           <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                            <span className="pref-tag">{prefLabel}</span>
+                            {availLabel && <span className="pref-tag">{availLabel}</span>}
                             {p.mobile && captainMode && (
                               <>
-                                <span style={{ margin: '0 6px' }}>·</span>
+                                {availLabel && <span style={{ margin: '0 6px' }}>·</span>}
                                 <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
                                   {p.mobile}
                                 </a>
@@ -3482,7 +3485,7 @@ export default function PoloChukkas() {
                   <li>Your name (when you sign up to play or register interest in a fixture)</li>
                   <li>Your mobile number (optional — only if you choose to give it)</li>
                   <li>Your polo handicap</li>
-                  <li>How many chukkas you'd like to play, and your time preference</li>
+                  <li>How many chukkas you'd like to play, and your earliest available start time</li>
                 </ul>
 
                 <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Why we collect it</h4>
