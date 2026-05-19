@@ -139,6 +139,29 @@ const parseTime = (str) => {
 
 // Example rosters for testing the app
 const EXAMPLES = {
+  may20: {
+    label: 'Wed 20 May',
+    note: '17 players · 8 chukkas',
+    roster: [
+      { name: 'Rosie Ross',     handicap:  2, chukkas: 5, availableFrom: '17:30', mobile: '07700 900012' },
+      { name: 'Ed Whittington', handicap:  1, chukkas: 2, availableFrom: '18:00', mobile: '07700 900401' },
+      { name: 'Brad',           handicap:  1, chukkas: 6, availableFrom: '18:15', mobile: '07700 900034' },
+      { name: 'Oliver Olsen',   handicap:  1, chukkas: 4, availableFrom: '18:30', mobile: '07700 900412' },
+      { name: 'Piers F',        handicap:  0, chukkas: 2, availableFrom: '17:30', mobile: '07700 900334' },
+      { name: 'Alex W',         handicap:  0, chukkas: 4, availableFrom: '17:30', mobile: '07700 900245' },
+      { name: 'Rosie L',        handicap:  0, chukkas: 6, availableFrom: '17:30', mobile: '07700 900056' },
+      { name: 'Steve Collins',  handicap:  0, chukkas: 4, availableFrom: '18:45', mobile: '07700 900423' },
+      { name: 'Robert T-R',     handicap: -1, chukkas: 3, availableFrom: '17:30', mobile: '07700 900434' },
+      { name: 'Debbie B',       handicap: -1, chukkas: 5, availableFrom: '17:30', mobile: '07700 900091' },
+      { name: 'Lizzie W',       handicap: -1, chukkas: 2, availableFrom: '18:00', mobile: '07700 900287' },
+      { name: 'Andy B',         handicap: -1, chukkas: 4, availableFrom: '17:30', mobile: '07700 900298' },
+      { name: 'Max Morant',     handicap: -1, chukkas: 2, availableFrom: '18:30', mobile: '07700 900445' },
+      { name: 'William W',      handicap: -2, chukkas: 2, availableFrom: '18:30', mobile: '07700 900147' },
+      { name: 'Alfie',          handicap: -2, chukkas: 2, availableFrom: '17:30', mobile: '07700 900192' },
+      { name: 'Helen G',        handicap: -2, chukkas: 2, availableFrom: '18:30', mobile: '07700 900215' },
+      { name: 'Steve Wells',    handicap: -2, chukkas: 4, availableFrom: '18:45', mobile: '07700 900168' },
+    ],
+  },
   may13: {
     label: 'Wed 13 May',
     note: '10 players · 5 chukkas',
@@ -247,7 +270,21 @@ function buildSchedule(players, startMin) {
         availableIdx = Math.max(0, Math.ceil((targetMin - startMin) / CHUKKA_INTERVAL_MIN));
       }
     }
-    const availableCount = Math.max(0, numChukkas - availableIdx);
+    // Resolve "available to" into an upper-bound chukka index (inclusive).
+    // - availableTo is a HH:MM string matching the START time of the latest
+    //   chukka the player can stay for. Empty / missing = no upper cap.
+    // - availableToIdx is clamped strictly to numChukkas - 1; if the player's
+    //   window is empty (e.g. availableIdx > availableToIdx) availableCount
+    //   falls out as 0 below and the loop simply doesn't place them.
+    let availableToIdx = numChukkas - 1;
+    if (player.availableTo) {
+      const targetMin = parseTime(player.availableTo);
+      if (targetMin !== null) {
+        const idx = Math.floor((targetMin - startMin) / CHUKKA_INTERVAL_MIN);
+        availableToIdx = Math.min(numChukkas - 1, idx);
+      }
+    }
+    const availableCount = Math.max(0, availableToIdx - availableIdx + 1);
 
     // First cap: by total chukkas in the schedule (existing behaviour)
     const cappedWanted = Math.min(wantedRaw, numChukkas);
@@ -258,8 +295,9 @@ function buildSchedule(players, startMin) {
     const wanted = Math.min(cappedWanted, availableCount);
 
     // Place this player into chukkas, starting from their earliest available
-    // and going forward. Respects the 8-per-chukka cap AND the configured
-    // conflict pairs (e.g. Ed and William not in the same chukka).
+    // and going forward up to their availableTo cap (default: end of evening).
+    // Respects the 8-per-chukka cap AND the configured conflict pairs (e.g.
+    // Ed and William not in the same chukka).
     //
     // Special case for players booking exactly 2 chukkas: try to leave a
     // 1-chukka gap between assignments. This helps when they're using the
@@ -273,7 +311,7 @@ function buildSchedule(players, startMin) {
     const minStep = wantsGap ? 2 : 1;
     const myChukkas = [];
     let lastPlaced = -minStep; // sentinel — first placement always succeeds
-    for (let c = availableIdx; c < numChukkas; c++) {
+    for (let c = availableIdx; c <= availableToIdx; c++) {
       if (myChukkas.length >= wanted) break;
       if (c - lastPlaced < minStep) continue;
       if (remainingCapacity[c] <= 0) continue;
@@ -288,7 +326,7 @@ function buildSchedule(players, startMin) {
     // leaving the player short.
     if (wantsGap && myChukkas.length < wanted) {
       const already = new Set(myChukkas);
-      for (let c = availableIdx; c < numChukkas; c++) {
+      for (let c = availableIdx; c <= availableToIdx; c++) {
         if (myChukkas.length >= wanted) break;
         if (already.has(c)) continue;
         if (remainingCapacity[c] <= 0) continue;
@@ -394,6 +432,10 @@ export default function PoloChukkas() {
   // first four chukka start times for the active day). Empty string means
   // "available from throw-in" — the default.
   const [availableFrom, setAvailableFrom] = useState('');
+  // Player's latest available chukka — HH:MM string matching the START time
+  // of the last chukka they can play (INCLUSIVE). Empty string means
+  // "available until the end of the evening" — the default.
+  const [availableTo, setAvailableTo] = useState('');
   const [error, setError] = useState('');
 
   // Throw-in time editor (captain mode)
@@ -672,6 +714,7 @@ export default function PoloChukkas() {
         handicap: player.handicap,
         mobile: player.mobile || '',
         availableFrom: player.availableFrom || '',
+        availableTo: player.availableTo || '',
         lastUsed: Date.now(),
       },
     };
@@ -686,6 +729,7 @@ export default function PoloChukkas() {
     setMobile(m.mobile || '');
     setHandicap(String(m.handicap));
     setAvailableFrom(m.availableFrom || '');
+    setAvailableTo(m.availableTo || '');
     // Leave chukkas blank — varies week to week
   };
 
@@ -701,6 +745,14 @@ export default function PoloChukkas() {
     const h = parseInt(handicap, 10);
     const c = parseInt(chukkas, 10);
     if (isNaN(c) || c < 1 || c > 8) return setError('Chukkas must be between 1 and 8.');
+    // Sanity check: if both bounds are set, availableTo must not be earlier than availableFrom.
+    if (availableFrom && availableTo) {
+      const fromMin = parseTime(availableFrom);
+      const toMin = parseTime(availableTo);
+      if (fromMin !== null && toMin !== null && toMin < fromMin) {
+        return setError('"Available to" must be the same as or later than "Available from".');
+      }
+    }
     // Prevent the same person being added twice (case- and whitespace-insensitive)
     const cleanedName = name.trim().replace(/\s+/g, ' ');
     const normalized = cleanedName.toLowerCase();
@@ -716,10 +768,12 @@ export default function PoloChukkas() {
       chukkas: c,
       // Stored as HH:MM string; empty = available from the throw-in (default)
       availableFrom: availableFrom || fmtTime(throwInMin),
+      // Stored as HH:MM string; empty = no upper cap (play through last chukka)
+      availableTo: availableTo || '',
     };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom('');
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo('');
     saveSchedule(null);
   };
 
@@ -764,6 +818,7 @@ export default function PoloChukkas() {
           handicap: p.handicap,
           mobile: p.mobile || '',
           availableFrom: p.availableFrom || '',
+          availableTo: p.availableTo || '',
           lastUsed: now - (seeded.length - i),
         };
       });
@@ -2675,6 +2730,29 @@ export default function PoloChukkas() {
                     </div>
                   </div>
 
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Available to</label>
+                    <select
+                      className="input-field select-field"
+                      value={availableTo}
+                      onChange={(e) => setAvailableTo(e.target.value)}
+                      aria-label="Latest chukka you can play"
+                    >
+                      <option value="">Stay until the end</option>
+                      {[4, 5, 6, 7].map(i => {
+                        const t = fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN);
+                        return (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                      Pick the latest chukka you can stay for. Leave as "Stay until the end" if you've got no other plans.
+                    </div>
+                  </div>
+
                   {error && (
                     <div style={{ fontSize: '13px', color: 'var(--danger)', padding: '10px 14px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
                       {error}
@@ -2712,6 +2790,9 @@ export default function PoloChukkas() {
                     </div>
                     {captainMode && (
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button onClick={() => loadExample('may20')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          load 20 May
+                        </button>
                         <button onClick={() => loadExample('may13')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                           load 13 May
                         </button>
@@ -2729,11 +2810,22 @@ export default function PoloChukkas() {
                   </div>
 
                   {players.map((p, i) => {
-                    // Show "from HH:MM" if they nominated a start time later than the throw-in
-                    // (i.e. they're arriving late). Otherwise hide — "from throw-in" is the default.
-                    const targetMin = p.availableFrom ? parseTime(p.availableFrom) : null;
-                    const isLateArriver = targetMin !== null && targetMin > throwInMin;
-                    const availLabel = isLateArriver ? `from ${p.availableFrom}` : null;
+                    // Build the availability label shown beneath the name.
+                    // - Hide "from" when the player starts at the throw-in (the default).
+                    // - Show "until HH:MM" when they nominated an early-finish time.
+                    // - When both are non-default, render as a compact "HH:MM–HH:MM" range.
+                    const fromMin = p.availableFrom ? parseTime(p.availableFrom) : null;
+                    const toMin = p.availableTo ? parseTime(p.availableTo) : null;
+                    const isLateArriver = fromMin !== null && fromMin > throwInMin;
+                    const hasEarlyFinish = toMin !== null;
+                    let availLabel = null;
+                    if (isLateArriver && hasEarlyFinish) {
+                      availLabel = `${p.availableFrom}–${p.availableTo}`;
+                    } else if (isLateArriver) {
+                      availLabel = `from ${p.availableFrom}`;
+                    } else if (hasEarlyFinish) {
+                      availLabel = `until ${p.availableTo}`;
+                    }
                     return (
                       <div key={p.id} className="player-row anim-in" style={{ animationDelay: `${i * 0.04}s` }}>
                         <div className="handicap-badge">{fmtH(p.handicap)}</div>
