@@ -61,8 +61,7 @@ const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
 const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
 const CHUKKA_INTERVAL_MIN = 15;
 const SLOTS_PER_CHUKKA = 8; // 4 v 4
-const MIN_CHUKKAS = 4;
-const MIN_PLAYERS_TO_PLAY = 4; // a chukka with fewer than this is not run
+const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move players to honour this where possible
 
 // Pairs of players who must not share a chukka. Each entry is two name
 // patterns (lower-case, space-separated). Matching is prefix-based on each
@@ -225,7 +224,9 @@ function buildSchedule(players, startMin) {
   const ordered = [...players].sort((a, b) => a.id - b.id);
 
   const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
-  const numChukkas = Math.max(MIN_CHUKKAS, Math.ceil(totalRequested / SLOTS_PER_CHUKKA));
+  // Number of chukkas is purely driven by demand: total slots requested ÷ 8.
+  // Floor is 1 (need at least one chukka if anyone signed up).
+  const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA));
 
   // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
   const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
@@ -287,9 +288,48 @@ function buildSchedule(players, startMin) {
     assignments.set(player.id, myChukkas.sort((a, b) => a - b));
   });
 
-  // Build each chukka with balanced teams (max 4 per team naturally, since cap = 8).
-  // Chukkas with fewer than MIN_PLAYERS_TO_PLAY players are flagged as
-  // cancelled — polo is 4-a-side, so a chukka can't run with fewer than 4.
+  // Redistribution pass — try to bring every chukka up to at least
+  // MIN_PLAYERS_PER_CHUKKA (4) by moving players FROM chukkas that have
+  // spare capacity (5+ players) TO ones that don't yet have 4. A player
+  // can only move to a chukka they aren't already in, and the move must
+  // not introduce a conflict pair. Safety cap on iterations prevents loops.
+  let safety = numChukkas * SLOTS_PER_CHUKKA * 2;
+  while (safety-- > 0) {
+    // Find the most-under-full chukka (fewest players, and below the target)
+    let underIdx = -1, underCount = MIN_PLAYERS_PER_CHUKKA;
+    for (let i = 0; i < numChukkas; i++) {
+      if (chukkaPlayers[i].length < underCount) {
+        underIdx = i;
+        underCount = chukkaPlayers[i].length;
+      }
+    }
+    if (underIdx === -1) break; // all chukkas have >= 4
+
+    // Find a donor chukka — most-loaded one (>= 5) with a movable player
+    let bestSrcIdx = -1, bestPlayer = null, bestSrcCount = MIN_PLAYERS_PER_CHUKKA;
+    for (let s = 0; s < numChukkas; s++) {
+      if (s === underIdx) continue;
+      if (chukkaPlayers[s].length <= MIN_PLAYERS_PER_CHUKKA) continue;
+      if (chukkaPlayers[s].length <= bestSrcCount) continue;
+      // Find a player in s who could move to underIdx
+      const movable = chukkaPlayers[s].find(p =>
+        !chukkaPlayers[underIdx].some(q => q.id === p.id) &&
+        !chukkaHasConflictWith(chukkaPlayers[underIdx], p.name)
+      );
+      if (movable) {
+        bestSrcIdx = s;
+        bestPlayer = movable;
+        bestSrcCount = chukkaPlayers[s].length;
+      }
+    }
+    if (bestSrcIdx === -1) break; // can't redistribute further
+
+    // Move
+    chukkaPlayers[bestSrcIdx] = chukkaPlayers[bestSrcIdx].filter(p => p.id !== bestPlayer.id);
+    chukkaPlayers[underIdx].push(bestPlayer);
+  }
+
+  // Build each chukka with balanced teams (max 4 per team naturally, since cap = 8)
   const chukkas = chukkaPlayers.map((inChukka, c) => {
     const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
     const teamA = [], teamB = [];
@@ -307,7 +347,6 @@ function buildSchedule(players, startMin) {
       isEarly: c < numChukkas / 2,
       teamA, teamB, sumA, sumB,
       playerCount: inChukka.length,
-      cancelled: inChukka.length < MIN_PLAYERS_TO_PLAY,
     };
   });
 
@@ -733,17 +772,13 @@ export default function PoloChukkas() {
     saveSchedule(null); // Roster changed — invalidate the schedule
   };
 
-  // Recompute sums, counts, and cancelled status after a schedule mutation
-  const refreshChukka = (ck) => {
-    const playerCount = ck.teamA.length + ck.teamB.length;
-    return {
-      ...ck,
-      sumA: ck.teamA.reduce((s, p) => s + p.handicap, 0),
-      sumB: ck.teamB.reduce((s, p) => s + p.handicap, 0),
-      playerCount,
-      cancelled: playerCount < MIN_PLAYERS_TO_PLAY,
-    };
-  };
+  // Recompute sums and counts after a schedule mutation
+  const refreshChukka = (ck) => ({
+    ...ck,
+    sumA: ck.teamA.reduce((s, p) => s + p.handicap, 0),
+    sumB: ck.teamB.reduce((s, p) => s + p.handicap, 0),
+    playerCount: ck.teamA.length + ck.teamB.length,
+  });
 
   const updateSchedule = (mapper) => {
     if (!schedule) return;
@@ -864,14 +899,12 @@ export default function PoloChukkas() {
   const generateTeamSheet = () => {
     if (!schedule) return '';
     const dateStr = getDateStr();
-    const runningChukkas = schedule.chukkas.filter(ck => !ck.cancelled);
-    const cancelledChukkas = schedule.chukkas.filter(ck => ck.cancelled);
 
     let text = `*Tedworth Park Polo Club*\n`;
     text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
-    text += `🐎 ${runningChukkas.length} chukkas, ${chukkaTime(0, throwInMin)} throw-in\n\n`;
+    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0, throwInMin)} throw-in\n\n`;
 
-    runningChukkas.forEach(ck => {
+    schedule.chukkas.forEach(ck => {
       const diff = Math.abs(ck.sumA - ck.sumB);
       text += `*Chukka ${ck.number} · ${ck.time}*  (${ck.teamA.length}v${ck.teamB.length}`;
       if (ck.playerCount > 0) text += ` · Δ${diff}`;
@@ -882,13 +915,9 @@ export default function PoloChukkas() {
       if (ck.teamB.length > 0) {
         text += `⚪ ${ck.teamB.map(p => `${p.name} (${fmtH(p.handicap)})`).join(', ')}\n`;
       }
+      if (ck.playerCount === 0) text += `_no players_\n`;
       text += '\n';
     });
-
-    if (cancelledChukkas.length > 0) {
-      const labels = cancelledChukkas.map(ck => `${ck.number} (${ck.time}, ${ck.playerCount}/${MIN_PLAYERS_TO_PLAY})`).join(', ');
-      text += `_Not running — need ${MIN_PLAYERS_TO_PLAY} players minimum: chukka ${labels}_\n\n`;
-    }
 
     if (schedule.reduced && schedule.reduced.length > 0) {
       text += `_Reduced for fairness: ${schedule.reduced.map(r => `${r.player.name} (${r.given} of ${r.requested})`).join(', ')}_\n\n`;
@@ -903,10 +932,6 @@ export default function PoloChukkas() {
     if (!schedule) return '';
     const dateStr = getDateStr();
 
-    // Only include chukkas that are actually running
-    const running = schedule.chukkas.filter(ck => !ck.cancelled);
-    const cancelled = schedule.chukkas.filter(ck => ck.cancelled);
-
     // Sort players by handicap descending (captain's convention)
     const sorted = [...players].sort((a, b) => b.handicap - a.handicap);
     const nameWidth = Math.max(...sorted.map(p => p.name.length), 4);
@@ -920,31 +945,26 @@ export default function PoloChukkas() {
 
     // Header lines
     let header = 'Name'.padEnd(nameWidth) + ' HCP  C ';
-    running.forEach(ck => { header += ' ' + ck.number; });
+    schedule.chukkas.forEach((_, i) => { header += ' ' + (i + 1); });
 
     const rows = sorted.map(p => {
       let row = p.name.padEnd(nameWidth);
       row += ' ' + fmtH(p.handicap).padStart(3);
       row += '  ' + String(p.chukkas);
       row += ' ';
-      running.forEach(ck => { row += ' ' + cellFor(p, ck); });
+      schedule.chukkas.forEach(ck => { row += ' ' + cellFor(p, ck); });
       return row.trimEnd();
     });
 
-    const times = running.map(c => c.time).join(' · ');
+    const times = schedule.chukkas.map(c => c.time).join(' · ');
 
     let text = `*Tedworth Park Polo Club*\n`;
     text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
-    text += `🐎 Chukkas: ${times || '(none running)'}\n\n`;
+    text += `🐎 Chukkas: ${times}\n\n`;
     text += '```\n';
     text += header + '\n';
     text += rows.join('\n') + '\n';
     text += '```';
-
-    if (cancelled.length > 0) {
-      const labels = cancelled.map(ck => `${ck.number} (${ck.time}, ${ck.playerCount}/${MIN_PLAYERS_TO_PLAY})`).join(', ');
-      text += `\n\n_Not running — need ${MIN_PLAYERS_TO_PLAY} players: chukka ${labels}_`;
-    }
 
     if (schedule.reduced && schedule.reduced.length > 0) {
       text += `\n\n_Reduced: ${schedule.reduced.map(r => `${r.player.name} (${r.given}/${r.requested})`).join(', ')}_`;
@@ -1031,7 +1051,6 @@ export default function PoloChukkas() {
     if (!schedule) return;
     const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
     const dateStr = getDateStr();
-    const running = schedule.chukkas.filter(ck => !ck.cancelled);
 
     const headerDate = `style="background-color:#6b1f2a; color:#f4ecd8; font-family:Georgia,serif; font-style:italic; font-weight:500; text-align:center; padding:10px; border:1px solid #d4c8a8; font-size:13px;"`;
     const headerTime = `style="background-color:#e9dec3; color:#6b1f2a; font-weight:600; text-align:center; padding:8px; border:1px solid #d4c8a8; font-size:12px; mso-number-format:'\\@';"`;
@@ -1053,7 +1072,7 @@ export default function PoloChukkas() {
     // Row 1: Date (merged cols 0–2) + time headers
     html += `<tr>`;
     html += `<td colspan="3" ${headerDate}>${dateStr}</td>`;
-    running.forEach(ck => {
+    schedule.chukkas.forEach(ck => {
       html += `<td ${headerTime}>${ck.time}</td>`;
     });
     html += `</tr>`;
@@ -1063,8 +1082,8 @@ export default function PoloChukkas() {
     html += `<td ${headerCol}>Name</td>`;
     html += `<td ${headerCol}>Handicap</td>`;
     html += `<td ${headerCol}>Chukkas</td>`;
-    running.forEach(ck => {
-      html += `<td ${headerChukka}>Chukka ${ck.number}</td>`;
+    schedule.chukkas.forEach((_, i) => {
+      html += `<td ${headerChukka}>Chukka ${i + 1}</td>`;
     });
     html += `</tr>`;
 
@@ -1075,7 +1094,7 @@ export default function PoloChukkas() {
       html += `<td style="background-color:${altBg}; padding:8px 12px; font-weight:500; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${p.name}</td>`;
       html += `<td style="background-color:#ffffff; text-align:center; padding:8px; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${fmtH(p.handicap)}</td>`;
       html += `<td style="background-color:#ffffff; text-align:center; padding:8px; color:#1c1612; border:1px solid #d4c8a8; font-size:12px;">${p.chukkas}</td>`;
-      running.forEach(ck => {
+      schedule.chukkas.forEach(ck => {
         const inA = ck.teamA.find(x => x.id === p.id);
         const inB = ck.teamB.find(x => x.id === p.id);
         if (inA) html += `<td ${cellB}>B</td>`;
@@ -1104,8 +1123,7 @@ export default function PoloChukkas() {
     if (!schedule) return null;
     const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
     const dateStr = getDateStr();
-    const running = schedule.chukkas.filter(ck => !ck.cancelled);
-    const N = running.length;
+    const N = schedule.numChukkas;
 
     // Layout constants (logical pixels — canvas is 2× for retina)
     const padding = 24;
@@ -1155,7 +1173,7 @@ export default function PoloChukkas() {
     ctx.font = 'italic 500 13px Georgia, serif';
     ctx.fillText(dateStr, tx + (nameW + hcpW + chukkasW) / 2, y + headerRowH / 2);
 
-    running.forEach((ck, i) => {
+    schedule.chukkas.forEach((ck, i) => {
       const cx = tx + nameW + hcpW + chukkasW + i * chukkaW;
       ctx.fillStyle = '#e9dec3';
       ctx.fillRect(cx, y, chukkaW, headerRowH);
@@ -1173,12 +1191,12 @@ export default function PoloChukkas() {
     ctx.fillText('NAME', tx + nameW / 2, y + headerRowH / 2);
     ctx.fillText('HCP', tx + nameW + hcpW / 2, y + headerRowH / 2);
     ctx.fillText('C', tx + nameW + hcpW + chukkasW / 2, y + headerRowH / 2);
-    running.forEach((ck, i) => {
+    schedule.chukkas.forEach((_, i) => {
       const cx = tx + nameW + hcpW + chukkasW + i * chukkaW;
       ctx.fillStyle = '#e9dec3';
       ctx.fillRect(cx, y, chukkaW, headerRowH);
       ctx.fillStyle = '#6b1f2a';
-      ctx.fillText(`CHUKKA ${ck.number}`, cx + chukkaW / 2, y + headerRowH / 2);
+      ctx.fillText(`CHUKKA ${i + 1}`, cx + chukkaW / 2, y + headerRowH / 2);
     });
     y += headerRowH;
 
@@ -1204,7 +1222,7 @@ export default function PoloChukkas() {
       ctx.fillText(String(p.chukkas), tx + nameW + hcpW + chukkasW / 2, y + rowH / 2);
 
       // Chukka cells
-      running.forEach((ck, ci) => {
+      schedule.chukkas.forEach((ck, ci) => {
         const inA = ck.teamA.find(x => x.id === p.id);
         const inB = ck.teamB.find(x => x.id === p.id);
         const cx = tx + nameW + hcpW + chukkasW + ci * chukkaW;
@@ -1642,8 +1660,6 @@ export default function PoloChukkas() {
         }
         .chukka-card.early { border-left: 3px solid var(--burgundy); }
         .chukka-card.late  { border-left: 3px solid var(--gold); }
-        .chukka-card.cancelled { opacity: 0.72; border-left-color: #c2a596; background: #fbf6ef; }
-        .chukka-card.cancelled .chukka-head { background: #f1e8d6; }
         .chukka-head {
           padding: 14px 16px;
           background: var(--cream-pale);
@@ -2778,28 +2794,11 @@ export default function PoloChukkas() {
                       <span className="ornament-line" />
                     </div>
                     <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
-                      {(() => {
-                        const running = schedule.chukkas.filter(c => !c.cancelled);
-                        const cancelled = schedule.chukkas.filter(c => c.cancelled);
-                        const firstTime = running.length > 0 ? running[0].time : chukkaTime(0, throwInMin);
-                        const lastTime = running.length > 0 ? running[running.length - 1].time : chukkaTime(schedule.numChukkas - 1, throwInMin);
-                        return (
-                          <>
-                            <span className="display-italic">{running.length} chukka{running.length === 1 ? '' : 's'}</span>
-                            {cancelled.length > 0 && (
-                              <span style={{ color: 'var(--burgundy)' }}> · {cancelled.length} not running</span>
-                            )}
-                            {running.length > 0 && (
-                              <>
-                                {' · '}
-                                {firstTime} — {lastTime}
-                              </>
-                            )}
-                            {' · '}
-                            {schedule.totalSlots} player-slots
-                          </>
-                        );
-                      })()}
+                      <span className="display-italic">{schedule.numChukkas} chukkas</span>
+                      {' · '}
+                      {chukkaTime(0, throwInMin)} — {chukkaTime(schedule.numChukkas - 1, throwInMin)}
+                      {' · '}
+                      {schedule.totalSlots} player-slots
                     </div>
                   </div>
 
@@ -2855,7 +2854,6 @@ export default function PoloChukkas() {
                     const teamAFour = ck.teamA.length;
                     const teamBFour = ck.teamB.length;
                     const tooFew = ck.playerCount < 4;
-                    const cancelled = ck.cancelled;
 
                     const renderPlayer = (p, teamClass) => {
                       const isActive = activePlayer && activePlayer.chukkaIdx === idx && activePlayer.playerId === p.id;
@@ -2896,30 +2894,7 @@ export default function PoloChukkas() {
                     const availableToAdd = players.filter(p => !playerIdsInChukka.has(p.id));
 
                     return (
-                      <div
-                        key={ck.idx}
-                        className={`chukka-card anim-in ${ck.isEarly ? 'early' : 'late'} ${cancelled ? 'cancelled' : ''}`}
-                        style={{ animationDelay: `${idx * 0.06}s` }}
-                      >
-                        {cancelled && (
-                          <div style={{
-                            background: '#f6e7e3',
-                            color: 'var(--burgundy)',
-                            borderRadius: '3px',
-                            padding: '7px 10px',
-                            marginBottom: '10px',
-                            fontSize: '11px',
-                            letterSpacing: '0.5px',
-                            fontWeight: 500,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            lineHeight: 1.4,
-                          }}>
-                            <span style={{ fontSize: '13px' }}>⚠</span>
-                            <span><strong style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px' }}>Not running</strong> — needs {MIN_PLAYERS_TO_PLAY} players ({ck.playerCount} signed up)</span>
-                          </div>
-                        )}
+                      <div key={ck.idx} className={`chukka-card anim-in ${ck.isEarly ? 'early' : 'late'}`} style={{ animationDelay: `${idx * 0.06}s` }}>
                         <div className="chukka-head">
                           <div>
                             <div className="chukka-num">Chukka {ck.number}</div>
@@ -3015,15 +2990,13 @@ export default function PoloChukkas() {
                   {scheduleView === 'table' && (() => {
                     const dateStr = getDateStr();
                     const sortedPlayers = [...players].sort((a, b) => b.handicap - a.handicap);
-                    const runningChukkas = schedule.chukkas.filter(ck => !ck.cancelled);
-                    const cancelledChukkas = schedule.chukkas.filter(ck => ck.cancelled);
                     return (
                       <div className="captain-table-wrap">
                         <table className="captain-table">
                           <thead>
                             <tr>
                               <th colSpan={3} className="date-cell">{dateStr}</th>
-                              {runningChukkas.map(ck => (
+                              {schedule.chukkas.map(ck => (
                                 <th key={ck.idx} className="time-header">{ck.time}</th>
                               ))}
                             </tr>
@@ -3031,7 +3004,7 @@ export default function PoloChukkas() {
                               <th className="col-header">Name</th>
                               <th className="col-header">HCP</th>
                               <th className="col-header">C</th>
-                              {runningChukkas.map(ck => (
+                              {schedule.chukkas.map(ck => (
                                 <th key={ck.idx} className="chukka-header">Chukka {ck.number}</th>
                               ))}
                             </tr>
@@ -3042,7 +3015,7 @@ export default function PoloChukkas() {
                                 <td className="name-cell">{p.name}</td>
                                 <td>{fmtH(p.handicap)}</td>
                                 <td>{p.chukkas}</td>
-                                {runningChukkas.map(ck => {
+                                {schedule.chukkas.map(ck => {
                                   const inA = ck.teamA.find(x => x.id === p.id);
                                   const inB = ck.teamB.find(x => x.id === p.id);
                                   const cls = inA ? 'blue-cell' : inB ? 'white-cell' : 'empty-cell';
@@ -3059,11 +3032,6 @@ export default function PoloChukkas() {
                         <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', paddingBottom: '8px' }} className="display-italic">
                           B = Blue · W = White · Scroll sideways to see all chukkas
                         </div>
-                        {cancelledChukkas.length > 0 && (
-                          <div style={{ fontSize: '11px', color: 'var(--burgundy)', textAlign: 'center', marginTop: '6px', paddingBottom: '8px', lineHeight: 1.5 }}>
-                            ⚠ Not running (needs {MIN_PLAYERS_TO_PLAY}): chukka {cancelledChukkas.map(ck => `${ck.number} at ${ck.time} (${ck.playerCount} signed up)`).join(', ')}
-                          </div>
-                        )}
                       </div>
                     );
                   })()}
