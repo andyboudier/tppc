@@ -52,6 +52,7 @@ const FIXTURES_2026 = [
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
+const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
 const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
 const CHUKKA_INTERVAL_MIN = 15;
@@ -113,11 +114,12 @@ const chukkaHasConflictWith = (chukkaList, candidateName) => {
 // Day configuration. Each day key gets its own roster, schedule, week stamp,
 // and configurable throw-in time stored independently in Firestore.
 const DAY_CONFIG = {
-  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',  defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas' },
-  sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',   defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas' },
-  sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday', defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
+  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas' },
+  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Instructional' },
+  sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas' },
+  sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
 };
-const DAY_KEYS = ['wed', 'sat', 'sun'];
+const DAY_KEYS = ['wed', 'thu', 'sat', 'sun'];
 
 // Format minutes-since-midnight as HH:MM
 const fmtTime = (mins) => {
@@ -411,15 +413,16 @@ function buildSchedule(players, startMin) {
 }
 
 export default function PoloChukkas() {
-  // Tabs: 'wed' | 'sat' | 'sun' (chukka days) | 'fixtures'
+  // Tabs: 'wed' | 'thu' | 'sat' | 'sun' (chukka days) | 'fixtures'
   const [activeTab, setActiveTab] = useState('wed');
 
   // Per-day chukkas state — rosters, schedules, throw-in times all keyed by day.
   // Default throw-ins come from DAY_CONFIG; captain can override them per day.
-  const [rosters, setRosters] = useState({ wed: [], sat: [], sun: [] });
-  const [schedules, setSchedules] = useState({ wed: null, sat: null, sun: null });
+  const [rosters, setRosters] = useState({ wed: [], thu: [], sat: [], sun: [] });
+  const [schedules, setSchedules] = useState({ wed: null, thu: null, sat: null, sun: null });
   const [throwInMins, setThrowInMins] = useState({
     wed: DAY_CONFIG.wed.defaultStartMin,
+    thu: DAY_CONFIG.thu.defaultStartMin,
     sat: DAY_CONFIG.sat.defaultStartMin,
     sun: DAY_CONFIG.sun.defaultStartMin,
   });
@@ -649,10 +652,11 @@ export default function PoloChukkas() {
       }
 
       // Load per-day rosters, schedules and throw-in times
-      const nextRosters = { wed: [], sat: [], sun: [] };
-      const nextSchedules = { wed: null, sat: null, sun: null };
+      const nextRosters = { wed: [], thu: [], sat: [], sun: [] };
+      const nextSchedules = { wed: null, thu: null, sat: null, sun: null };
       const nextThrowIns = {
         wed: DAY_CONFIG.wed.defaultStartMin,
+        thu: DAY_CONFIG.thu.defaultStartMin,
         sat: DAY_CONFIG.sat.defaultStartMin,
         sun: DAY_CONFIG.sun.defaultStartMin,
       };
@@ -2525,6 +2529,9 @@ export default function PoloChukkas() {
           <button className={`tab-btn ${activeTab === 'wed' ? 'active' : ''}`} onClick={() => setActiveTab('wed')}>
             Wed
           </button>
+          <button className={`tab-btn ${activeTab === 'thu' ? 'active' : ''}`} onClick={() => setActiveTab('thu')}>
+            Thu
+          </button>
           <button className={`tab-btn ${activeTab === 'sat' ? 'active' : ''}`} onClick={() => setActiveTab('sat')}>
             Sat
           </button>
@@ -2538,7 +2545,7 @@ export default function PoloChukkas() {
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
 
-          {/* ─── DAY CHUKKAS TABS (Wed/Sat/Sun) ─── */}
+          {/* ─── DAY CHUKKAS TABS (Wed/Thu/Sat/Sun) ─── */}
           {DAY_KEYS.includes(activeTab) && (
             <div className="reveal">
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
