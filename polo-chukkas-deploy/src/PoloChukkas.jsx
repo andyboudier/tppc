@@ -497,14 +497,42 @@ export default function PoloChukkas() {
   // Captain PIN — visible in source, this is a soft gate not real security
   const CAPTAIN_PIN = '1907';
 
-  // Booking cutoff: no public sign-ups within 24h of Wednesday 17:30 throw-in.
-  // Captain can still make changes; public users are redirected to email.
-  const CUTOFF_HOURS = 24;
+  // Booking cutoffs:
+  //   Wednesday — closes Tuesday 12:00 (noon); stays closed all day Wednesday;
+  //               reopens Thursday (after the auto-clear on first load).
+  //   Saturday / Sunday — closes 24 hours before throw-in (existing behaviour).
+  // Captain mode always bypasses the cutoff.
+  const CUTOFF_HOURS = 24; // Sat/Sun only
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
 
+  const isBookingClosed = (dayKey = activeDay) => {
+    if (dayKey === 'wed') {
+      const now = new Date();
+      const dow = now.getDay(); // 0 Sun · 1 Mon · 2 Tue · 3 Wed · 4 Thu …
+      const timeMin = now.getHours() * 60 + now.getMinutes();
+      if (dow === 2 && timeMin >= 12 * 60) return true; // Tuesday from noon
+      if (dow === 3) return true;                         // All day Wednesday
+      return false;                                        // Thu–Mon + Tue morning: open
+    }
+    // Sat / Sun: close 24 hours before throw-in
+    const cutoff = targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
+    return Date.now() >= cutoff;
+  };
+
+  // Human-readable explanation shown in the booking-closed banner and handleAdd error.
+  const bookingClosedReason = (dayKey = activeDay) => {
+    if (dayKey === 'wed') {
+      const dow = new Date().getDay();
+      if (dow === 3) {
+        return "This week's Wednesday chukkas are today. Sign-ups for next week open on Thursday once the roster has cleared.";
+      }
+      return "Sign-ups have closed for this Wednesday. The deadline is Tuesday at 12pm.";
+    }
+    return `Sign-ups close 24 hours before throw-in (${DAY_CONFIG[dayKey].eveningPrev} ${fmtTime(throwInMins[dayKey])}).`;
+  };
+
   // Target throw-in datetime for a given day. Rolls forward to next week
-  // after that day's throw-in time has passed. Uses the day's configured
-  // throw-in time (which the captain may have customised).
+  // after that day's throw-in time has passed. Used by the Sat/Sun 24h cutoff.
   const targetDayThrowIn = (dayKey) => {
     const cfg = DAY_CONFIG[dayKey];
     const startMin = throwInMins[dayKey];
@@ -512,7 +540,6 @@ export default function PoloChukkas() {
     const dow = now.getDay();
     let daysAhead;
     if (dow === cfg.dow) {
-      // On the target day itself — has the throw-in passed?
       const mins = now.getHours() * 60 + now.getMinutes();
       daysAhead = mins < startMin ? 0 : 7;
     } else {
@@ -522,11 +549,6 @@ export default function PoloChukkas() {
     target.setDate(now.getDate() + daysAhead);
     target.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
     return target;
-  };
-
-  const isBookingClosed = (dayKey = activeDay) => {
-    const cutoff = targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
-    return Date.now() >= cutoff;
   };
 
   // Check session storage on mount — captain mode persists until tab closes
@@ -747,7 +769,7 @@ export default function PoloChukkas() {
     setError('');
     // Booking cutoff: 24h before Wednesday 17:30. Captain bypasses.
     if (!captainMode && isBookingClosed()) {
-      return setError(`Bookings are now closed for this ${activeDayConfig.fullLabel}. To be added at short notice, please contact the captain by email at ${CONTACT_EMAIL}.`);
+      return setError(`${bookingClosedReason()} To be added, please contact the captain at ${CONTACT_EMAIL}.`);
     }
     if (!name.trim()) return setError('Please enter a name.');
     if (handicap === '') return setError('Please select a handicap.');
@@ -2617,7 +2639,7 @@ export default function PoloChukkas() {
                 <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Sign up</div>
                 <h2 className="display" style={{ margin: '0 0 16px', fontSize: '22px' }}>Add a Player</h2>
 
-                {/* Booking cutoff banner — public only, within 24h of this day's throw-in */}
+                {/* Booking cutoff banner — public only, within the closed window for this day */}
                 {!captainMode && isBookingClosed() && (
                   <div
                     role="alert"
@@ -2636,7 +2658,7 @@ export default function PoloChukkas() {
                       Bookings closed for this {activeDayConfig.fullLabel}
                     </div>
                     <div style={{ color: 'var(--ink)' }}>
-                      Sign-ups close 24 hours before throw-in ({activeDayConfig.eveningPrev} {fmtTime(throwInMin)}). To be added at short notice, please email the captain:
+                      {bookingClosedReason()} To be added, please email the captain:
                     </div>
                     <a
                       href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(activeDayConfig.fullLabel + ' Chukkas - late sign-up')}`}
