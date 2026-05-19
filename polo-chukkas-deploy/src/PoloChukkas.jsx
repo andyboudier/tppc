@@ -115,7 +115,7 @@ const chukkaHasConflictWith = (chukkaList, candidateName) => {
 // and configurable throw-in time stored independently in Firestore.
 const DAY_CONFIG = {
   wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas' },
-  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Instructional' },
+  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Instructional', note: 'Instructional Chukkas · Ladies Only' },
   sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas' },
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
 };
@@ -2530,7 +2530,7 @@ export default function PoloChukkas() {
             Wed
           </button>
           <button className={`tab-btn ${activeTab === 'thu' ? 'active' : ''}`} onClick={() => setActiveTab('thu')}>
-            Thu
+            Thu ♀
           </button>
           <button className={`tab-btn ${activeTab === 'sat' ? 'active' : ''}`} onClick={() => setActiveTab('sat')}>
             Sat
@@ -2550,7 +2550,10 @@ export default function PoloChukkas() {
             <div className="reveal">
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <div className="label-eyebrow">
-                  {activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}
+                  {activeDayConfig.note
+                    ? <>{activeDayConfig.note} · {fmtTime(throwInMin)}</>
+                    : <>{activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}</>
+                  }
                   {captainMode && !throwInEditing && (
                     <button
                       type="button"
@@ -2608,6 +2611,11 @@ export default function PoloChukkas() {
                   </div>
                 ) : null}
                 <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
+                {activeDayConfig.note && (
+                  <div className="display-italic" style={{ fontSize: '14px', color: 'var(--burgundy)', marginTop: '4px' }}>
+                    {activeDayConfig.note}
+                  </div>
+                )}
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
                   {players.length} {players.length === 1 ? 'rider' : 'riders'} · {totalChukkas} chukkas booked
                 </div>
