@@ -701,8 +701,8 @@ export default function PoloChukkas() {
   // values that no longer correspond to a valid option in the updated dropdowns.
   // This prevents the selects showing a stale time that isn't in the option list.
   useEffect(() => {
-    const fromOptions = new Set([0, 1, 2, 3].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
-    const toOptions   = new Set([4, 5, 6, 7].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
+    const fromOptions = new Set([0, 1, 2, 3, 4, 5, 6, 7].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
+    const toOptions   = new Set([0, 1, 2, 3, 4, 5, 6, 7].map(i => fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN)));
     if (availableFrom && !fromOptions.has(availableFrom)) setAvailableFrom('');
     if (availableTo   && !toOptions.has(availableTo))     setAvailableTo('');
   }, [throwInMin]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2778,7 +2778,7 @@ export default function PoloChukkas() {
                       onChange={(e) => setAvailableFrom(e.target.value)}
                       aria-label="Earliest chukka you can play"
                     >
-                      {[0, 1, 2, 3].map(i => {
+                      {(captainMode ? [0,1,2,3,4,5,6,7] : [0,1,2,3]).map(i => {
                         const t = fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN);
                         return (
                           <option key={t} value={t}>
@@ -2801,7 +2801,7 @@ export default function PoloChukkas() {
                       aria-label="Latest chukka you can play"
                     >
                       <option value="">Stay until the end</option>
-                      {[4, 5, 6, 7].map(i => {
+                      {(captainMode ? [0,1,2,3,4,5,6,7] : [4,5,6,7]).map(i => {
                         const t = fmtTime(throwInMin + i * CHUKKA_INTERVAL_MIN);
                         return (
                           <option key={t} value={t}>
@@ -2968,7 +2968,7 @@ export default function PoloChukkas() {
                                 value={p.availableFrom || fmtTime(throwInMin)}
                                 onChange={(e) => updateAvail(p.id, 'availableFrom', e.target.value)}
                               >
-                                {[0, 1, 2, 3].map(j => {
+                                {[0, 1, 2, 3, 4, 5, 6, 7].map(j => {
                                   const t = fmtTime(throwInMin + j * CHUKKA_INTERVAL_MIN);
                                   return <option key={t} value={t}>{t}{j === 0 ? ' (throw-in)' : ''}</option>;
                                 })}
@@ -2983,7 +2983,7 @@ export default function PoloChukkas() {
                                 onChange={(e) => updateAvail(p.id, 'availableTo', e.target.value)}
                               >
                                 <option value="">Until the end</option>
-                                {[4, 5, 6, 7].map(j => {
+                                {[0, 1, 2, 3, 4, 5, 6, 7].map(j => {
                                   const t = fmtTime(throwInMin + j * CHUKKA_INTERVAL_MIN);
                                   return <option key={t} value={t}>{t}</option>;
                                 })}
