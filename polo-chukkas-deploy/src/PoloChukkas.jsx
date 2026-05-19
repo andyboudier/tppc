@@ -259,17 +259,44 @@ function buildSchedule(players, startMin) {
 
     // Place this player into chukkas, starting from their earliest available
     // and going forward. Respects the 8-per-chukka cap AND the configured
-    // conflict pairs (e.g. Ed and William not in the same chukka). Any
-    // shortfall (whether from availability, capacity, or conflicts) shows up
-    // in the `reduced` list — captain can review and adjust manually.
+    // conflict pairs (e.g. Ed and William not in the same chukka).
+    //
+    // Special case for players booking exactly 2 chukkas: try to leave a
+    // 1-chukka gap between assignments. This helps when they're using the
+    // same pony for both chukkas — gives the pony a rest chukka in between.
+    // If the gap pass can't fit all their chukkas (capacity / conflict
+    // pressure), a second pass falls back to adjacent slots.
+    //
+    // Any shortfall (from availability, capacity, conflicts, or gap rules)
+    // shows up in `reduced` — captain can review and adjust manually.
+    const wantsGap = player.chukkas === 2;
+    const minStep = wantsGap ? 2 : 1;
     const myChukkas = [];
+    let lastPlaced = -minStep; // sentinel — first placement always succeeds
     for (let c = availableIdx; c < numChukkas; c++) {
       if (myChukkas.length >= wanted) break;
+      if (c - lastPlaced < minStep) continue;
       if (remainingCapacity[c] <= 0) continue;
       if (chukkaHasConflictWith(chukkaPlayers[c], player.name)) continue;
       myChukkas.push(c);
+      lastPlaced = c;
       chukkaPlayers[c].push(player);
       remainingCapacity[c]--;
+    }
+    // Fallback pass for gap-wanting players: if the gap-preserving pass
+    // didn't fit all requested chukkas, allow adjacent slots rather than
+    // leaving the player short.
+    if (wantsGap && myChukkas.length < wanted) {
+      const already = new Set(myChukkas);
+      for (let c = availableIdx; c < numChukkas; c++) {
+        if (myChukkas.length >= wanted) break;
+        if (already.has(c)) continue;
+        if (remainingCapacity[c] <= 0) continue;
+        if (chukkaHasConflictWith(chukkaPlayers[c], player.name)) continue;
+        myChukkas.push(c);
+        chukkaPlayers[c].push(player);
+        remainingCapacity[c]--;
+      }
     }
 
     if (myChukkas.length < cappedWanted) {
