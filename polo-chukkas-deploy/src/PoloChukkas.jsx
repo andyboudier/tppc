@@ -237,9 +237,10 @@ const chukkaTime = (idx, startMin) => {
 function buildSchedule(players, startMin) {
   if (players.length === 0) return null;
 
-  // Process players in signup order — earliest signup first.
-  // This is the fairness rule: late signups have to fit around existing bookings.
-  const ordered = [...players].sort((a, b) => a.id - b.id);
+  // Process players in the order they appear in the roster array.
+  // The captain can reorder the roster to control scheduling priority;
+  // earlier in the list = higher priority to receive their requested chukkas.
+  const ordered = [...players];
 
   const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
   // Number of chukkas is purely driven by demand: total slots requested ÷ 8.
@@ -483,6 +484,7 @@ export default function PoloChukkas() {
   // Manual schedule editing
   const [activePlayer, setActivePlayer] = useState(null); // { chukkaIdx, playerId } | null
   const [addingTo, setAddingTo] = useState(null);          // chukkaIdx where "+ Add" picker is open
+  const [editingAvailId, setEditingAvailId] = useState(null); // player id whose avail window is being edited
   const [scheduleView, setScheduleView] = useState('cards'); // 'cards' | 'table'
   const [confirmModal, setConfirmModal] = useState(null);   // { title, message, confirmLabel, onConfirm } | null
   const [captainMode, setCaptainMode] = useState(false);
@@ -879,6 +881,34 @@ export default function PoloChukkas() {
     );
     saveRoster(updated);
     saveSchedule(null); // Roster changed — invalidate the schedule
+  };
+
+  // Move a player up (-1) or down (+1) in the roster array.
+  // Roster order controls scheduling priority: earlier = first pick of chukkas.
+  const movePlayer = (id, dir) => {
+    const idx = players.findIndex(p => p.id === id);
+    if (idx < 0) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= players.length) return;
+    const updated = [...players];
+    [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
+    saveRoster(updated);
+    saveSchedule(null);
+  };
+
+  // Sort the roster so players wanting the most chukkas appear first.
+  // Ties are broken by current roster position (stable sort).
+  const sortByChukkas = () => {
+    const updated = [...players].sort((a, b) => b.chukkas - a.chukkas);
+    saveRoster(updated);
+    saveSchedule(null);
+  };
+
+  // Update a single availability field (availableFrom or availableTo) for a player.
+  const updateAvail = (id, field, value) => {
+    const updated = players.map(p => p.id === id ? { ...p, [field]: value } : p);
+    saveRoster(updated);
+    saveSchedule(null);
   };
 
   // Recompute sums and counts after a schedule mutation
@@ -2822,6 +2852,9 @@ export default function PoloChukkas() {
                     </div>
                     {captainMode && (
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button onClick={sortByChukkas} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
+                          sort ↓ chukkas
+                        </button>
                         <button onClick={() => loadExample('may20')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                           load 20 May
                         </button>
@@ -2843,13 +2876,10 @@ export default function PoloChukkas() {
 
                   {players.map((p, i) => {
                     // Build the availability label shown beneath the name.
-                    // - Hide "from" when the player starts at the throw-in (the default).
-                    // - Show "until HH:MM" when they nominated an early-finish time.
-                    // - When both are non-default, render as a compact "HH:MM–HH:MM" range.
                     const fromMin = p.availableFrom ? parseTime(p.availableFrom) : null;
                     const toMin = p.availableTo ? parseTime(p.availableTo) : null;
                     const isLateArriver = fromMin !== null && fromMin > throwInMin;
-                    const hasEarlyFinish = toMin !== null;
+                    const hasEarlyFinish = toMin !== null && toMin !== undefined && p.availableTo !== '';
                     let availLabel = null;
                     if (isLateArriver && hasEarlyFinish) {
                       availLabel = `${p.availableFrom}–${p.availableTo}`;
@@ -2858,46 +2888,111 @@ export default function PoloChukkas() {
                     } else if (hasEarlyFinish) {
                       availLabel = `until ${p.availableTo}`;
                     }
+                    const isEditingAvail = captainMode && editingAvailId === p.id;
                     return (
-                      <div key={p.id} className="player-row anim-in" style={{ animationDelay: `${i * 0.04}s` }}>
-                        <div className="handicap-badge">{fmtH(p.handicap)}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                            {availLabel && <span className="pref-tag">{availLabel}</span>}
-                            {p.mobile && captainMode && (
-                              <>
-                                {availLabel && <span style={{ margin: '0 6px' }}>·</span>}
-                                <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
-                                  {p.mobile}
-                                </a>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {captainMode ? (
-                          <>
-                            <div className="chukka-stepper" aria-label="Chukkas">
+                      <div key={p.id} className="anim-in" style={{ animationDelay: `${i * 0.04}s`, borderBottom: '1px solid var(--line)' }}>
+                        <div className="player-row" style={{ borderBottom: 'none' }}>
+                          {/* Reorder handles — captain only */}
+                          {captainMode && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '4px', flexShrink: 0 }}>
                               <button
-                                className="step-btn"
-                                onClick={() => adjustChukkas(p.id, -1)}
-                                disabled={p.chukkas <= 1}
-                                aria-label="Decrease chukkas"
-                              >−</button>
-                              <span className="step-count">{p.chukkas}</span>
+                                onClick={() => movePlayer(p.id, -1)}
+                                disabled={i === 0}
+                                aria-label="Move up"
+                                style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--line)' : 'var(--muted)', fontSize: '13px', padding: '1px 4px', lineHeight: 1 }}
+                              >▲</button>
                               <button
-                                className="step-btn"
-                                onClick={() => adjustChukkas(p.id, +1)}
-                                disabled={p.chukkas >= 8}
-                                aria-label="Increase chukkas"
-                              >+</button>
+                                onClick={() => movePlayer(p.id, 1)}
+                                disabled={i === players.length - 1}
+                                aria-label="Move down"
+                                style={{ background: 'none', border: 'none', cursor: i === players.length - 1 ? 'default' : 'pointer', color: i === players.length - 1 ? 'var(--line)' : 'var(--muted)', fontSize: '13px', padding: '1px 4px', lineHeight: 1 }}
+                              >▼</button>
                             </div>
-                            <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label={`Remove ${p.name}`}>×</button>
-                          </>
-                        ) : (
-                          <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '6px 10px', minWidth: '60px', textAlign: 'right' }}>
-                            <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
-                            <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
+                          )}
+                          <div className="handicap-badge">{fmtH(p.handicap)}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                              {availLabel && <span className="pref-tag">{availLabel}</span>}
+                              {captainMode && (
+                                <button
+                                  onClick={() => setEditingAvailId(isEditingAvail ? null : p.id)}
+                                  aria-label={isEditingAvail ? 'Close availability editor' : 'Edit availability window'}
+                                  style={{ background: 'none', border: 'none', padding: '0 2px', cursor: 'pointer', fontSize: '11px', color: isEditingAvail ? 'var(--burgundy)' : 'var(--muted)', lineHeight: 1 }}
+                                >⏱</button>
+                              )}
+                              {p.mobile && captainMode && (
+                                <>
+                                  {(availLabel || true) && <span style={{ margin: '0 2px' }}>·</span>}
+                                  <a href={`tel:${p.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>
+                                    {p.mobile}
+                                  </a>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {captainMode ? (
+                            <>
+                              <div className="chukka-stepper" aria-label="Chukkas">
+                                <button
+                                  className="step-btn"
+                                  onClick={() => adjustChukkas(p.id, -1)}
+                                  disabled={p.chukkas <= 1}
+                                  aria-label="Decrease chukkas"
+                                >−</button>
+                                <span className="step-count">{p.chukkas}</span>
+                                <button
+                                  className="step-btn"
+                                  onClick={() => adjustChukkas(p.id, +1)}
+                                  disabled={p.chukkas >= 8}
+                                  aria-label="Increase chukkas"
+                                >+</button>
+                              </div>
+                              <button className="remove-btn" onClick={() => { removePlayer(p.id); setEditingAvailId(null); }} aria-label={`Remove ${p.name}`}>×</button>
+                            </>
+                          ) : (
+                            <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '6px 10px', minWidth: '60px', textAlign: 'right' }}>
+                              <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
+                              <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Inline availability editor — captain only, shown when ⏱ is tapped */}
+                        {isEditingAvail && (
+                          <div style={{ padding: '10px 14px 14px', background: 'var(--cream-pale)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                            <div style={{ flex: '1 1 120px' }}>
+                              <label style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', marginBottom: '4px', letterSpacing: '1px', textTransform: 'uppercase' }}>Available from</label>
+                              <select
+                                className="input-field select-field"
+                                style={{ fontSize: '13px', padding: '6px 8px' }}
+                                value={p.availableFrom || fmtTime(throwInMin)}
+                                onChange={(e) => updateAvail(p.id, 'availableFrom', e.target.value)}
+                              >
+                                {[0, 1, 2, 3].map(j => {
+                                  const t = fmtTime(throwInMin + j * CHUKKA_INTERVAL_MIN);
+                                  return <option key={t} value={t}>{t}{j === 0 ? ' (throw-in)' : ''}</option>;
+                                })}
+                              </select>
+                            </div>
+                            <div style={{ flex: '1 1 120px' }}>
+                              <label style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', marginBottom: '4px', letterSpacing: '1px', textTransform: 'uppercase' }}>Available to</label>
+                              <select
+                                className="input-field select-field"
+                                style={{ fontSize: '13px', padding: '6px 8px' }}
+                                value={p.availableTo || ''}
+                                onChange={(e) => updateAvail(p.id, 'availableTo', e.target.value)}
+                              >
+                                <option value="">Until the end</option>
+                                {[4, 5, 6, 7].map(j => {
+                                  const t = fmtTime(throwInMin + j * CHUKKA_INTERVAL_MIN);
+                                  return <option key={t} value={t}>{t}</option>;
+                                })}
+                              </select>
+                            </div>
+                            <button
+                              onClick={() => setEditingAvailId(null)}
+                              style={{ background: 'var(--burgundy)', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 14px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+                            >Done</button>
                           </div>
                         )}
                       </div>
