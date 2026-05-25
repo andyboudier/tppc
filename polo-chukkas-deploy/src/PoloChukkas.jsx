@@ -247,7 +247,8 @@ function buildSchedule(players, startMin) {
   const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
   // Number of chukkas is purely driven by demand: total slots requested ÷ 8.
   // Floor is 1 (need at least one chukka if anyone signed up).
-  const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA));
+  const maxIndividual = ordered.length ? Math.max(...ordered.map(p => p.chukkas)) : 1;
+  const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), maxIndividual);
 
   // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
   const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
