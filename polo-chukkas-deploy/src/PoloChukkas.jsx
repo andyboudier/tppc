@@ -59,58 +59,6 @@ const CHUKKA_INTERVAL_MIN = 15;
 const SLOTS_PER_CHUKKA = 8; // 4 v 4
 const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move players to honour this where possible
 
-// Pairs of players who must not share a chukka. Each entry is two name
-// patterns (lower-case, space-separated). Matching is prefix-based on each
-// word: the last word of the pattern is matched as a prefix of the player's
-// corresponding name word — so "william w" matches "William Wood",
-// "William Wells", etc. Add more pairs here as needed.
-const CONFLICT_PAIRS = [
-  ['ed whittington', 'william w'],
-];
-
-// Lower-case, single-spaced
-const normaliseName = (name) => (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-// Does the player's name match this lowercase pattern?
-// Pattern is space-separated words; all but the last must match exactly,
-// the last is treated as a prefix. Pattern words must align with the start
-// of the player's name (so "ed whittington" matches "Ed Whittington Jr"
-// but not "Mr Ed Whittington").
-const nameMatchesPattern = (name, pattern) => {
-  const nameWords = normaliseName(name).split(' ');
-  const patternWords = pattern.split(' ');
-  if (nameWords.length < patternWords.length) return false;
-  for (let i = 0; i < patternWords.length; i++) {
-    const pw = patternWords[i];
-    const nw = nameWords[i];
-    if (i === patternWords.length - 1) {
-      if (!nw.startsWith(pw)) return false;
-    } else if (nw !== pw) {
-      return false;
-    }
-  }
-  return true;
-};
-
-// Returns the list of pattern strings that the given name conflicts with.
-// e.g. for "Ed Whittington", returns ['william w'].
-const getConflictPatternsFor = (name) => {
-  const out = [];
-  for (const [a, b] of CONFLICT_PAIRS) {
-    if (nameMatchesPattern(name, a)) out.push(b);
-    if (nameMatchesPattern(name, b)) out.push(a);
-  }
-  return out;
-};
-
-// True if adding candidate (by name) to a chukka would create a conflict
-// with someone already in that chukka.
-const chukkaHasConflictWith = (chukkaList, candidateName) => {
-  const patterns = getConflictPatternsFor(candidateName);
-  if (patterns.length === 0) return false;
-  return chukkaList.some(p => patterns.some(pat => nameMatchesPattern(p.name, pat)));
-};
-
 // Day configuration. Each day key gets its own roster, schedule, week stamp,
 // and configurable throw-in time stored independently in Firestore.
 const DAY_CONFIG = {
@@ -237,180 +185,165 @@ const chukkaTime = (idx, startMin) => {
 
 // Build a full evening schedule from the roster
 function buildSchedule(players, startMin) {
-  if (players.length === 0) return null;
+if (players.length === 0) return null;
 
-  // Process players in the order they appear in the roster array.
-  // The captain can reorder the roster to control scheduling priority;
-  // earlier in the list = higher priority to receive their requested chukkas.
-  const ordered = [...players];
+// Separate VIP players (played first, never reduced below requested count)
+// from regular players. Within each group, order is preserved (roster order
+// = scheduling priority; earlier in list = first pick of chukkas).
+const vipPlayers = players.filter(p => p.vip);
+const regularPlayers = players.filter(p => !p.vip);
+const ordered = [...vipPlayers, ...regularPlayers];
 
-  const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
-  // Number of chukkas is purely driven by demand: total slots requested ÷ 8.
-  // Floor is 1 (need at least one chukka if anyone signed up).
-  const maxIndividual = ordered.length ? Math.max(...ordered.map(p => p.chukkas)) : 1;
-  const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), maxIndividual);
+const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
+const maxIndividual = ordered.length ? Math.max(...ordered.map(p => p.chukkas)) : 1;
+const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), maxIndividual);
 
-  // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
-  const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
-  const remainingCapacity = Array(numChukkas).fill(SLOTS_PER_CHUKKA);
+// Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
+const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
+const remainingCapacity = Array(numChukkas).fill(SLOTS_PER_CHUKKA);
 
-  const assignments = new Map();
-  const capped = [];   // wanted more chukkas than the evening has at all
-  const reduced = [];  // got fewer chukkas than wanted due to capacity
+const assignments = new Map();
+const capped = []; // wanted more chukkas than the evening has at all
+const reduced = []; // got fewer chukkas than wanted due to capacity
 
-  ordered.forEach(player => {
-    const wantedRaw = player.chukkas;
+// Helper: place one pass of chukkas for a player given a minimum step size.
+// Returns the list of chukka indices placed, updating chukkaPlayers and
+// remainingCapacity in place.
+const placePlayer = (player, wantedCount, availableIdx, availableToIdx, minStep) => {
+  const placed = [];
+  let lastPlaced = availableIdx - minStep; // sentinel so first slot always passes
+  for (let c = availableIdx; c <= availableToIdx; c++) {
+    if (placed.length >= wantedCount) break;
+    if (c - lastPlaced < minStep) continue;
+    if (remainingCapacity[c] <= 0) continue;
+    placed.push(c);
+    lastPlaced = c;
+    chukkaPlayers[c].push(player);
+    remainingCapacity[c]--;
+  }
+  return placed;
+};
 
-    // Resolve "available from" into a starting chukka index.
-    // - availableFrom is a HH:MM string. Default (missing/legacy data) = throw-in time.
-    // - availableIdx is the first chukka at or after that time. Players with
-    //   availableFrom earlier than throw-in get availableIdx = 0 (treated as
-    //   "from throw-in" — e.g. happens when captain pushes the throw-in time
-    //   later AFTER a player already signed up).
-    let availableIdx = 0;
-    if (player.availableFrom) {
-      const targetMin = parseTime(player.availableFrom);
-      if (targetMin !== null) {
-        availableIdx = Math.max(0, Math.ceil((targetMin - startMin) / CHUKKA_INTERVAL_MIN));
-      }
+ordered.forEach(player => {
+  const wantedRaw = player.chukkas;
+
+  let availableIdx = 0;
+  if (player.availableFrom) {
+    const targetMin = parseTime(player.availableFrom);
+    if (targetMin !== null) {
+      availableIdx = Math.max(0, Math.ceil((targetMin - startMin) / CHUKKA_INTERVAL_MIN));
     }
-    // Resolve "available to" into an upper-bound chukka index (inclusive).
-    // - availableTo is a HH:MM string matching the START time of the latest
-    //   chukka the player can stay for. Empty / missing = no upper cap.
-    // - availableToIdx is clamped strictly to numChukkas - 1; if the player's
-    //   window is empty (e.g. availableIdx > availableToIdx) availableCount
-    //   falls out as 0 below and the loop simply doesn't place them.
-    let availableToIdx = numChukkas - 1;
-    if (player.availableTo) {
-      const targetMin = parseTime(player.availableTo);
-      if (targetMin !== null) {
-        const idx = Math.floor((targetMin - startMin) / CHUKKA_INTERVAL_MIN);
-        availableToIdx = Math.min(numChukkas - 1, idx);
-      }
+  }
+  let availableToIdx = numChukkas - 1;
+  if (player.availableTo) {
+    const targetMin = parseTime(player.availableTo);
+    if (targetMin !== null) {
+      const idx = Math.floor((targetMin - startMin) / CHUKKA_INTERVAL_MIN);
+      availableToIdx = Math.min(numChukkas - 1, idx);
     }
-    const availableCount = Math.max(0, availableToIdx - availableIdx + 1);
+  }
+  const availableCount = Math.max(0, availableToIdx - availableIdx + 1);
 
-    // First cap: by total chukkas in the schedule (existing behaviour)
-    const cappedWanted = Math.min(wantedRaw, numChukkas);
-    if (cappedWanted < wantedRaw) {
-      capped.push({ player, requested: wantedRaw, given: cappedWanted });
-    }
-    // Second cap: by the chukkas actually available from their start time
-    const wanted = Math.min(cappedWanted, availableCount);
+  // Cap by total chukkas in the schedule
+  const cappedWanted = Math.min(wantedRaw, numChukkas);
+  if (cappedWanted < wantedRaw) {
+    capped.push({ player, requested: wantedRaw, given: cappedWanted });
+  }
+  // For VIP players, never reduce below their requested count due to capacity;
+  // they have already been placed first so they should always get their slots
+  // (subject only to the total-chukka cap above and their availability window).
+  const wanted = Math.min(cappedWanted, availableCount);
 
-    // Place this player into chukkas, starting from their earliest available
-    // and going forward up to their availableTo cap (default: end of evening).
-    // Respects the 8-per-chukka cap AND the configured conflict pairs (e.g.
-    // Ed and William not in the same chukka).
-    //
-    // Special case for players booking exactly 2 chukkas: try to leave a
-    // 1-chukka gap between assignments. This helps when they're using the
-    // same pony for both chukkas — gives the pony a rest chukka in between.
-    // If the gap pass can't fit all their chukkas (capacity / conflict
-    // pressure), a second pass falls back to adjacent slots.
-    //
-    // Any shortfall (from availability, capacity, conflicts, or gap rules)
-    // shows up in `reduced` — captain can review and adjust manually.
-    const wantsGap = player.chukkas === 2;
-    const minStep = wantsGap ? 2 : 1;
-    const myChukkas = [];
-    let lastPlaced = -minStep; // sentinel — first placement always succeeds
+  // noConsecutive players require a gap of at least 1 chukka between
+  // assignments (so they are never in back-to-back chukkas). All other
+  // players use a step of 1 (adjacent slots are fine).
+  const minStep = player.noConsecutive ? 2 : 1;
+  let myChukkas = placePlayer(player, wanted, availableIdx, availableToIdx, minStep);
+
+  // Fallback for noConsecutive players: if the gap-preserving pass didn't
+  // fill all requested chukkas (due to capacity pressure), allow adjacent
+  // slots rather than leave the player short.
+  if (player.noConsecutive && myChukkas.length < wanted) {
+    const already = new Set(myChukkas);
     for (let c = availableIdx; c <= availableToIdx; c++) {
       if (myChukkas.length >= wanted) break;
-      if (c - lastPlaced < minStep) continue;
+      if (already.has(c)) continue;
       if (remainingCapacity[c] <= 0) continue;
-      if (chukkaHasConflictWith(chukkaPlayers[c], player.name)) continue;
       myChukkas.push(c);
-      lastPlaced = c;
       chukkaPlayers[c].push(player);
       remainingCapacity[c]--;
     }
-    // Fallback pass for gap-wanting players: if the gap-preserving pass
-    // didn't fit all requested chukkas, allow adjacent slots rather than
-    // leaving the player short.
-    if (wantsGap && myChukkas.length < wanted) {
-      const already = new Set(myChukkas);
-      for (let c = availableIdx; c <= availableToIdx; c++) {
-        if (myChukkas.length >= wanted) break;
-        if (already.has(c)) continue;
-        if (remainingCapacity[c] <= 0) continue;
-        if (chukkaHasConflictWith(chukkaPlayers[c], player.name)) continue;
-        myChukkas.push(c);
-        chukkaPlayers[c].push(player);
-        remainingCapacity[c]--;
-      }
-    }
-
-    if (myChukkas.length < cappedWanted) {
-      reduced.push({ player, requested: cappedWanted, given: myChukkas.length });
-    }
-
-    assignments.set(player.id, myChukkas.sort((a, b) => a - b));
-  });
-
-  // Redistribution pass — try to bring every chukka up to at least
-  // MIN_PLAYERS_PER_CHUKKA (4) by moving players FROM chukkas that have
-  // spare capacity (5+ players) TO ones that don't yet have 4. A player
-  // can only move to a chukka they aren't already in, and the move must
-  // not introduce a conflict pair. Safety cap on iterations prevents loops.
-  let safety = numChukkas * SLOTS_PER_CHUKKA * 2;
-  while (safety-- > 0) {
-    // Find the most-under-full chukka (fewest players, and below the target)
-    let underIdx = -1, underCount = MIN_PLAYERS_PER_CHUKKA;
-    for (let i = 0; i < numChukkas; i++) {
-      if (chukkaPlayers[i].length < underCount) {
-        underIdx = i;
-        underCount = chukkaPlayers[i].length;
-      }
-    }
-    if (underIdx === -1) break; // all chukkas have >= 4
-
-    // Find a donor chukka — most-loaded one (>= 5) with a movable player
-    let bestSrcIdx = -1, bestPlayer = null, bestSrcCount = MIN_PLAYERS_PER_CHUKKA;
-    for (let s = 0; s < numChukkas; s++) {
-      if (s === underIdx) continue;
-      if (chukkaPlayers[s].length <= MIN_PLAYERS_PER_CHUKKA) continue;
-      if (chukkaPlayers[s].length <= bestSrcCount) continue;
-      // Find a player in s who could move to underIdx
-      const movable = chukkaPlayers[s].find(p =>
-        !chukkaPlayers[underIdx].some(q => q.id === p.id) &&
-        !chukkaHasConflictWith(chukkaPlayers[underIdx], p.name)
-      );
-      if (movable) {
-        bestSrcIdx = s;
-        bestPlayer = movable;
-        bestSrcCount = chukkaPlayers[s].length;
-      }
-    }
-    if (bestSrcIdx === -1) break; // can't redistribute further
-
-    // Move
-    chukkaPlayers[bestSrcIdx] = chukkaPlayers[bestSrcIdx].filter(p => p.id !== bestPlayer.id);
-    chukkaPlayers[underIdx].push(bestPlayer);
   }
 
-  // Build each chukka with balanced teams (max 4 per team naturally, since cap = 8)
-  const chukkas = chukkaPlayers.map((inChukka, c) => {
-    const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
-    const teamA = [], teamB = [];
-    let sumA = 0, sumB = 0;
-    sorted.forEach(p => {
-      if (teamA.length < teamB.length) { teamA.push(p); sumA += p.handicap; }
-      else if (teamB.length < teamA.length) { teamB.push(p); sumB += p.handicap; }
-      else if (sumA <= sumB) { teamA.push(p); sumA += p.handicap; }
-      else { teamB.push(p); sumB += p.handicap; }
-    });
-    return {
-      idx: c,
-      number: c + 1,
-      time: chukkaTime(c, startMin),
-      isEarly: c < numChukkas / 2,
-      teamA, teamB, sumA, sumB,
-      playerCount: inChukka.length,
-    };
-  });
+  if (myChukkas.length < cappedWanted && !player.vip) {
+    reduced.push({ player, requested: cappedWanted, given: myChukkas.length });
+  } else if (myChukkas.length < cappedWanted && player.vip) {
+    // VIP shortfall still reported but labelled distinctly in the UI
+    reduced.push({ player, requested: cappedWanted, given: myChukkas.length });
+  }
 
-  return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, reduced };
+  assignments.set(player.id, myChukkas.sort((a, b) => a - b));
+});
+
+// Redistribution pass — try to bring every chukka up to at least
+// MIN_PLAYERS_PER_CHUKKA (4) by moving players FROM chukkas that have
+// spare capacity (5+ players) TO ones that don't yet have 4. A player
+// can only move to a chukka they aren't already in.
+// VIP players are excluded from redistribution (they keep their own chukkas).
+let safety = numChukkas * SLOTS_PER_CHUKKA * 2;
+while (safety-- > 0) {
+  let underIdx = -1, underCount = MIN_PLAYERS_PER_CHUKKA;
+  for (let i = 0; i < numChukkas; i++) {
+    if (chukkaPlayers[i].length < underCount) {
+      underIdx = i;
+      underCount = chukkaPlayers[i].length;
+    }
+  }
+  if (underIdx === -1) break;
+
+  let bestSrcIdx = -1, bestPlayer = null, bestSrcCount = MIN_PLAYERS_PER_CHUKKA;
+  for (let s = 0; s < numChukkas; s++) {
+    if (s === underIdx) continue;
+    if (chukkaPlayers[s].length <= MIN_PLAYERS_PER_CHUKKA) continue;
+    if (chukkaPlayers[s].length <= bestSrcCount) continue;
+    const movable = chukkaPlayers[s].find(p =>
+      !p.vip &&
+      !chukkaPlayers[underIdx].some(q => q.id === p.id)
+    );
+    if (movable) {
+      bestSrcIdx = s;
+      bestPlayer = movable;
+      bestSrcCount = chukkaPlayers[s].length;
+    }
+  }
+  if (bestSrcIdx === -1) break;
+
+  chukkaPlayers[bestSrcIdx] = chukkaPlayers[bestSrcIdx].filter(p => p.id !== bestPlayer.id);
+  chukkaPlayers[underIdx].push(bestPlayer);
+}
+
+// Build each chukka with balanced teams (max 4 per team naturally, since cap = 8)
+const chukkas = chukkaPlayers.map((inChukka, c) => {
+  const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
+  const teamA = [], teamB = [];
+  let sumA = 0, sumB = 0;
+  sorted.forEach(p => {
+    if (teamA.length < teamB.length) { teamA.push(p); sumA += p.handicap; }
+    else if (teamB.length < teamA.length) { teamB.push(p); sumB += p.handicap; }
+    else if (sumA <= sumB) { teamA.push(p); sumA += p.handicap; }
+    else { teamB.push(p); sumB += p.handicap; }
+  });
+  return {
+    idx: c,
+    number: c + 1,
+    time: chukkaTime(c, startMin),
+    isEarly: c < numChukkas / 2,
+    teamA, teamB, sumA, sumB,
+    playerCount: inChukka.length,
+  };
+});
+
+return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, reduced };
 }
 
 export default function PoloChukkas() {
@@ -441,6 +374,8 @@ export default function PoloChukkas() {
   // of the last chukka they can play (INCLUSIVE). Empty string means
   // "available until the end of the evening" — the default.
   const [availableTo, setAvailableTo] = useState('');
+const [vip, setVip] = useState(false);
+const [noConsecutive, setNoConsecutive] = useState(false);
   const [error, setError] = useState('');
 
   // Throw-in time editor (captain mode)
@@ -754,6 +689,8 @@ export default function PoloChukkas() {
         mobile: player.mobile || '',
         availableFrom: player.availableFrom || '',
         availableTo: player.availableTo || '',
+        vip: player.vip || false,
+        noConsecutive: player.noConsecutive || false,
         lastUsed: Date.now(),
       },
     };
@@ -809,10 +746,12 @@ export default function PoloChukkas() {
       availableFrom: availableFrom || fmtTime(throwInMin),
       // Stored as HH:MM string; empty = no upper cap (play through last chukka)
       availableTo: availableTo || '',
-    };
+ 
+      vip: captainMode ? vip : false,
+      noConsecutive: captainMode ? noConsecutive : false,   };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo('');
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false);
     saveSchedule(null);
   };
 
@@ -848,7 +787,7 @@ export default function PoloChukkas() {
     if (!ex) return;
     const doLoad = async () => {
       const now = Date.now();
-      const seeded = ex.roster.map((p, i) => ({ id: now + i, ...p }));
+      const seeded = ex.roster.map((p, i) => ({ id: now + i, vip: false, noConsecutive: false, ...p }));
       saveRoster(seeded);
       const newMembers = { ...members };
       seeded.forEach((p, i) => {
@@ -878,7 +817,21 @@ export default function PoloChukkas() {
   };
 
   // Adjust a player's chukka count in the roster
-  const adjustChukkas = (id, delta) => {
+  // Toggle VIP flag for a player (captain only)
+  const toggleVip = (id) => {
+    const updated = players.map(p => p.id === id ? { ...p, vip: !p.vip } : p);
+    saveRoster(updated);
+    saveSchedule(null);
+  };
+
+  // Toggle noConsecutive flag for a player (captain only)
+  const toggleNoConsecutive = (id) => {
+    const updated = players.map(p => p.id === id ? { ...p, noConsecutive: !p.noConsecutive } : p);
+    saveRoster(updated);
+    saveSchedule(null);
+  };
+
+    const adjustChukkas = (id, delta) => {
     const updated = players.map(p =>
       p.id === id
         ? { ...p, chukkas: Math.max(1, Math.min(8, p.chukkas + delta)) }
@@ -2831,6 +2784,39 @@ export default function PoloChukkas() {
                     </div>
                   </div>
 
+                  {/* VIP and No-Consecutive checkboxes — captain only */}
+                  {captainMode && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '2px', fontFamily: "'Fraunces', serif", fontStyle: 'italic' }}>
+                        Captain options
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)' }}>
+                        <input
+                          type="checkbox"
+                          checked={vip}
+                          onChange={(e) => setVip(e.target.checked)}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--burgundy)', cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <div>
+                          <span style={{ fontWeight: 600 }}>VIP</span>
+                          <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Placed first · chukka count never reduced below request</span>
+                        </div>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)' }}>
+                        <input
+                          type="checkbox"
+                          checked={noConsecutive}
+                          onChange={(e) => setNoConsecutive(e.target.checked)}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--burgundy)', cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <div>
+                          <span style={{ fontWeight: 600 }}>No consecutive</span>
+                          <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Always leaves a gap of at least one chukka between plays</span>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
                   {error && (
                     <div style={{ fontSize: '13px', color: 'var(--danger)', padding: '10px 14px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
                       {error}
@@ -2930,6 +2916,8 @@ export default function PoloChukkas() {
                             <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                             <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                               {availLabel && <span className="pref-tag">{availLabel}</span>}
+                              {p.vip && <span style={{ fontSize: '10px', background: 'var(--gold)', color: 'var(--burgundy-deep)', padding: '1px 6px', borderRadius: '8px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>VIP</span>}
+                              {p.noConsecutive && <span style={{ fontSize: '10px', background: 'var(--cream-warm)', color: 'var(--muted)', padding: '1px 6px', borderRadius: '8px', border: '1px solid var(--line)', letterSpacing: '0.3px' }}>no consec.</span>}
                               {captainMode && (
                                 <button
                                   onClick={() => setEditingAvailId(isEditingAvail ? null : p.id)}
@@ -2949,6 +2937,40 @@ export default function PoloChukkas() {
                           </div>
                           {captainMode ? (
                             <>
+                              <button
+                                type="button"
+                                title={p.vip ? 'Remove VIP' : 'Mark as VIP'}
+                                onClick={() => toggleVip(p.id)}
+                                style={{
+                                  background: p.vip ? 'var(--gold)' : 'transparent',
+                                  border: '1px solid ' + (p.vip ? 'var(--gold)' : 'var(--line)'),
+                                  color: p.vip ? 'var(--burgundy-deep)' : 'var(--muted)',
+                                  borderRadius: '10px',
+                                  padding: '2px 8px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.5px',
+                                  textTransform: 'uppercase',
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                }}
+                              >VIP</button>
+                              <button
+                                type="button"
+                                title={p.noConsecutive ? 'Remove no-consecutive' : 'Enable no-consecutive'}
+                                onClick={() => toggleNoConsecutive(p.id)}
+                                style={{
+                                  background: p.noConsecutive ? 'var(--cream-warm)' : 'transparent',
+                                  border: '1px solid ' + (p.noConsecutive ? 'var(--line)' : 'var(--line)'),
+                                  color: p.noConsecutive ? 'var(--ink)' : 'var(--muted)',
+                                  borderRadius: '10px',
+                                  padding: '2px 8px',
+                                  fontSize: '10px',
+                                  letterSpacing: '0.3px',
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                }}
+                              >no⁻</button>
                               <div className="chukka-stepper" aria-label="Chukkas">
                                 <button
                                   className="step-btn"
