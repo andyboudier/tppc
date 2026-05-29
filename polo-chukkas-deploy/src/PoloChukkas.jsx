@@ -56,7 +56,7 @@ const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
 const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
 const CHUKKA_INTERVAL_MIN = 15;
-const SLOTS_PER_CHUKKA = 8; // 4 v 4
+const SLOTS_PER_CHUKKA = 8; // target size for chukka-count calculation; teams may be uneven
 const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move players to honour this where possible
 
 // Day configuration. Each day key gets its own roster, schedule, week stamp,
@@ -200,7 +200,6 @@ const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), max
 
 // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
 const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
-const remainingCapacity = Array(numChukkas).fill(SLOTS_PER_CHUKKA);
 
 const assignments = new Map();
 const capped = []; // wanted more chukkas than the evening has at all
@@ -208,18 +207,16 @@ const reduced = []; // got fewer chukkas than wanted due to capacity
 
 // Helper: place one pass of chukkas for a player given a minimum step size.
 // Returns the list of chukka indices placed, updating chukkaPlayers and
-// remainingCapacity in place.
+// chukkaPlayers in place. No per-chukka hard cap — uneven teams are allowed.
 const placePlayer = (player, wantedCount, availableIdx, availableToIdx, minStep) => {
   const placed = [];
   let lastPlaced = availableIdx - minStep; // sentinel so first slot always passes
   for (let c = availableIdx; c <= availableToIdx; c++) {
     if (placed.length >= wantedCount) break;
     if (c - lastPlaced < minStep) continue;
-    if (remainingCapacity[c] <= 0) continue;
     placed.push(c);
     lastPlaced = c;
     chukkaPlayers[c].push(player);
-    remainingCapacity[c]--;
   }
   return placed;
 };
@@ -268,10 +265,8 @@ ordered.forEach(player => {
     for (let c = availableIdx; c <= availableToIdx; c++) {
       if (myChukkas.length >= wanted) break;
       if (already.has(c)) continue;
-      if (remainingCapacity[c] <= 0) continue;
       myChukkas.push(c);
       chukkaPlayers[c].push(player);
-      remainingCapacity[c]--;
     }
   }
 
@@ -285,13 +280,12 @@ ordered.forEach(player => {
   assignments.set(player.id, myChukkas.sort((a, b) => a - b));
 });
 
-// Redistribution pass — try to bring every chukka up to at least
-// MIN_PLAYERS_PER_CHUKKA (4) by moving players FROM chukkas that have
-// spare capacity (5+ players) TO ones that don't yet have 4. A player
-// can only move to a chukka they aren't already in.
-// VIP players are excluded from redistribution (they keep their own chukkas).
+// Redistribution pass — balance player counts across chukkas.
+// Any chukka with more players than the thinnest one is a valid donor
+// (4→3 is fine — uneven teams let more people play). VIP players are never moved.
 let safety = numChukkas * SLOTS_PER_CHUKKA * 2;
 while (safety-- > 0) {
+  // Find the chukka with the fewest players (below MIN_PLAYERS_PER_CHUKKA)
   let underIdx = -1, underCount = MIN_PLAYERS_PER_CHUKKA;
   for (let i = 0; i < numChukkas; i++) {
     if (chukkaPlayers[i].length < underCount) {
@@ -301,10 +295,10 @@ while (safety-- > 0) {
   }
   if (underIdx === -1) break;
 
-  let bestSrcIdx = -1, bestPlayer = null, bestSrcCount = MIN_PLAYERS_PER_CHUKKA;
+  // Find the donor: most-loaded chukka that has strictly more players than underIdx
+  let bestSrcIdx = -1, bestPlayer = null, bestSrcCount = underCount;
   for (let s = 0; s < numChukkas; s++) {
     if (s === underIdx) continue;
-    if (chukkaPlayers[s].length <= MIN_PLAYERS_PER_CHUKKA) continue;
     if (chukkaPlayers[s].length <= bestSrcCount) continue;
     const movable = chukkaPlayers[s].find(p =>
       !p.vip &&
@@ -322,7 +316,8 @@ while (safety-- > 0) {
   chukkaPlayers[underIdx].push(bestPlayer);
 }
 
-// Build each chukka with balanced teams (max 4 per team naturally, since cap = 8)
+// Build each chukka with balanced teams. Teams may be uneven (e.g. 4v3) when
+// player counts are odd — that is acceptable and preferred over leaving people out.
 const chukkas = chukkaPlayers.map((inChukka, c) => {
   const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
   const teamA = [], teamB = [];
@@ -888,14 +883,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     const ck = schedule.chukkas[chukkaIdx];
     const inA = ck.teamA.find(p => p.id === playerId);
     const inB = ck.teamB.find(p => p.id === playerId);
-    if (inA && ck.teamB.length >= 4) {
-      window.alert('White team is already at 4 players (max). Remove someone first or use Move to another chukka.');
-      return;
-    }
-    if (inB && ck.teamA.length >= 4) {
-      window.alert('Blue team is already at 4 players (max). Remove someone first or use Move to another chukka.');
-      return;
-    }
+    // No strict per-team cap — uneven teams are acceptable
     updateSchedule((ck, idx) => {
       if (idx !== chukkaIdx) return ck;
       if (inA) {
@@ -933,10 +921,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const movePlayerToChukka = (fromIdx, playerId, toIdx) => {
     if (!schedule || fromIdx === toIdx) return;
     const target = schedule.chukkas[toIdx];
-    if (target.teamA.length >= 4 && target.teamB.length >= 4) {
-      window.alert(`Chukka ${toIdx + 1} is already full (4v4).`);
-      return;
-    }
+    // No strict per-chukka cap — uneven teams are acceptable
     const fromChukka = schedule.chukkas[fromIdx];
     const player =
       fromChukka.teamA.find(p => p.id === playerId) ||
@@ -954,8 +939,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       if (idx === toIdx) {
         const already = ck.teamA.find(p => p.id === playerId) || ck.teamB.find(p => p.id === playerId);
         if (already) return ck;
-        // Drop into the smaller team (respecting 4-per-team cap)
-        if (ck.teamA.length < 4 && (ck.teamA.length <= ck.teamB.length || ck.teamB.length >= 4)) {
+        // Drop into the smaller team (uneven teams are acceptable)
+        if (ck.teamA.length <= ck.teamB.length) {
           return { ...ck, teamA: [...ck.teamA, player] };
         }
         return { ...ck, teamB: [...ck.teamB, player] };
@@ -969,15 +954,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     const player = players.find(p => p.id === playerId);
     if (!player || !schedule) return;
     const ck = schedule.chukkas[chukkaIdx];
-    if (ck.teamA.length >= 4 && ck.teamB.length >= 4) {
-      window.alert(`Chukka ${chukkaIdx + 1} is already full (4v4).`);
-      return;
-    }
+    // No strict per-chukka cap — uneven teams are acceptable
     updateSchedule((ck, idx) => {
       if (idx !== chukkaIdx) return ck;
       const already = ck.teamA.find(p => p.id === playerId) || ck.teamB.find(p => p.id === playerId);
       if (already) return ck;
-      if (ck.teamA.length < 4 && (ck.teamA.length <= ck.teamB.length || ck.teamB.length >= 4)) {
+      if (ck.teamA.length <= ck.teamB.length) {
         return { ...ck, teamA: [...ck.teamA, player] };
       }
       return { ...ck, teamB: [...ck.teamB, player] };
@@ -3118,10 +3100,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                   {schedule.reduced && schedule.reduced.length > 0 && (
                     <div style={{ marginBottom: '14px', padding: '12px 14px', background: '#fdf4e6', border: '1px solid #e8d5a0', borderRadius: '4px', fontSize: '13px', color: '#8a5a1a' }}>
-                      <strong>Reduced for fairness:</strong>{' '}
+                      <strong>Reduced:</strong>{' '}
                       {schedule.reduced.map(r => `${r.player.name} (wanted ${r.requested}, playing ${r.given})`).join(', ')}
                       <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.85 }} className="display-italic">
-                        Late signups give way to players who booked earlier — teams stay max 4 a side.
+                        Late signups give way to players who booked earlier.
                       </div>
                     </div>
                   )}
@@ -3238,7 +3220,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                         {tooFew && ck.playerCount > 0 && (
                           <div className="chukka-warning">
-                            {ck.playerCount} player{ck.playerCount === 1 ? '' : 's'} — short of a full chukka, but plays as {teamAFour}v{teamBFour}.
+                            {ck.playerCount} player{ck.playerCount === 1 ? '' : 's'} — plays as {teamAFour}v{teamBFour}.
                           </div>
                         )}
 
