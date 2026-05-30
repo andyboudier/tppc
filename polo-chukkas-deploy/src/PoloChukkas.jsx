@@ -3678,43 +3678,43 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                         <div key={tk}>
                                                           <div style={{ display: 'flex', gap: '4px', marginBottom: '3px' }}>
                                                             <div style={{ position: 'relative', flex: 1 }}>
-                                <input
-                                  className="input-field"
-                                  placeholder={tl + ' name'}
-                                  value={team.name || ''}
-                                  autoComplete="off"
-                                  autoCorrect="off"
-                                  autoCapitalize="words"
-                                  spellCheck={false}
-                                  onChange={e => {
-                                    const val = e.target.value;
-                                    updTeam(di, mi, tk, t => ({...t, name: val, _teamSugOpen: true}));
-                                  }}
-                                  onFocus={() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: true}))}
-                                  onBlur={() => setTimeout(() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: false})), 150)}
-                                  style={{ width: '100%', padding: '4px 6px', fontSize: '11px', boxSizing: 'border-box' }}
-                                />
-                                {team._teamSugOpen && (() => {
-                                  const q = (team.name || '').trim().toLowerCase();
-                                  const hits = Object.values(allTeams).filter(t => q && t.name.toLowerCase().includes(q) && t.name.toLowerCase() !== q);
-                                  if (!hits.length) return null;
-                                  return (
-                                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--line)', borderRadius: '3px', zIndex: 99, maxHeight: '140px', overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-                                      {hits.map(t => (
-                                        <div key={t.name}
-                                          onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: t.name, handicap: t.handicap ?? tt.handicap, players: (t.players||[]).map(p=>({...p})), _teamSugOpen: false})); }}
-                                          style={{ padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid var(--line)', lineHeight: 1.3 }}
-                                          onMouseEnter={e => e.currentTarget.style.background='var(--cream)'}
-                                          onMouseLeave={e => e.currentTarget.style.background='white'}
-                                        >
-                                          <span style={{ fontWeight: 600 }}>{t.name}</span>
-                                          {t.players?.length ? <span style={{ color: 'var(--muted)', marginLeft: '4px' }}>{t.players.map(p=>p.name).join(', ')}</span> : null}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
+                                                              <input
+                                                                className="input-field"
+                                                                placeholder={tl + ' name'}
+                                                                value={team.name || ''}
+                                                                autoComplete="off"
+                                                                autoCorrect="off"
+                                                                autoCapitalize="words"
+                                                                spellCheck={false}
+                                                                onChange={e => {
+                                                                  const val = e.target.value;
+                                                                  updTeam(di, mi, tk, t => ({...t, name: val, _teamSugOpen: true}));
+                                                                }}
+                                                                onFocus={() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: true}))}
+                                                                onBlur={() => setTimeout(() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: false})), 150)}
+                                                                style={{ width: '100%', padding: '4px 6px', fontSize: '11px', boxSizing: 'border-box' }}
+                                                              />
+                                                              {team._teamSugOpen && (() => {
+                                                                const q = (team.name || '').trim().toLowerCase();
+                                                                const hits = Object.values(allTeams).filter(t => q && t.name.toLowerCase().includes(q) && t.name.toLowerCase() !== q);
+                                                                if (!hits.length) return null;
+                                                                return (
+                                                                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--line)', borderRadius: '3px', zIndex: 99, maxHeight: '140px', overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                                                                    {hits.map(t => (
+                                                                      <div key={t.name}
+                                                                        onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: t.name, handicap: t.handicap ?? tt.handicap, players: (t.players||[]).map(p=>({...p})), _teamSugOpen: false})); }}
+                                                                        style={{ padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid var(--line)', lineHeight: 1.3 }}
+                                                                        onMouseEnter={e => e.currentTarget.style.background='var(--cream)'}
+                                                                        onMouseLeave={e => e.currentTarget.style.background='white'}
+                                                                      >
+                                                                        <span style={{ fontWeight: 600 }}>{t.name}</span>
+                                                                        {t.players?.length ? <span style={{ color: 'var(--muted)', marginLeft: '4px' }}>{t.players.map(p=>p.name).join(', ')}</span> : null}
+                                                                      </div>
+                                                                    ))}
+                                                                  </div>
+                                                                );
+                                                              })()}
+                                                            </div>
                                                             <input className="input-field" placeholder="HCP" type="number" value={team.handicap !== null && team.handicap !== undefined ? team.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)}))} style={{ width: '48px', padding: '4px 5px', fontSize: '11px' }} />
                                                           </div>
                                                           {(team.players || []).map((pl, pi) => (
