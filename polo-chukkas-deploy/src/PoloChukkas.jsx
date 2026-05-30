@@ -105,6 +105,25 @@ const GRENADIER_TROPHY_DETAILS = {
 
 
 
+// Parse a fixture's date string into a { start, end } Date range (year 2026).
+// Handles: 'Sat 30 & Sun 31 May', 'Mon 25 May', 'Fri 24 & Sun 26 July' etc.
+const parseFixtureDateRange = (fx) => {
+  const monthMap = { January:0, February:1, March:2, April:3, May:4, June:5, July:6, August:7, September:8, October:9, November:10, December:11 };
+  const month = monthMap[fx.month];
+  if (month === undefined) return null;
+  const nums = [...(fx.date.matchAll(/\b(\d{1,2})\b/g))].map(m => parseInt(m[1], 10)).filter(n => n >= 1 && n <= 31);
+  if (!nums.length) return null;
+  const start = new Date(2026, month, nums[0], 0, 0, 0, 0);
+  const end   = new Date(2026, month, nums[nums.length - 1], 23, 59, 59, 999);
+  return { start, end };
+};
+const isTournamentActive = (fx) => {
+  const range = parseFixtureDateRange(fx);
+  if (!range) return false;
+  const now = new Date();
+  return now >= range.start && now <= range.end;
+};
+
 // Format minutes-since-midnight as HH:MM
 const fmtTime = (mins) => {
   const h = Math.floor(mins / 60);
@@ -467,6 +486,28 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
+
+  // Scroll to the current/nearest fixture when the fixtures tab is opened.
+  useEffect(() => {
+    if (activeTab !== 'fixtures') return;
+    const timer = setTimeout(() => {
+      const now = new Date();
+      let targetId = null;
+      let bestDiff = Infinity;
+      FIXTURES_2026.forEach(fx => {
+        const range = parseFixtureDateRange(fx);
+        if (!range) return;
+        const diff = now - range.start;
+        if (diff >= 0 && diff < bestDiff) { bestDiff = diff; targetId = fx.id; }
+      });
+      if (!targetId) targetId = FIXTURES_2026[0]?.id;
+      if (targetId) {
+        const el = document.querySelector('[data-fixture-id="' + targetId + '"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Captain PIN — visible in source, this is a soft gate not real security
   const CAPTAIN_PIN = '1907';
@@ -3456,7 +3497,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                       const registered = interest[fx.id] || [];
                       const isExpanded = expandedId === fx.id;
                       return (
-                        <div key={fx.id} className={`fixture-card ${isExpanded ? 'expanded' : ''}`}>
+                        <div key={fx.id} data-fixture-id={fx.id} className={`fixture-card ${isExpanded ? 'expanded' : ''}`}>
                           <div className="fixture-header" onClick={() => toggleFixture(fx.id)}>
                             <div className="fixture-date">{fx.date}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -3529,7 +3570,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                         ))}
                                         {day.prizegiving && (
                                           <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
-                                            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '14px', textDecoration: 'underline', letterSpacing: '1px', color: 'var(--ink)', textTransform: 'uppercase' }}>Prizegiving</div>
+                                            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '14px', textDecoration: 'underline', letterSpacing: '1px', color: 'var(--ink)', textTransform: 'uppercase' }}>
+                                              {typeof day.prizegiving === 'string' && day.prizegiving.trim() ? `${day.prizegiving} · Prizegiving` : 'Prizegiving'}
+                                            </div>
                                           </div>
                                         )}
                                       </div>
@@ -3561,10 +3604,15 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                 </select>
                                                 <button onClick={() => { const days = draft.days.filter((_,i) => i!==di); setDraft({...draft, days}); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '18px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 4px' }}>×</button>
                                               </div>
-                                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', marginBottom: '8px' }}>
-                                                <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
-                                                Prizegiving after this day
-                                              </label>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
+                                                  <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked ? (typeof d.prizegiving === 'string' && d.prizegiving.trim() ? d.prizegiving : '') : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
+                                                  Prizegiving
+                                                </label>
+                                                {!!day.prizegiving && (
+                                                  <input className="input-field" placeholder="Time e.g. 14:00 (optional)" value={typeof day.prizegiving === 'string' ? day.prizegiving : ''} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
+                                                )}
+                                              </div>
                                               {(day.matches || []).map((match, mi) => (
                                                 <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
@@ -3647,6 +3695,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                 </div>
                               )}
 
+                              {!isTournamentActive(fx) ? (
                               <div className="register-form">
                                 <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Register your interest</div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -3697,7 +3746,11 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                     Register Interest
                                   </button>
                                 </div>
-                              </div>
+                              ) : (
+                                <div style={{ margin: '4px 0 8px', padding: '12px 14px', background: 'var(--cream-warm)', border: '1px solid var(--line)', borderRadius: '4px', textAlign: 'center' }}>
+                                  <div className="display-italic" style={{ fontSize: '13px', color: 'var(--muted)' }}>Tournament underway — sign-ups are closed.</div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
