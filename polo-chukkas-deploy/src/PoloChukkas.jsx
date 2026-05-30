@@ -68,6 +68,42 @@ const DAY_CONFIG = {
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
 };
 const DAY_KEYS = ['wed', 'thu', 'sat', 'sun'];
+const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down'];
+
+const GRENADIER_TROPHY_DETAILS = {
+  days: [
+    {
+      id: 'sat', dateLabel: 'Saturday 30th May', ground: 'Perham Down',
+      matches: [
+        { id: 'm1', time: '10:00', label: '',
+          teamA: { name: 'Royal Navy', handicap: -2, players: [{ name: 'Cam Ellis', handicap: 2 }, { name: 'Steve Worsley', handicap: 0 }, { name: 'Liam Molloy', handicap: -2 }, { name: 'Chris Johnson', handicap: -2 }] },
+          teamB: { name: 'Legal Action', handicap: 0, players: [{ name: 'James Haigh', handicap: 2 }, { name: 'Elspeth Talbot-Rice', handicap: 0 }, { name: 'Robert Talbot-Rice', handicap: -1 }, { name: 'Jo Wells', handicap: -1 }] },
+          umpires: 'Rosie Ross & Ed Whittington', notes: '' },
+        { id: 'm2', time: '11:15', label: '',
+          teamA: { name: 'ACT Systems/Althorne', handicap: 0, players: [{ name: 'Jose Otto Von Potobsky', handicap: 2 }, { name: 'Ed Whittington', handicap: 1 }, { name: 'Andy Boudier', handicap: -1 }, { name: 'William Whittington', handicap: -2 }] },
+          teamB: { name: 'Tedworth Park', handicap: -2, players: [{ name: 'Rosie Ross', handicap: 2 }, { name: 'Clive Gregory', handicap: 0 }, { name: 'Alfie M/Helen G', handicap: -2 }, { name: 'Steve Wells', handicap: -2 }] },
+          umpires: 'Steve Worsley & James Haigh', notes: 'Please self mount for umpiring duties. Please let TPPC know if you need to book a pony.' },
+      ],
+      prizegiving: false,
+    },
+    {
+      id: 'sun', dateLabel: 'Sunday 31st May', ground: 'Perham Down',
+      matches: [
+        { id: 'm3', time: '10:00', label: 'Sub-Final',
+          teamA: { name: 'TBC', handicap: null, players: [] },
+          teamB: { name: 'TBC', handicap: null, players: [] },
+          umpires: 'TBC', notes: '' },
+        { id: 'm4', time: '11:15', label: 'Final',
+          teamA: { name: 'TBC', handicap: null, players: [] },
+          teamB: { name: 'TBC', handicap: null, players: [] },
+          umpires: 'TBC', notes: 'Please self mount for umpiring duties. Please let TPPC know if you need to book a pony.' },
+      ],
+      prizegiving: true,
+    },
+  ],
+};
+
+
 
 // Format minutes-since-midnight as HH:MM
 const fmtTime = (mins) => {
@@ -414,6 +450,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [fMobile, setFMobile] = useState('');
   const [fEmail, setFEmail] = useState('');
   const [fError, setFError] = useState('');
+  const [fixtureDetails, setFixtureDetails] = useState({ 'may-30-b': GRENADIER_TROPHY_DETAILS });
+  const [editingDetailsId, setEditingDetailsId] = useState(null);
 
   // Manual schedule editing
   const [activePlayer, setActivePlayer] = useState(null); // { chukkaIdx, playerId } | null
@@ -615,6 +653,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       try {
         const f = await window.storage.get('fixture-interest', true);
         if (f?.value) setInterest(JSON.parse(f.value));
+      } catch (e) {}
+      try {
+        const fd = await window.storage.get('fixture-details', true);
+        if (fd?.value) setFixtureDetails(JSON.parse(fd.value));
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -1376,6 +1418,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const saveInterest = async (next) => {
     setInterest(next);
     try { await window.storage.set('fixture-interest', JSON.stringify(next), true); }
+    catch (e) { setFError('Saved locally only — check your connection.'); }
+  };
+
+  const saveFixtureDetails = async (next) => {
+    setFixtureDetails(next);
+    try { await window.storage.set('fixture-details', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
   };
 
@@ -3429,6 +3477,141 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                           {isExpanded && (
                             <div className="fixture-body reveal">
+                              {/* ── Fixture match details ── */}
+                              {(() => {
+                                const det = fixtureDetails[fx.id];
+                                const isEditingThis = captainMode && editingDetailsId === fx.id;
+                                if (!det && !captainMode) return null;
+                                const fmtHcp = (h) => h === null || h === undefined ? '' : (h > 0 ? ' +' + h : h < 0 ? ' ' + h : ' 0');
+                                return (
+                                  <div style={{ marginBottom: '14px' }}>
+                                    {det && det.days && det.days.map((day, di) => (
+                                      <div key={di} style={{ marginBottom: '18px' }}>
+                                        <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                                          <div style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink)', marginBottom: '2px' }}>{day.dateLabel}</div>
+                                          {day.ground && <div style={{ fontSize: '12px', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--muted)' }}>{day.ground}</div>}
+                                        </div>
+                                        {(day.matches || []).map((match, mi) => (
+                                          <div key={mi} style={{ marginBottom: '14px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
+                                            <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                                              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: '17px', textDecoration: 'underline', color: 'var(--ink)' }}>
+                                                {match.time}{match.label ? ` ${match.label.toUpperCase()}` : ''}
+                                              </div>
+                                              {(match.teamA?.name || match.teamB?.name) && (
+                                                <div style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '0.5px', margin: '3px 0 2px', color: 'var(--ink)', textTransform: 'uppercase' }}>
+                                                  {match.teamA?.name || 'TBC'} V {match.teamB?.name || 'TBC'}
+                                                </div>
+                                              )}
+                                              {match.umpires && (
+                                                <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Umpires: {match.umpires}</div>
+                                              )}
+                                            </div>
+                                            {((match.teamA?.players?.length > 0) || (match.teamB?.players?.length > 0)) && (
+                                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                                                {[match.teamA, match.teamB].map((team, ti) => team && (
+                                                  <div key={ti} style={{ textAlign: 'center' }}>
+                                                    <div style={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.3px', marginBottom: '3px', textTransform: 'uppercase' }}>
+                                                      {team.name}{fmtHcp(team.handicap)}
+                                                    </div>
+                                                    {(team.players || []).map((pl, pi) => (
+                                                      <div key={pi} style={{ fontSize: '11px', color: 'var(--ink)', lineHeight: 1.4 }}>
+                                                        {pl.name}{fmtHcp(pl.handicap)}
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {match.notes && (
+                                              <div style={{ fontSize: '10px', color: 'var(--muted)', textAlign: 'center', marginTop: '8px', fontStyle: 'italic', lineHeight: 1.5 }}>{match.notes}</div>
+                                            )}
+                                          </div>
+                                        ))}
+                                        {day.prizegiving && (
+                                          <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
+                                            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '14px', textDecoration: 'underline', letterSpacing: '1px', color: 'var(--ink)', textTransform: 'uppercase' }}>Prizegiving</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {captainMode && !isEditingThis && (
+                                      <button onClick={() => setEditingDetailsId(fx.id)} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '10px' }}>
+                                        {det ? 'Edit match details' : '+ Add match details'}
+                                      </button>
+                                    )}
+                                    {isEditingThis && (() => {
+                                      const draft = fixtureDetails[fx.id] || { days: [] };
+                                      const setDraft = (next) => { saveFixtureDetails({ ...fixtureDetails, [fx.id]: next }); };
+                                      const updDay = (di, updater) => { const days = draft.days.map((d,i) => i===di ? updater(d) : d); setDraft({...draft, days}); };
+                                      const updMatch = (di, mi, updater) => { updDay(di, d => ({...d, matches: d.matches.map((m,i) => i===mi ? updater(m) : m)})); };
+                                      const updTeam = (di, mi, tk, updater) => { updMatch(di, mi, m => ({...m, [tk]: updater(m[tk] || {})})); };
+                                      return (
+                                        <div style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                            <div className="label-eyebrow" style={{ fontSize: '10px' }}>Match details</div>
+                                            <button onClick={() => setEditingDetailsId(null)} style={{ background: 'none', border: 'none', fontSize: '20px', color: 'var(--muted)', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
+                                          </div>
+                                          {(draft.days || []).map((day, di) => (
+                                            <div key={di} style={{ background: 'white', border: '1px solid var(--line)', borderRadius: '4px', padding: '10px', marginBottom: '10px' }}>
+                                              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
+                                                <input className="input-field" placeholder="Day label e.g. Saturday 30th May" value={day.dateLabel || ''} onChange={e => updDay(di, d => ({...d, dateLabel: e.target.value}))} style={{ flex: 2, padding: '7px 10px', fontSize: '12px' }} />
+                                                <select className="input-field select-field" value={day.ground || ''} onChange={e => updDay(di, d => ({...d, ground: e.target.value}))} style={{ flex: 1, padding: '7px 10px', fontSize: '12px' }}>
+                                                  <option value="">Ground…</option>
+                                                  {GROUND_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                                                </select>
+                                                <button onClick={() => { const days = draft.days.filter((_,i) => i!==di); setDraft({...draft, days}); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '18px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 4px' }}>×</button>
+                                              </div>
+                                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', marginBottom: '8px' }}>
+                                                <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
+                                                Prizegiving after this day
+                                              </label>
+                                              {(day.matches || []).map((match, mi) => (
+                                                <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
+                                                  <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
+                                                    <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '80px', padding: '5px 7px', fontSize: '12px' }} />
+                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, padding: '5px 7px', fontSize: '12px' }} />
+                                                    <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
+                                                  </div>
+                                                  <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
+                                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '4px' }}>
+                                                    {[['teamA', 'Team A'], ['teamB', 'Team B']].map(([tk, tl]) => {
+                                                      const team = match[tk] || { name: '', handicap: null, players: [] };
+                                                      return (
+                                                        <div key={tk}>
+                                                          <div style={{ display: 'flex', gap: '4px', marginBottom: '3px' }}>
+                                                            <input className="input-field" placeholder={tl + ' name'} value={team.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, name: e.target.value}))} style={{ flex: 1, padding: '4px 6px', fontSize: '11px' }} />
+                                                            <input className="input-field" placeholder="HCP" type="number" value={team.handicap !== null && team.handicap !== undefined ? team.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)}))} style={{ width: '48px', padding: '4px 5px', fontSize: '11px' }} />
+                                                          </div>
+                                                          {(team.players || []).map((pl, pi) => (
+                                                            <div key={pi} style={{ display: 'flex', gap: '3px', marginBottom: '2px' }}>
+                                                              <input className="input-field" placeholder="Name" value={pl.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, name: e.target.value} : p)}))} style={{ flex: 1, padding: '3px 5px', fontSize: '10px' }} />
+                                                              <input className="input-field" placeholder="HCP" type="number" value={pl.handicap !== null && pl.handicap !== undefined ? pl.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)} : p)}))} style={{ width: '44px', padding: '3px 5px', fontSize: '10px' }} />
+                                                              <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: t.players.filter((_,i) => i!==pi)}))} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', cursor: 'pointer', lineHeight: 1, padding: '0 1px' }}>×</button>
+                                                            </div>
+                                                          ))}
+                                                          <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: [...(t.players||[]), {name:'', handicap: null}]}))} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.3px', padding: '1px 0' }}>+ player</button>
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                  <textarea className="input-field" placeholder="Notes…" value={match.notes || ''} onChange={e => updMatch(di, mi, m => ({...m, notes: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '10px', minHeight: '44px', resize: 'vertical' }} />
+                                                </div>
+                                              ))}
+                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                            </div>
+                                          ))}
+                                          <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button onClick={() => setEditingDetailsId(null)} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Done</button>
+                                            {det && <button onClick={() => { const next = { ...fixtureDetails }; delete next[fx.id]; saveFixtureDetails(next); setEditingDetailsId(null); }} style={{ background: 'transparent', color: 'var(--danger)', border: '1px solid var(--danger)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Clear</button>}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                );
+                              })()}
+
                               {registered.length > 0 ? (
                                 <div style={{ paddingTop: '10px' }}>
                                   <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '4px' }}>Registered Interest</div>
