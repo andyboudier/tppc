@@ -2895,11 +2895,42 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           )}
                           <div className="handicap-badge">{fmtH(p.handicap)}</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                            <div style={{ fontWeight: 500, fontSize: '16px', wordBreak: 'break-word' }}>{p.name}</div>
                             <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                               {availLabel && <span className="pref-tag">{availLabel}</span>}
                               {p.vip && <span style={{ fontSize: '10px', background: 'var(--gold)', color: 'var(--burgundy-deep)', padding: '1px 6px', borderRadius: '8px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>VIP</span>}
                               {p.noConsecutive && <span style={{ fontSize: '10px', background: 'var(--cream-warm)', color: 'var(--muted)', padding: '1px 6px', borderRadius: '8px', border: '1px solid var(--line)', letterSpacing: '0.3px' }}>no consec.</span>}
+                              {captainMode && (
+                                <>
+                                  <button
+                                    type="button"
+                                    title={p.vip ? 'Remove VIP' : 'Mark as VIP'}
+                                    onClick={() => toggleVip(p.id)}
+                                    style={{
+                                      background: p.vip ? 'var(--gold)' : 'transparent',
+                                      border: '1px solid ' + (p.vip ? 'var(--gold)' : 'var(--line)'),
+                                      color: p.vip ? 'var(--burgundy-deep)' : 'var(--muted)',
+                                      borderRadius: '10px', padding: '1px 7px',
+                                      fontSize: '10px', fontWeight: 700,
+                                      letterSpacing: '0.5px', textTransform: 'uppercase',
+                                      cursor: 'pointer', flexShrink: 0,
+                                    }}
+                                  >VIP</button>
+                                  <button
+                                    type="button"
+                                    title={p.noConsecutive ? 'Remove no-consecutive' : 'Enable no-consecutive'}
+                                    onClick={() => toggleNoConsecutive(p.id)}
+                                    style={{
+                                      background: p.noConsecutive ? 'var(--cream-warm)' : 'transparent',
+                                      border: '1px solid var(--line)',
+                                      color: p.noConsecutive ? 'var(--ink)' : 'var(--muted)',
+                                      borderRadius: '10px', padding: '1px 7px',
+                                      fontSize: '10px', letterSpacing: '0.3px',
+                                      cursor: 'pointer', flexShrink: 0,
+                                    }}
+                                  >no⁻</button>
+                                </>
+                              )}
                               {captainMode && (
                                 <button
                                   onClick={() => setEditingAvailId(isEditingAvail ? null : p.id)}
@@ -2919,40 +2950,6 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           </div>
                           {captainMode ? (
                             <>
-                              <button
-                                type="button"
-                                title={p.vip ? 'Remove VIP' : 'Mark as VIP'}
-                                onClick={() => toggleVip(p.id)}
-                                style={{
-                                  background: p.vip ? 'var(--gold)' : 'transparent',
-                                  border: '1px solid ' + (p.vip ? 'var(--gold)' : 'var(--line)'),
-                                  color: p.vip ? 'var(--burgundy-deep)' : 'var(--muted)',
-                                  borderRadius: '10px',
-                                  padding: '2px 8px',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  letterSpacing: '0.5px',
-                                  textTransform: 'uppercase',
-                                  cursor: 'pointer',
-                                  flexShrink: 0,
-                                }}
-                              >VIP</button>
-                              <button
-                                type="button"
-                                title={p.noConsecutive ? 'Remove no-consecutive' : 'Enable no-consecutive'}
-                                onClick={() => toggleNoConsecutive(p.id)}
-                                style={{
-                                  background: p.noConsecutive ? 'var(--cream-warm)' : 'transparent',
-                                  border: '1px solid ' + (p.noConsecutive ? 'var(--line)' : 'var(--line)'),
-                                  color: p.noConsecutive ? 'var(--ink)' : 'var(--muted)',
-                                  borderRadius: '10px',
-                                  padding: '2px 8px',
-                                  fontSize: '10px',
-                                  letterSpacing: '0.3px',
-                                  cursor: 'pointer',
-                                  flexShrink: 0,
-                                }}
-                              >no⁻</button>
                               <div className="chukka-stepper" aria-label="Chukkas">
                                 <button
                                   className="step-btn"
