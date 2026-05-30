@@ -3733,21 +3733,21 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                 </div>
                                               ))}
                                               {di > 0 && (draft.days[0]?.matches || []).length > 0 && (
-                                <button onClick={() => {
-                                  const srcDay = draft.days[0];
-                                  const copiedMatches = (srcDay.matches || []).map(m => ({
-                                    ...m,
-                                    id: 'm' + Date.now() + Math.random(),
-                                    time: '',
-                                    label: '',
-                                    umpires: '',
-                                    teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: (m.teamA?.players || []).map(p => ({...p})) },
-                                    teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: (m.teamB?.players || []).map(p => ({...p})) },
-                                  }));
-                                  updDay(di, d => ({...d, matches: copiedMatches}));
-                                }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
-                              )}
-                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                                <button onClick={() => {
+                                                  const srcDay = draft.days[0];
+                                                  const copiedMatches = (srcDay.matches || []).map(m => ({
+                                                    ...m,
+                                                    id: 'm' + Date.now() + Math.random(),
+                                                    time: '',
+                                                    label: '',
+                                                    umpires: '',
+                                                    teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: (m.teamA?.players || []).map(p => ({...p})) },
+                                                    teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: (m.teamB?.players || []).map(p => ({...p})) },
+                                                  }));
+                                                  updDay(di, d => ({...d, matches: copiedMatches}));
+                                                }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
+                                              )}
+                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
                                             </div>
                                           ))}
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
