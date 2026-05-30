@@ -3848,6 +3848,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                     Register Interest
                                   </button>
                                 </div>
+                              </div>
                               ) : (
                                 <div style={{ margin: '4px 0 8px', padding: '12px 14px', background: 'var(--cream-warm)', border: '1px solid var(--line)', borderRadius: '4px', textAlign: 'center' }}>
                                   <div className="display-italic" style={{ fontSize: '13px', color: 'var(--muted)' }}>Tournament underway — sign-ups are closed.</div>
