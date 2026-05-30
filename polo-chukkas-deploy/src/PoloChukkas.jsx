@@ -470,6 +470,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [fEmail, setFEmail] = useState('');
   const [fError, setFError] = useState('');
   const [fixtureDetails, setFixtureDetails] = useState({ 'may-30-b': GRENADIER_TROPHY_DETAILS });
+  const [teamsDb, setTeamsDb] = useState({}); // { [teamNameLower]: { name, handicap, players: [{name, handicap}] } }
   const [editingDetailsId, setEditingDetailsId] = useState(null);
 
   // Manual schedule editing
@@ -698,6 +699,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       try {
         const fd = await window.storage.get('fixture-details', true);
         if (fd?.value) setFixtureDetails(JSON.parse(fd.value));
+        const tdb = await window.storage.get('teams-db', true);
+        if (tdb?.value) setTeamsDb(JSON.parse(tdb.value));
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -1460,6 +1463,30 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     setInterest(next);
     try { await window.storage.set('fixture-interest', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
+  };
+
+  const saveTeamsDb = async (next) => {
+    setTeamsDb(next);
+    try { await window.storage.set('teams-db', JSON.stringify(next), true); } catch (e) {}
+  };
+
+  // Extract teams from fixture details and persist them to the teams-db for future autofill
+  const persistTeamsFromDetails = async (details) => {
+    const next = { ...teamsDb };
+    Object.values(details).forEach(det => {
+      (det?.days || []).forEach(day => {
+        (day?.matches || []).forEach(m => {
+          ['teamA', 'teamB'].forEach(tk => {
+            const t = m[tk];
+            if (t?.name?.trim()) {
+              const key = t.name.trim().toLowerCase();
+              next[key] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+            }
+          });
+        });
+      });
+    });
+    await saveTeamsDb(next);
   };
 
   const saveFixtureDetails = async (next) => {
@@ -3627,7 +3654,31 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                       return (
                                                         <div key={tk}>
                                                           <div style={{ display: 'flex', gap: '4px', marginBottom: '3px' }}>
-                                                            <input className="input-field" placeholder={tl + ' name'} value={team.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, name: e.target.value}))} style={{ flex: 1, padding: '4px 6px', fontSize: '11px' }} />
+                                                            {Object.keys(teamsDb).length > 0 && (
+                                <datalist id={`teams-list-${di}-${mi}-${tk}`}>
+                                  {Object.values(teamsDb).map(t => <option key={t.name} value={t.name} />)}
+                                </datalist>
+                              )}
+                              <input
+                                className="input-field"
+                                placeholder={tl + ' name'}
+                                value={team.name || ''}
+                                list={Object.keys(teamsDb).length > 0 ? `teams-list-${di}-${mi}-${tk}` : undefined}
+                                onChange={e => updTeam(di, mi, tk, t => ({...t, name: e.target.value}))}
+                                onBlur={e => {
+                                  const typed = e.target.value.trim().toLowerCase();
+                                  const known = teamsDb[typed];
+                                  if (known && known.players?.length) {
+                                    updTeam(di, mi, tk, t => ({
+                                      ...t,
+                                      name: known.name,
+                                      handicap: known.handicap ?? t.handicap,
+                                      players: known.players.map(p => ({...p})),
+                                    }));
+                                  }
+                                }}
+                                style={{ flex: 1, padding: '4px 6px', fontSize: '11px' }}
+                              />
                                                             <input className="input-field" placeholder="HCP" type="number" value={team.handicap !== null && team.handicap !== undefined ? team.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)}))} style={{ width: '48px', padding: '4px 5px', fontSize: '11px' }} />
                                                           </div>
                                                           {(team.players || []).map((pl, pi) => (
@@ -3645,12 +3696,27 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                   <textarea className="input-field" placeholder="Notes…" value={match.notes || ''} onChange={e => updMatch(di, mi, m => ({...m, notes: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '10px', minHeight: '44px', resize: 'vertical' }} />
                                                 </div>
                                               ))}
-                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                              {di > 0 && (draft.days[0]?.matches || []).length > 0 && (
+                                <button onClick={() => {
+                                  const srcDay = draft.days[0];
+                                  const copiedMatches = (srcDay.matches || []).map(m => ({
+                                    ...m,
+                                    id: 'm' + Date.now() + Math.random(),
+                                    time: '',
+                                    label: '',
+                                    umpires: '',
+                                    teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: (m.teamA?.players || []).map(p => ({...p})) },
+                                    teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: (m.teamB?.players || []).map(p => ({...p})) },
+                                  }));
+                                  updDay(di, d => ({...d, matches: copiedMatches}));
+                                }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
+                              )}
+                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
                                             </div>
                                           ))}
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
                                           <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button onClick={() => setEditingDetailsId(null)} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Done</button>
+                                            <button onClick={() => { persistTeamsFromDetails(fixtureDetails); setEditingDetailsId(null); }} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Done</button>
                                             {det && <button onClick={() => { const next = { ...fixtureDetails }; delete next[fx.id]; saveFixtureDetails(next); setEditingDetailsId(null); }} style={{ background: 'transparent', color: 'var(--danger)', border: '1px solid var(--danger)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Clear</button>}
                                           </div>
                                         </div>
