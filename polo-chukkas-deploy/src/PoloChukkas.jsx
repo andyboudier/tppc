@@ -504,7 +504,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       if (!targetId) targetId = FIXTURES_2026[0]?.id;
       if (targetId) {
         const el = document.querySelector('[data-fixture-id="' + targetId + '"]');
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el) {
+          const nav = document.querySelector('.tabs');
+          const navH = nav ? nav.offsetHeight : 44;
+          const top = el.getBoundingClientRect().top + window.pageYOffset - navH - 8;
+          window.scrollTo({ top, behavior: 'smooth' });
+        }
       }
     }, 120);
     return () => clearTimeout(timer);
@@ -3615,6 +3620,24 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                       const updDay = (di, updater) => { const days = draft.days.map((d,i) => i===di ? updater(d) : d); setDraft({...draft, days}); };
                                       const updMatch = (di, mi, updater) => { updDay(di, d => ({...d, matches: d.matches.map((m,i) => i===mi ? updater(m) : m)})); };
                                       const updTeam = (di, mi, tk, updater) => { updMatch(di, mi, m => ({...m, [tk]: updater(m[tk] || {})})); };
+                              // Combined team lookup: persisted teamsDb + teams in current draft days
+                              const allTeams = (() => {
+                                const map = { ...teamsDb };
+                                (draft.days || []).forEach(day => {
+                                  (day.matches || []).forEach(m => {
+                                    ['teamA', 'teamB'].forEach(tk2 => {
+                                      const t = m[tk2];
+                                      if (t?.name?.trim()) {
+                                        const k = t.name.trim().toLowerCase();
+                                        if (!map[k] || (t.players?.length && (!map[k].players?.length))) {
+                                          map[k] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+                                        }
+                                      }
+                                    });
+                                  });
+                                });
+                                return map;
+                              })();
                                       return (
                                         <div style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -3654,20 +3677,33 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                       return (
                                                         <div key={tk}>
                                                           <div style={{ display: 'flex', gap: '4px', marginBottom: '3px' }}>
-                                                            {Object.keys(teamsDb).length > 0 && (
+                                                            {Object.keys(allTeams).length > 0 && (
                                 <datalist id={`teams-list-${di}-${mi}-${tk}`}>
-                                  {Object.values(teamsDb).map(t => <option key={t.name} value={t.name} />)}
+                                  {Object.values(allTeams).map(t => <option key={t.name} value={t.name} />)}
                                 </datalist>
                               )}
                               <input
                                 className="input-field"
                                 placeholder={tl + ' name'}
                                 value={team.name || ''}
-                                list={Object.keys(teamsDb).length > 0 ? `teams-list-${di}-${mi}-${tk}` : undefined}
-                                onChange={e => updTeam(di, mi, tk, t => ({...t, name: e.target.value}))}
+                                list={Object.keys(allTeams).length > 0 ? `teams-list-${di}-${mi}-${tk}` : undefined}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  updTeam(di, mi, tk, t => ({...t, name: val}));
+                                  // Autofill on exact match (fires when datalist option is selected)
+                                  const known = allTeams[val.trim().toLowerCase()];
+                                  if (known && known.players?.length) {
+                                    updTeam(di, mi, tk, t => ({
+                                      ...t,
+                                      name: known.name,
+                                      handicap: known.handicap ?? t.handicap,
+                                      players: known.players.map(p => ({...p})),
+                                    }));
+                                  }
+                                }}
                                 onBlur={e => {
                                   const typed = e.target.value.trim().toLowerCase();
-                                  const known = teamsDb[typed];
+                                  const known = allTeams[typed];
                                   if (known && known.players?.length) {
                                     updTeam(di, mi, tk, t => ({
                                       ...t,
