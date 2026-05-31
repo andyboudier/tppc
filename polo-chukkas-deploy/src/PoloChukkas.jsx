@@ -489,6 +489,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [liveFixtureId, setLiveFixtureId] = useState(null);
   const [liveDayId, setLiveDayId] = useState(null);
   const [liveMatchId, setLiveMatchId] = useState(null);
+  const [liveDate, setLiveDate] = useState(null);
 
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
@@ -3966,17 +3967,17 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                   return (
                     <div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-                        <select className="input-field" value={liveFixtureId || ''} onChange={e => { setLiveFixtureId(e.target.value || null); setLiveDayId(null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '180px', padding: '8px', fontSize: '13px' }}>
+                        <select value={liveDate || ''} onChange={e => { setLiveDate(e.target.value || null); setLiveFixtureId(null); setLiveDayId(null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
+                          <option value="">Select date…</option>
+                          {Array.from(new Set(Object.keys(fixtureDetails).flatMap(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).map(d => d.dateLabel).filter(Boolean)))).map(dl => <option key={dl} value={dl}>{dl}</option>)}
+                        </select>
+                        <select value={liveFixtureId || ''} disabled={!liveDate} onChange={e => { const fid = e.target.value || null; setLiveFixtureId(fid); const fx = fid ? fixtureDetails[fid] : null; const day = fx ? (fx.days || []).find(d => d.dateLabel === liveDate) : null; setLiveDayId(day ? day.id : null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '180px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select tournament…</option>
-                          {liveFixtureIds.map(fid => <option key={fid} value={fid}>{fixtureName(fid)}</option>)}
+                          {Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).some(d => d.dateLabel === liveDate)).map(fid => <option key={fid} value={fid}>{fixtureName(fid)}</option>)}
                         </select>
-                        <select className="input-field" value={liveDayId || ''} onChange={e => { setLiveDayId(e.target.value || null); setLiveMatchId(null); }} disabled={!curFd} style={{ flex: 1, minWidth: '140px', padding: '8px', fontSize: '13px' }}>
-                          <option value="">Select day…</option>
-                          {curDays.map(d => <option key={d.id} value={d.id}>{d.dateLabel || d.id}</option>)}
-                        </select>
-                        <select className="input-field" value={liveMatchId || ''} onChange={e => setLiveMatchId(e.target.value || null)} disabled={!curDay} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
+                        <select value={liveMatchId || ''} disabled={!liveFixtureId} onChange={e => setLiveMatchId(e.target.value || null)} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select match…</option>
-                          {curMatches.map(m => <option key={m.id} value={m.id}>{(m.time ? m.time + ' ' : '') + ((m.teamA && m.teamA.name) || 'TBC') + ' v ' + ((m.teamB && m.teamB.name) || 'TBC')}</option>)}
+                          {curMatches.map(m => <option key={m.id} value={m.id}>{(m.time ? m.time + ' ' : '') + ((m.teamA && m.teamA.name) || 'Team A') + ' v ' + ((m.teamB && m.teamB.name) || 'Team B')}</option>)}
                         </select>
                       </div>
                       {!curMatch ? (
@@ -4012,8 +4013,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                             <div style={{ flex: 1, minWidth: '220px' }}>
                               <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--burgundy)', marginBottom: '6px' }}>{(curMatch.teamA && curMatch.teamA.name) || 'Team'}</div>
                               {((curMatch.teamA && curMatch.teamA.players) || []).map((p, pi) => (
+                                (captainMode || (Number(p.goals)||0) > 0) ? (
                                 <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
-                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}{(Number(p.goals)||0) > 0 && <span style={{ marginLeft: '8px', color: 'var(--burgundy)', fontWeight: 700 }}>{Number(p.goals)}</span>}</span>
                                   {captainMode && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamA', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
@@ -4022,14 +4024,16 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                   </div>
                                   )}
                                 </div>
+                                ) : null
                               ))}
                               {(!(curMatch.teamA && curMatch.teamA.players) || curMatch.teamA.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
                             </div>
                             <div style={{ flex: 1, minWidth: '220px' }}>
                               <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--burgundy)', marginBottom: '6px' }}>{(curMatch.teamB && curMatch.teamB.name) || 'Team'}</div>
                               {((curMatch.teamB && curMatch.teamB.players) || []).map((p, pi) => (
+                                (captainMode || (Number(p.goals)||0) > 0) ? (
                                 <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
-                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}{(Number(p.goals)||0) > 0 && <span style={{ marginLeft: '8px', color: 'var(--burgundy)', fontWeight: 700 }}>{Number(p.goals)}</span>}</span>
                                   {captainMode && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamB', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
@@ -4038,6 +4042,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                   </div>
                                   )}
                                 </div>
+                                ) : null
                               ))}
                               {(!(curMatch.teamB && curMatch.teamB.players) || curMatch.teamB.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
                             </div>
