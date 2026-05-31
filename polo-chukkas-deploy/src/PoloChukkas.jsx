@@ -3948,12 +3948,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
             <div style={{ maxWidth: '760px', margin: '0 auto' }}>
               <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Live Game</div>
               <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Update scores and player goals as the match is played. Changes save automatically.</div>
-              {!captainMode ? (
+              {!captainMode && (
                 <div style={{ background: '#fff', border: '1px solid #e5e0d8', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '13px', color: 'var(--ink)', marginBottom: '12px' }}>Live scoring is restricted to team captains.</div>
+                  <div style={{ fontSize: '13px', color: 'var(--ink)', marginBottom: '12px' }}>Scores are visible to everyone. Only captains can update them.</div>
                   <button onClick={() => setPinModalOpen(true)} style={{ background: 'var(--burgundy)', color: '#fff', border: 'none', borderRadius: '6px', padding: '10px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN</button>
                 </div>
-              ) : (
+              )}
+              {(
                 (() => {
                   const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
                   const fixtureName = (fid) => { const f = FIXTURES_2026.find(x => x.id === fid); return f ? f.name : fid; };
