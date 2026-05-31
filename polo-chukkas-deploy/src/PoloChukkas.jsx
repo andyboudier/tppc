@@ -269,6 +269,7 @@ const placePlayer = (player, wantedCount, availableIdx, availableToIdx, minStep)
   for (let c = availableIdx; c <= availableToIdx; c++) {
     if (placed.length >= wantedCount) break;
     if (c - lastPlaced < minStep) continue;
+    if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue; // cap at 4 per team (max 4v4)
     placed.push(c);
     lastPlaced = c;
     chukkaPlayers[c].push(player);
@@ -320,6 +321,7 @@ ordered.forEach(player => {
     for (let c = availableIdx; c <= availableToIdx; c++) {
       if (myChukkas.length >= wanted) break;
       if (already.has(c)) continue;
+      if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue; // cap at 4 per team (max 4v4)
       myChukkas.push(c);
       chukkaPlayers[c].push(player);
     }
