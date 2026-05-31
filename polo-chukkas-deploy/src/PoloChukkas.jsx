@@ -1531,6 +1531,26 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     });
   };
 
+  // --- Live handicap head-start (traditional polo half-goal start) ---
+  const liveHeadStart = (match, teamKey) => {
+    const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
+    const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
+    if (hA === hB) return 0;
+    const diff = Math.abs(hA - hB) + 0.5;
+    const lower = hA < hB ? 'A' : 'B';
+    return teamKey === lower ? diff : 0;
+  };
+  const fmtHalf = (n) => {
+    const whole = Math.floor(n);
+    const half = (n - whole) >= 0.5;
+    if (half) return whole === 0 ? '½' : whole + '½';
+    return String(whole);
+  };
+  const liveDisplayScore = (match, teamKey) => {
+    const goals = teamKey === 'A' ? (match && match.scoreA) : (match && match.scoreB);
+    return fmtHalf((Number(goals) || 0) + liveHeadStart(match, teamKey));
+  };
+
   const registerInterest = (fixtureId) => {
     setFError('');
     if (!fName.trim()) return setFError('Please enter your name.');
@@ -3966,20 +3986,24 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
                             <div style={{ flex: 1, textAlign: 'center' }}>
                               <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamA && curMatch.teamA.name) || 'TBC'}</div>
-                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{curMatch.scoreA == null ? 0 : curMatch.scoreA}</div>
+                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{liveDisplayScore(curMatch, 'A')}</div>
+                              {captainMode && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
                                 <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamA', -1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '20px', fontWeight: 700, cursor: 'pointer', color: '#555' }}>&minus;</button>
                                 <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamA', 1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '20px', fontWeight: 700, cursor: 'pointer' }}>+</button>
                               </div>
+                              )}
                             </div>
                             <div style={{ alignSelf: 'center', fontSize: '16px', color: '#bbb', fontWeight: 700 }}>vs</div>
                             <div style={{ flex: 1, textAlign: 'center' }}>
                               <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamB && curMatch.teamB.name) || 'TBC'}</div>
-                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{curMatch.scoreB == null ? 0 : curMatch.scoreB}</div>
+                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{liveDisplayScore(curMatch, 'B')}</div>
+                              {captainMode && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
                                 <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamB', -1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '20px', fontWeight: 700, cursor: 'pointer', color: '#555' }}>&minus;</button>
                                 <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamB', 1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '20px', fontWeight: 700, cursor: 'pointer' }}>+</button>
                               </div>
+                              )}
                             </div>
                           </div>
                           <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999', margin: '18px 0 8px', textAlign: 'center' }}>Player Goals</div>
@@ -3989,11 +4013,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                               {((curMatch.teamA && curMatch.teamA.players) || []).map((p, pi) => (
                                 <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
                                   <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  {captainMode && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamA', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
                                     <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>{p.goals == null ? 0 : p.goals}</span>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamA', pi, 1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>+</button>
                                   </div>
+                                  )}
                                 </div>
                               ))}
                               {(!(curMatch.teamA && curMatch.teamA.players) || curMatch.teamA.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
@@ -4003,11 +4029,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                               {((curMatch.teamB && curMatch.teamB.players) || []).map((p, pi) => (
                                 <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
                                   <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  {captainMode && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamB', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
                                     <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>{p.goals == null ? 0 : p.goals}</span>
                                     <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamB', pi, 1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>+</button>
                                   </div>
+                                  )}
                                 </div>
                               ))}
                               {(!(curMatch.teamB && curMatch.teamB.players) || curMatch.teamB.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
