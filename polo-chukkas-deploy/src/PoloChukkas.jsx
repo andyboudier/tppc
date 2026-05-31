@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { generateTournamentPdf } from './tournamentPdf';
 
 // 2026 Tedworth Park Polo Club grass fixtures
 const FIXTURES_2026 = [
@@ -3666,6 +3667,16 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                               {typeof day.prizegiving === 'string' && day.prizegiving.trim() ? `${day.prizegiving} · Prizegiving` : 'Prizegiving'}
                                             </div>
                                           </div>
+                                        )}
+                                        {captainMode && det && (
+                                          <button
+                                            onClick={async () => {
+                                              try { await generateTournamentPdf(fx, det); }
+                                              catch (err) { alert('Could not generate PDF: ' + (err?.message || err)); }
+                                            }}
+                                            style={{ marginTop: '12px', width: '100%', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+                                            ↓ Download programme PDF
+                                          </button>
                                         )}
                                       </div>
                                     ))}
