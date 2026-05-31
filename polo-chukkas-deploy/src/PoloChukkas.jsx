@@ -484,6 +484,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [liveFixtureId, setLiveFixtureId] = useState(null);
+  const [liveDayId, setLiveDayId] = useState(null);
+  const [liveMatchId, setLiveMatchId] = useState(null);
 
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
@@ -1498,6 +1501,32 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     setFixtureDetails(next);
     try { await window.storage.set('fixture-details', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
+  };
+  // --- Live scoring helpers (persist via saveFixtureDetails) ---
+  const updLiveMatch = (fixtureId, dayId, matchId, updater) => {
+    const fd = fixtureDetails[fixtureId];
+    if (!fd) return;
+    const nextDays = (fd.days || []).map(d => d.id !== dayId ? d : ({
+      ...d,
+      matches: (d.matches || []).map(m => m.id !== matchId ? m : updater(m))
+    }));
+    saveFixtureDetails({ ...fixtureDetails, [fixtureId]: { ...fd, days: nextDays } });
+  };
+  const bumpTeamScore = (fixtureId, dayId, matchId, teamKey, delta) => {
+    updLiveMatch(fixtureId, dayId, matchId, m => {
+      const key = teamKey === 'teamA' ? 'scoreA' : 'scoreB';
+      const cur = m[key] == null ? 0 : Number(m[key]);
+      return { ...m, [key]: Math.max(0, cur + delta) };
+    });
+  };
+  const bumpPlayerGoals = (fixtureId, dayId, matchId, teamKey, playerIdx, delta) => {
+    updLiveMatch(fixtureId, dayId, matchId, m => {
+      const team = m[teamKey] || { players: [] };
+      const players = (team.players || []).map((p, i) => i !== playerIdx ? p : ({
+        ...p, goals: Math.max(0, (p.goals == null ? 0 : Number(p.goals)) + delta)
+      }));
+      return { ...m, [teamKey]: { ...team, players } };
+    });
   };
 
   const registerInterest = (fixtureId) => {
@@ -2598,6 +2627,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
             Fixtures
           </button>
+          <button className={`tab-btn ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>
+            Live Game
+          </button>
         </nav>
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
@@ -3575,6 +3607,11 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                   {match.teamA?.name || 'TBC'} V {match.teamB?.name || 'TBC'}
                                                 </div>
                                               )}
+                                                {(match.scoreA != null || match.scoreB != null) && (
+                                                  <div style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px', margin: '1px 0 3px', color: 'var(--burgundy)' }}>
+                                                    {match.scoreA ?? 0} &ndash; {match.scoreB ?? 0}
+                                                  </div>
+                                                )}
                                               {match.umpires && (
                                                 <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Umpires: {match.umpires}</div>
                                               )}
@@ -3656,7 +3693,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                               </div>
                                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                                                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
-                                                  <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked ? (typeof d.prizegiving === 'string' && d.prizegiving.trim() ? d.prizegiving : '') : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
+                                                  <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked ? (typeof d.prizegiving === 'string' && d.prizegiving.trim() ? d.prizegiving : true) : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
                                                   Prizegiving
                                                 </label>
                                                 {!!day.prizegiving && (
@@ -3671,6 +3708,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
                                                   <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '5px' }}>
+                                                    <span style={{ fontSize: '11px', color: 'var(--burgundy)', fontWeight: 600, minWidth: '40px' }}>Score</span>
+                                                    <input className="input-field" type="number" placeholder="A" value={match.scoreA ?? ''} onChange={e => updMatch(di, mi, m => ({...m, scoreA: e.target.value === '' ? null : Number(e.target.value)}))} style={{ width: '56px', padding: '5px 7px', fontSize: '12px', textAlign: 'center' }} />
+                                                    <span style={{ fontSize: '12px', color: '#999' }}>vs</span>
+                                                    <input className="input-field" type="number" placeholder="B" value={match.scoreB ?? ''} onChange={e => updMatch(di, mi, m => ({...m, scoreB: e.target.value === '' ? null : Number(e.target.value)}))} style={{ width: '56px', padding: '5px 7px', fontSize: '12px', textAlign: 'center' }} />
+                                                  </div>
                                                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '4px' }}>
                                                     {[['teamA', 'Team A'], ['teamB', 'Team B']].map(([tk, tl]) => {
                                                       const team = match[tk] || { name: '', handicap: null, players: [] };
@@ -3724,7 +3767,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                               <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: t.players.filter((_,i) => i!==pi)}))} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', cursor: 'pointer', lineHeight: 1, padding: '0 1px' }}>×</button>
                                                             </div>
                                                           ))}
-                                                          <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: [...(t.players||[]), {name:'', handicap: null}]}))} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.3px', padding: '1px 0' }}>+ player</button>
+                                                          {(team.players||[]).length < 4 && (<button onClick={() => updTeam(di, mi, tk, t => ((t.players||[]).length >= 4 ? t : {...t, players: [...(t.players||[]), {name:'', handicap: null}]}))} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.3px', padding: '1px 0' }}>+ player</button>)}
                                                         </div>
                                                       );
                                                     })}
@@ -3876,6 +3919,104 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                   View on tedworthparkpolo.com ↗
                 </a>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'live' && (
+            <div style={{ maxWidth: '760px', margin: '0 auto' }}>
+              <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Live Game</div>
+              <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Update scores and player goals as the match is played. Changes save automatically.</div>
+              {!captainMode ? (
+                <div style={{ background: '#fff', border: '1px solid #e5e0d8', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--ink)', marginBottom: '12px' }}>Live scoring is restricted to team captains.</div>
+                  <button onClick={() => setPinModalOpen(true)} style={{ background: 'var(--burgundy)', color: '#fff', border: 'none', borderRadius: '6px', padding: '10px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN</button>
+                </div>
+              ) : (
+                (() => {
+                  const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
+                  const fixtureName = (fid) => { const f = FIXTURES_2026.find(x => x.id === fid); return f ? f.name : fid; };
+                  const curFd = liveFixtureId ? fixtureDetails[liveFixtureId] : null;
+                  const curDays = curFd ? (curFd.days || []) : [];
+                  const curDay = curDays.find(d => d.id === liveDayId) || null;
+                  const curMatches = curDay ? (curDay.matches || []) : [];
+                  const curMatch = curMatches.find(m => m.id === liveMatchId) || null;
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+                        <select className="input-field" value={liveFixtureId || ''} onChange={e => { setLiveFixtureId(e.target.value || null); setLiveDayId(null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '180px', padding: '8px', fontSize: '13px' }}>
+                          <option value="">Select tournament…</option>
+                          {liveFixtureIds.map(fid => <option key={fid} value={fid}>{fixtureName(fid)}</option>)}
+                        </select>
+                        <select className="input-field" value={liveDayId || ''} onChange={e => { setLiveDayId(e.target.value || null); setLiveMatchId(null); }} disabled={!curFd} style={{ flex: 1, minWidth: '140px', padding: '8px', fontSize: '13px' }}>
+                          <option value="">Select day…</option>
+                          {curDays.map(d => <option key={d.id} value={d.id}>{d.dateLabel || d.id}</option>)}
+                        </select>
+                        <select className="input-field" value={liveMatchId || ''} onChange={e => setLiveMatchId(e.target.value || null)} disabled={!curDay} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
+                          <option value="">Select match…</option>
+                          {curMatches.map(m => <option key={m.id} value={m.id}>{(m.time ? m.time + ' ' : '') + ((m.teamA && m.teamA.name) || 'TBC') + ' v ' + ((m.teamB && m.teamB.name) || 'TBC')}</option>)}
+                        </select>
+                      </div>
+                      {!curMatch ? (
+                        <div style={{ textAlign: 'center', color: '#999', fontSize: '13px', padding: '30px 0' }}>Select a tournament, day and match to begin live scoring.</div>
+                      ) : (
+                        <div style={{ background: '#fff', border: '1px solid #e5e0d8', borderRadius: '8px', padding: '20px' }}>
+                          {curMatch.label && <div style={{ textAlign: 'center', fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--burgundy)', marginBottom: '10px' }}>{curMatch.label}</div>}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                            <div style={{ flex: 1, textAlign: 'center' }}>
+                              <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamA && curMatch.teamA.name) || 'TBC'}</div>
+                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{curMatch.scoreA == null ? 0 : curMatch.scoreA}</div>
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
+                                <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamA', -1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '20px', fontWeight: 700, cursor: 'pointer', color: '#555' }}>&minus;</button>
+                                <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamA', 1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '20px', fontWeight: 700, cursor: 'pointer' }}>+</button>
+                              </div>
+                            </div>
+                            <div style={{ alignSelf: 'center', fontSize: '16px', color: '#bbb', fontWeight: 700 }}>vs</div>
+                            <div style={{ flex: 1, textAlign: 'center' }}>
+                              <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamB && curMatch.teamB.name) || 'TBC'}</div>
+                              <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{curMatch.scoreB == null ? 0 : curMatch.scoreB}</div>
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
+                                <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamB', -1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '20px', fontWeight: 700, cursor: 'pointer', color: '#555' }}>&minus;</button>
+                                <button onClick={() => bumpTeamScore(liveFixtureId, liveDayId, liveMatchId, 'teamB', 1)} style={{ width: '40px', height: '40px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '20px', fontWeight: 700, cursor: 'pointer' }}>+</button>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999', margin: '18px 0 8px', textAlign: 'center' }}>Player Goals</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+                            <div style={{ flex: 1, minWidth: '220px' }}>
+                              <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--burgundy)', marginBottom: '6px' }}>{(curMatch.teamA && curMatch.teamA.name) || 'Team'}</div>
+                              {((curMatch.teamA && curMatch.teamA.players) || []).map((p, pi) => (
+                                <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
+                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamA', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
+                                    <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>{p.goals == null ? 0 : p.goals}</span>
+                                    <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamA', pi, 1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>+</button>
+                                  </div>
+                                </div>
+                              ))}
+                              {(!(curMatch.teamA && curMatch.teamA.players) || curMatch.teamA.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
+                            </div>
+                            <div style={{ flex: 1, minWidth: '220px' }}>
+                              <div style={{ fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--burgundy)', marginBottom: '6px' }}>{(curMatch.teamB && curMatch.teamB.name) || 'Team'}</div>
+                              {((curMatch.teamB && curMatch.teamB.players) || []).map((p, pi) => (
+                                <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '5px 0', borderBottom: '1px solid #f0ece4' }}>
+                                  <span style={{ fontSize: '13px', color: 'var(--ink)' }}>{p.name || 'Player ' + (pi + 1)}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamB', pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
+                                    <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>{p.goals == null ? 0 : p.goals}</span>
+                                    <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, 'teamB', pi, 1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: 'var(--burgundy)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>+</button>
+                                  </div>
+                                </div>
+                              ))}
+                              {(!(curMatch.teamB && curMatch.teamB.players) || curMatch.teamB.players.length === 0) && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
             </div>
           )}
 
