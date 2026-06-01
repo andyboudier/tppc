@@ -59,36 +59,12 @@ const fmtHcp = (h) => {
   return ' ' + h;
 };
 
-// ── Score helpers (mirror the app's live-scoring logic) ──────────────────
+// ── Score helper ─────────────────────────────────────────────────────────
 // A result is shown only if at least one team's score has been entered.
+// The PDF uses the raw scoreA/scoreB exactly as the fixture view displays them.
 const hasResult = (match) =>
   match && (match.scoreA !== null && match.scoreA !== undefined ||
             match.scoreB !== null && match.scoreB !== undefined);
-
-// Traditional polo half-goal head start: the lower-rated team starts on
-// |hA - hB| + 0.5 goals. Returns the head start for the requested side.
-const headStart = (match, teamKey) => {
-  const hA = Number(match?.teamA?.handicap) || 0;
-  const hB = Number(match?.teamB?.handicap) || 0;
-  if (hA === hB) return 0;
-  const diff = Math.abs(hA - hB) + 0.5;
-  const lower = hA < hB ? 'A' : 'B';
-  return teamKey === lower ? diff : 0;
-};
-
-// Format half goals as '4½', '½', '3'.
-const fmtHalf = (n) => {
-  const whole = Math.floor(n);
-  const half = (n - whole) >= 0.5;
-  if (half) return whole === 0 ? '½' : whole + '½';
-  return String(whole);
-};
-
-// Final displayed score for a side = goals scored + head start.
-const displayScore = (match, teamKey) => {
-  const goals = teamKey === 'A' ? match?.scoreA : match?.scoreB;
-  return (Number(goals) || 0) + headStart(match, teamKey);
-};
 
 // Add ordinal suffix: 30 → '30th', 1 → '1st'.
 const ordinal = (n) => {
@@ -263,6 +239,17 @@ function drawMatch(doc, match, startY) {
   doc.text(`${aName} V ${bName}`, PAGE_W / 2, y, { align: 'center' });
   y += 5;
 
+  // Result — only once a score is entered. Uses the SAME raw score the fixture
+  // view shows (no handicap head start), so the PDF matches the app exactly.
+  if (hasResult(match)) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(...BURGUNDY);
+    doc.text(`${match.scoreA ?? 0} \u2013 ${match.scoreB ?? 0}`, PAGE_W / 2, y, { align: 'center' });
+    doc.setTextColor(...INK);
+    y += 6;
+  }
+
   // Umpires
   if (match.umpires) {
     doc.setFont('helvetica', 'normal');
@@ -288,23 +275,6 @@ function drawMatch(doc, match, startY) {
   doc.text(headerA, colAx, y, { align: 'center' });
   doc.text(headerB, colBx, y, { align: 'center' });
   y += 5;
-
-  // Result scoreboard — only shown once a score has been entered for this match.
-  // Mirrors the app: displayed score = goals + traditional half-goal head start.
-  if (hasResult(match)) {
-    const sA = displayScore(match, 'A');
-    const sB = displayScore(match, 'B');
-    const aWins = sA > sB;
-    const bWins = sB > sA;
-    doc.setFontSize(16);
-    doc.setTextColor(...BURGUNDY);
-    doc.setFont('helvetica', aWins ? 'bold' : 'normal');
-    doc.text(fmtHalf(sA), colAx, y, { align: 'center' });
-    doc.setFont('helvetica', bWins ? 'bold' : 'normal');
-    doc.text(fmtHalf(sB), colBx, y, { align: 'center' });
-    doc.setTextColor(...INK);
-    y += 7;
-  }
 
   // Player rows
   doc.setFont('helvetica', 'normal');
