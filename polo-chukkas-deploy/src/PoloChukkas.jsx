@@ -475,6 +475,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [fixtureDetails, setFixtureDetails] = useState({ 'may-30-b': GRENADIER_TROPHY_DETAILS });
   const [teamsDb, setTeamsDb] = useState({}); // { [teamNameLower]: { name, handicap, players: [{name, handicap}] } }
   const [editingDetailsId, setEditingDetailsId] = useState(null);
+  const [showBackups, setShowBackups] = useState(false);
+  const [backups, setBackups] = useState([]);
+  const backupTimerRef = useRef(null);
 
   // Manual schedule editing
   const [activePlayer, setActivePlayer] = useState(null); // { chukkaIdx, playerId } | null
@@ -1505,7 +1508,63 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     setFixtureDetails(next);
     try { await window.storage.set('fixture-details', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
+    scheduleBackup(next);
   };
+
+  // ── Automatic backups of match details / scores ─────────────────────────
+  // Every change is snapshotted so an accidental delete can be undone, even
+  // without Point-in-Time Recovery. Snapshots are kept in a single shared
+  // Firestore record ('fixture-details-backups') as a capped, timestamped list.
+  const MAX_BACKUPS = 20;
+
+  const writeBackup = async (data) => {
+    try {
+      const dataStr = JSON.stringify(data || {});
+      // Skip empty or unchanged snapshots
+      if (dataStr === '{}' ) return;
+      const existing = await window.storage.get('fixture-details-backups', true);
+      let list = existing?.value ? JSON.parse(existing.value) : [];
+      if (list.length && JSON.stringify(list[list.length - 1].data) === dataStr) return;
+      list.push({ ts: Date.now(), data });
+      while (list.length > MAX_BACKUPS) list.shift();
+      // Stay comfortably under Firestore's 1MB document limit
+      while (list.length > 1 && JSON.stringify(list).length > 800000) list.shift();
+      await window.storage.set('fixture-details-backups', JSON.stringify(list), true);
+    } catch (e) { /* never let a backup failure break a save */ }
+  };
+
+  // Trailing debounce: during a flurry of edits (e.g. live scoring +/- taps)
+  // this resets, so we snapshot the final state ~8s after activity stops —
+  // one backup per editing session rather than one per tap.
+  const scheduleBackup = (data) => {
+    if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
+    backupTimerRef.current = setTimeout(() => writeBackup(data), 8000);
+  };
+
+  const loadBackups = async () => {
+    try {
+      const b = await window.storage.get('fixture-details-backups', true);
+      const list = b?.value ? JSON.parse(b.value) : [];
+      setBackups([...list].reverse()); // newest first
+    } catch (e) { setBackups([]); }
+  };
+
+  const backupSummary = (data) => {
+    const ids = Object.keys(data || {});
+    let matches = 0;
+    ids.forEach(id => (data[id]?.days || []).forEach(d => { matches += (d.matches || []).length; }));
+    return `${ids.length} fixture${ids.length === 1 ? '' : 's'}, ${matches} match${matches === 1 ? '' : 'es'}`;
+  };
+
+  const restoreBackup = async (snap) => {
+    if (!snap) return;
+    if (!window.confirm('Restore this backup? It replaces all current match details with this saved version. (Your current version is backed up first, so you can undo.)')) return;
+    await writeBackup(fixtureDetails); // snapshot current state first, so restore is itself reversible
+    await saveFixtureDetails(snap.data);
+    setShowBackups(false);
+    window.alert('Match details restored.');
+  };
+
   // --- Live scoring helpers (persist via saveFixtureDetails) ---
   const updLiveMatch = (fixtureId, dayId, matchId, updater) => {
     const fd = fixtureDetails[fixtureId];
@@ -3570,6 +3629,34 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                 )}
               </div>
 
+              {captainMode && (
+                <div style={{ maxWidth: '480px', margin: '0 auto 16px', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 12px' }}>
+                  <button
+                    onClick={() => { const n = !showBackups; setShowBackups(n); if (n) loadBackups(); }}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--burgundy)', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', padding: '4px' }}>
+                    {showBackups ? 'Hide backups' : '↺ Restore match details from backup'}
+                  </button>
+                  {showBackups && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', lineHeight: 1.5 }}>
+                        Backups save automatically whenever match details or scores change. Pick a point to roll back to — your current version is saved first, so a restore can itself be undone.
+                      </div>
+                      {backups.length === 0 ? (
+                        <div style={{ fontSize: '12px', color: 'var(--muted)', padding: '6px 0' }}>No backups yet — they’ll appear here after the next change.</div>
+                      ) : backups.map((b) => (
+                        <div key={b.ts} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--ink)' }}>
+                            <div style={{ fontWeight: 600 }}>{new Date(b.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{backupSummary(b.data)}</div>
+                          </div>
+                          <button onClick={() => restoreBackup(b)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap' }}>Restore</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {MONTHS_ORDER.map(month => {
                 const monthFixtures = FIXTURES_2026.filter(f => f.month === month);
                 if (monthFixtures.length === 0) return null;
@@ -3831,7 +3918,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
                                           <div style={{ display: 'flex', gap: '8px' }}>
                                             <button onClick={() => { persistTeamsFromDetails(fixtureDetails); setEditingDetailsId(null); }} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Done</button>
-                                            {det && <button onClick={() => { const next = { ...fixtureDetails }; delete next[fx.id]; saveFixtureDetails(next); setEditingDetailsId(null); }} style={{ background: 'transparent', color: 'var(--danger)', border: '1px solid var(--danger)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Clear</button>}
+                                            {det && <button onClick={async () => { if (!window.confirm(`Delete all match details for “${fx.name}”? They’ll be saved to backups first, so you can restore them from the Fixtures screen.`)) return; await writeBackup(fixtureDetails); const next = { ...fixtureDetails }; delete next[fx.id]; saveFixtureDetails(next); setEditingDetailsId(null); }} style={{ background: 'transparent', color: 'var(--danger)', border: '1px solid var(--danger)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Clear</button>}
                                           </div>
                                         </div>
                                       );
