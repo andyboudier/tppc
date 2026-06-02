@@ -54,7 +54,7 @@ const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 // Team (aggregate) handicaps run higher than individual player handicaps — up to 12-goal.
-const TEAM_HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
@@ -339,19 +339,10 @@ ordered.forEach(player => {
   const minStep = player.noConsecutive ? 2 : 1;
   let myChukkas = placePlayer(player, wanted, availableIdx, availableToIdx, minStep);
 
-  // Fallback for noConsecutive players: if the gap-preserving pass didn't
-  // fill all requested chukkas (due to capacity pressure), allow adjacent
-  // slots rather than leave the player short.
-  if (player.noConsecutive && myChukkas.length < wanted) {
-    const already = new Set(myChukkas);
-    for (let c = availableIdx; c <= availableToIdx; c++) {
-      if (myChukkas.length >= wanted) break;
-      if (already.has(c)) continue;
-      if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue; // cap at 4 per team (max 4v4)
-      myChukkas.push(c);
-      chukkaPlayers[c].push(player);
-    }
-  }
+  // Intentionally NO adjacent-slot fallback for noConsecutive players: if the
+  // gap-preserving pass can't fit every requested chukka (capacity pressure),
+  // we leave them short — reported below — rather than break the
+  // no-back-to-back rule by seating them in consecutive chukkas.
 
   if (myChukkas.length < cappedWanted && !player.vip) {
     reduced.push({ player, requested: cappedWanted, given: myChukkas.length });
@@ -385,7 +376,13 @@ while (safety-- > 0) {
     if (chukkaPlayers[s].length <= bestSrcCount) continue;
     const movable = chukkaPlayers[s].find(p =>
       !p.vip &&
-      !chukkaPlayers[underIdx].some(q => q.id === p.id)
+      !chukkaPlayers[underIdx].some(q => q.id === p.id) &&
+      // Don't move a no-consecutive player into a chukka next to one they're
+      // already in — that would create the back-to-back we're avoiding.
+      !(p.noConsecutive && (
+        (underIdx > 0 && chukkaPlayers[underIdx - 1].some(q => q.id === p.id)) ||
+        (underIdx < numChukkas - 1 && chukkaPlayers[underIdx + 1].some(q => q.id === p.id))
+      ))
     );
     if (movable) {
       bestSrcIdx = s;
@@ -401,23 +398,51 @@ while (safety-- > 0) {
 
 // Build each chukka with balanced teams. Teams may be uneven (e.g. 4v3) when
 // player counts are odd — that is acceptable and preferred over leaving people out.
+// Build each chukka's teams while keeping every player on ONE shirt colour for
+// the whole evening, so nobody has to keep swapping bibs. A player's colour
+// (teamA = Blue, teamB = White) is fixed the first time they appear and reused
+// in every later chukka. Per-chukka size caps keep the teams within one player
+// of each other; a player is only moved off their colour when their side is
+// full (unavoidable for a playable game), and that becomes their colour from
+// then on. New players fill the lighter side, balancing size then handicap.
+const playerColor = new Map(); // id -> 'A' | 'B'
+
 const chukkas = chukkaPlayers.map((inChukka, c) => {
+  const n = inChukka.length;
+  const capA = Math.ceil(n / 2);
+  const capB = n - capA;
   const sorted = [...inChukka].sort((a, b) => b.handicap - a.handicap);
+
   const teamA = [], teamB = [];
   let sumA = 0, sumB = 0;
-  sorted.forEach(p => {
-    if (teamA.length < teamB.length) { teamA.push(p); sumA += p.handicap; }
-    else if (teamB.length < teamA.length) { teamB.push(p); sumB += p.handicap; }
-    else if (sumA <= sumB) { teamA.push(p); sumA += p.handicap; }
-    else { teamB.push(p); sumB += p.handicap; }
-  });
+  const addA = (p) => { teamA.push(p); sumA += p.handicap; playerColor.set(p.id, 'A'); };
+  const addB = (p) => { teamB.push(p); sumB += p.handicap; playerColor.set(p.id, 'B'); };
+
+  const place = (p) => {
+    const want = playerColor.get(p.id);
+    const roomA = teamA.length < capA;
+    const roomB = teamB.length < capB;
+    let col;
+    if (want === 'A' && roomA) col = 'A';            // keep their shirt
+    else if (want === 'B' && roomB) col = 'B';       // keep their shirt
+    else if (roomA && !roomB) col = 'A';             // only one side has room
+    else if (roomB && !roomA) col = 'B';
+    else if (teamA.length !== teamB.length) col = teamA.length < teamB.length ? 'A' : 'B'; // balance size
+    else col = sumA <= sumB ? 'A' : 'B';             // balance handicap
+    (col === 'A' ? addA : addB)(p);
+  };
+
+  // Returning players first (honour their colour), then newcomers (balance).
+  sorted.filter(p => playerColor.has(p.id)).forEach(place);
+  sorted.filter(p => !playerColor.has(p.id)).forEach(place);
+
   return {
     idx: c,
     number: c + 1,
     time: chukkaTime(c, startMin),
     isEarly: c < numChukkas / 2,
     teamA, teamB, sumA, sumB,
-    playerCount: inChukka.length,
+    playerCount: n,
   };
 });
 
