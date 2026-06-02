@@ -69,7 +69,7 @@ const storage = {
 // ── Live sync: subscribe to every shared key the app uses ────────────
 // When Firestore changes (from this device OR any other), update the cache
 // AND dispatch a window-level event so React components can re-read.
-const SYNC_KEYS = ['roster', 'fixture-interest', 'wa-link', 'members', 'team-signups'];
+const SYNC_KEYS = ['roster', 'fixture-interest', 'wa-link', 'members', 'team-signups', 'fixtures'];
 
 SYNC_KEYS.forEach((key) => {
   const cacheKey = `shared/${key}`;

@@ -59,6 +59,10 @@ const fmtHcp = (h) => {
   return ' ' + h;
 };
 
+// Normalise unicode dashes (− U+2212, – en dash, — em dash) to ASCII hyphen so
+// the standard PDF fonts (WinAnsi) render the tournament handicap level cleanly.
+const pdfLevel = (s) => (s || '').replace(/[\u2212\u2013\u2014]/g, '-').trim();
+
 // ── Score helper ─────────────────────────────────────────────────────────
 // A result is shown only if at least one team's score has been entered.
 // The PDF uses the raw scoreA/scoreB exactly as the fixture view displays them.
@@ -159,6 +163,14 @@ function drawCoverPage(doc, fixture, subtitle) {
     doc.text(line, PAGE_W / 2, y, { align: 'center' });
     y += 20;
   });
+
+  // Tournament handicap level (e.g. "−4 to 0 Goal")
+  if (fixture.level && fixture.level.trim()) {
+    doc.setFont('times', 'italic');
+    doc.setFontSize(18);
+    doc.setTextColor(...BURGUNDY);
+    doc.text(pdfLevel(fixture.level), PAGE_W / 2, y + 1, { align: 'center' });
+  }
 }
 
 function drawDayPage(doc, fixture, subtitle, day) {
@@ -176,7 +188,18 @@ function drawDayPage(doc, fixture, subtitle, day) {
 
   doc.setFontSize(16);
   doc.text(subtitle, PAGE_W / 2, y, { align: 'center' });
-  y += 14;
+  y += 8;
+
+  // Tournament handicap level
+  if (fixture.level && fixture.level.trim()) {
+    doc.setFont('times', 'italic');
+    doc.setFontSize(13);
+    doc.setTextColor(...BURGUNDY);
+    doc.text(pdfLevel(fixture.level), PAGE_W / 2, y, { align: 'center' });
+    y += 7;
+  } else {
+    y += 6;
+  }
 
   // Day label (e.g. "SATURDAY 30TH MAY")
   doc.setFont('helvetica', 'bold');

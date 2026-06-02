@@ -51,6 +51,7 @@ const FIXTURES_2026 = [
 ];
 
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
+const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
@@ -509,6 +510,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [tSquads, setTSquads] = useState({}); // working draft: { [dayKey]: [{name, handicap}] }
   const [tError, setTError] = useState('');
   const [showTeamForm, setShowTeamForm] = useState(false);
+
+  // Captain-editable fixtures list — seeded from the built-in 2026 list, then
+  // persisted so captains can add ad hoc fixtures, edit details, and change the
+  // handicap level. Stored under 'fixtures' and synced across devices.
+  const [fixtures, setFixtures] = useState(FIXTURES_2026);
+  const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
   const [editingDetailsId, setEditingDetailsId] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
@@ -540,13 +547,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       const now = new Date();
       let targetId = null;
       let bestDiff = Infinity;
-      FIXTURES_2026.forEach(fx => {
+      fixtures.forEach(fx => {
         const range = parseFixtureDateRange(fx);
         if (!range) return;
         const diff = now - range.start;
         if (diff >= 0 && diff < bestDiff) { bestDiff = diff; targetId = fx.id; }
       });
-      if (!targetId) targetId = FIXTURES_2026[0]?.id;
+      if (!targetId) targetId = fixtures[0]?.id;
       if (targetId) {
         const el = document.querySelector('[data-fixture-id="' + targetId + '"]');
         if (el) {
@@ -753,6 +760,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         if (tdb?.value) setTeamsDb(JSON.parse(tdb.value));
         const ts = await window.storage.get('team-signups', true);
         if (ts?.value) setTeamSignups(JSON.parse(ts.value));
+        const fxs = await window.storage.get('fixtures', true);
+        if (fxs?.value) { const arr = JSON.parse(fxs.value); if (Array.isArray(arr) && arr.length) setFixtures(arr); }
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -1684,7 +1693,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     setExpandedId(opening);
     setShowTeamForm(false);
     if (opening) {
-      const fx = FIXTURES_2026.find(f => f.id === opening);
+      const fx = fixtures.find(f => f.id === opening);
       if (fx) resetTeamForm(fx);
     }
   };
@@ -1794,6 +1803,75 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     const next = { ...teamSignups };
     if (list.length === 0) delete next[fixtureId]; else next[fixtureId] = list;
     saveTeamSignups(next);
+  };
+
+  // ── Captain: add / edit / delete fixtures ─────────────────
+  const saveFixtures = async (next) => {
+    setFixtures(next);
+    try { await window.storage.set('fixtures', JSON.stringify(next), true); }
+    catch (e) { setFError('Saved locally only — check your connection.'); }
+  };
+  const openAddFixture = () => { setFError(''); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '' }); };
+  const openEditFixture = (fx) => { setFError(''); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '' }); };
+  const setEd = (field, value) => setFixtureEditor(prev => prev ? { ...prev, [field]: value } : prev);
+  const saveFixtureEditor = () => {
+    const ed = fixtureEditor;
+    if (!ed) return;
+    if (!ed.name.trim()) { setFError('Please enter a fixture name.'); return; }
+    if (!ed.date.trim()) { setFError('Please enter a date, e.g. “Sat 30 & Sun 31 May”.'); return; }
+    setFError('');
+    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim() };
+    let next;
+    if (ed.id) {
+      next = fixtures.map(f => f.id === ed.id ? { ...f, ...clean } : f);
+    } else {
+      const slug = clean.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'fixture';
+      const existing = new Set(fixtures.map(f => f.id));
+      let id = 'adhoc-' + slug;
+      while (existing.has(id)) id = 'adhoc-' + slug + '-' + Math.random().toString(36).slice(2, 5);
+      next = [...fixtures, { id, ...clean, adhoc: true }];
+    }
+    saveFixtures(next);
+    setFixtureEditor(null);
+  };
+  const deleteFixture = (id) => {
+    if (!window.confirm('Delete this fixture from the list? Any match details and team sign-ups stay stored, but the fixture will no longer be shown.')) return;
+    saveFixtures(fixtures.filter(f => f.id !== id));
+    setFixtureEditor(null);
+  };
+  const restoreOfficialFixtures = () => {
+    if (!window.confirm('Restore the official 2026 fixture list? This replaces the current list, including any fixtures you have added or edited.')) return;
+    saveFixtures(FIXTURES_2026);
+    setFixtureEditor(null);
+  };
+  const renderFixtureEditor = () => {
+    if (!fixtureEditor) return null;
+    return (
+      <div className="register-form" style={{ marginTop: 0 }}>
+        <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>{fixtureEditor.id ? 'Edit fixture' : 'Add fixture'}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <input className="input-field" type="text" placeholder="Fixture name e.g. The Rabbit Cup" value={fixtureEditor.name} onChange={e => setEd('name', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <select className="input-field select-field" value={fixtureEditor.month} onChange={e => setEd('month', e.target.value)} style={{ width: '136px', flexShrink: 0, padding: '12px 8px', fontSize: '14px' }}>
+              {ALL_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <input className="input-field" type="text" placeholder="Date e.g. Sat 30 & Sun 31 May" value={fixtureEditor.date} onChange={e => setEd('date', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '14px' }} />
+          </div>
+          <input className="input-field" type="text" placeholder="Handicap level e.g. −4 to 0 Goal (optional)" value={fixtureEditor.level} onChange={e => setEd('level', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
+          <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
+            Put the weekday + day in the date (e.g. “Sat 30 & Sun 31 May”) so team sign-ups and the programme pick up the right days. The handicap level prints on the programme PDF.
+          </div>
+          {fError && <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>{fError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn-primary" onClick={saveFixtureEditor} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>{fixtureEditor.id ? 'Save fixture' : 'Add fixture'}</button>
+            <button onClick={() => { setFixtureEditor(null); setFError(''); }} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '13px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+          </div>
+          {fixtureEditor.id && (
+            <button onClick={() => deleteFixture(fixtureEditor.id)} style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Delete fixture</button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const totalChukkas = players.reduce((s, p) => s + p.chukkas, 0);
@@ -3913,8 +3991,19 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                 </div>
               )}
 
-              {MONTHS_ORDER.map(month => {
-                const monthFixtures = FIXTURES_2026.filter(f => f.month === month);
+              {captainMode && (
+                <div style={{ maxWidth: '480px', margin: '0 auto 16px' }}>
+                  {fixtureEditor && !fixtureEditor.id ? renderFixtureEditor() : (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={openAddFixture} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>＋ Add fixture</button>
+                      <button onClick={restoreOfficialFixtures} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '10px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' }}>↺ Official list</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ALL_MONTHS.filter(m => fixtures.some(f => f.month === m)).map(month => {
+                const monthFixtures = fixtures.filter(f => f.month === month);
                 if (monthFixtures.length === 0) return null;
                 return (
                   <div key={month}>
@@ -3956,6 +4045,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                           {isExpanded && (
                             <div className="fixture-body reveal">
+                              {captainMode && (fixtureEditor?.id === fx.id ? (
+                                <div style={{ paddingTop: '12px' }}>{renderFixtureEditor()}</div>
+                              ) : (
+                                <div style={{ paddingTop: '10px', textAlign: 'right' }}>
+                                  <button onClick={() => openEditFixture(fx)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--burgundy)', padding: '5px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>✎ Edit fixture{fx.adhoc ? ' (ad hoc)' : ''}</button>
+                                </div>
+                              ))}
                               {/* ── Fixture match details ── */}
                               {(() => {
                                 const det = fixtureDetails[fx.id];
@@ -4536,7 +4632,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
               {(
                 (() => {
                   const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
-                  const fixtureName = (fid) => { const f = FIXTURES_2026.find(x => x.id === fid); return f ? f.name : fid; };
+                  const fixtureName = (fid) => { const f = fixtures.find(x => x.id === fid); return f ? f.name : fid; };
                   const curFd = liveFixtureId ? fixtureDetails[liveFixtureId] : null;
                   const curDays = curFd ? (curFd.days || []) : [];
                   const curDay = curDays.find(d => d.id === liveDayId) || null;
