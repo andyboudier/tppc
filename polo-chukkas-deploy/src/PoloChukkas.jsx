@@ -53,6 +53,8 @@ const FIXTURES_2026 = [
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
+// Team (aggregate) handicaps run higher than individual player handicaps — up to 12-goal.
+const TEAM_HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
@@ -4422,7 +4424,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                         style={{ padding: '12px 14px', fontSize: '15px' }}
                                       >
                                         <option value="">Team handicap (optional)…</option>
-                                        {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
+                                        {TEAM_HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
                                       </select>
 
                                       {fxDays.length > 1 && (
