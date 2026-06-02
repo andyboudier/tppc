@@ -873,8 +873,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     setName(m.name);
     setMobile(m.mobile || '');
     setHandicap(String(m.handicap));
-    setAvailableFrom(m.availableFrom || '');
-    setAvailableTo(m.availableTo || '');
+    // Availability is day-specific — it depends on that day's throw-in and
+    // chukka times — so we deliberately do NOT carry it across sessions (same
+    // reasoning as chukkas). Clear it; it defaults to this day's throw-in /
+    // no upper cap. (Prevents e.g. a Wednesday "available to 18:45" wrongly
+    // resurfacing on a Saturday with a different schedule.)
+    setAvailableFrom('');
+    setAvailableTo('');
     // Leave chukkas blank — varies week to week
   };
 
