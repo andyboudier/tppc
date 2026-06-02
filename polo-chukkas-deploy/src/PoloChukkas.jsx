@@ -4059,6 +4059,20 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                 });
                                 return map;
                               })();
+                                      // Teams that have signed up for THIS fixture — folded into the team
+                                      // picker below so the captain can draw matches straight from sign-ups.
+                                      const enteredTeams = teamSignups[fx.id] || [];
+                                      const squadForDay = (signup, dayObj) => {
+                                        const sd = signup.days || {};
+                                        if (dayObj?.id && sd[dayObj.id]) return sd[dayObj.id];
+                                        const lbl = (dayObj?.dateLabel || '').toLowerCase();
+                                        const byLabel = Object.keys(sd).find(k => {
+                                          const full = WEEKDAY_FULL[k.replace(/\d+$/, '')];
+                                          return full && lbl.includes(full.toLowerCase());
+                                        });
+                                        if (byLabel) return sd[byLabel];
+                                        return Object.values(sd).reduce((best, arr) => (arr && arr.length > best.length ? arr : best), []);
+                                      };
                                       return (
                                         <div style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -4123,10 +4137,27 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                               />
                                                               {team._teamSugOpen && (() => {
                                                                 const q = (team.name || '').trim().toLowerCase();
-                                                                const hits = Object.values(allTeams).filter(t => q && t.name.toLowerCase().includes(q) && t.name.toLowerCase() !== q);
-                                                                if (!hits.length) return null;
+                                                                const entered = enteredTeams.filter(s => !q || s.team.toLowerCase().includes(q));
+                                                                const enteredNames = new Set(entered.map(s => s.team.toLowerCase()));
+                                                                const hits = Object.values(allTeams).filter(t => q && t.name.toLowerCase().includes(q) && t.name.toLowerCase() !== q && !enteredNames.has(t.name.toLowerCase()));
+                                                                if (!entered.length && !hits.length) return null;
                                                                 return (
-                                                                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--line)', borderRadius: '3px', zIndex: 99, maxHeight: '140px', overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                                                                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--line)', borderRadius: '3px', zIndex: 99, maxHeight: '180px', overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                                                                    {entered.map(s => {
+                                                                      const squad = squadForDay(s, day);
+                                                                      return (
+                                                                        <div key={'e' + s.id}
+                                                                          onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: s.team, handicap: s.handicap ?? tt.handicap, players: (squad || []).map(p => ({...p})), _teamSugOpen: false})); }}
+                                                                          style={{ padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid var(--line)', lineHeight: 1.3, background: 'var(--cream-warm)' }}
+                                                                          onMouseEnter={e => e.currentTarget.style.background='var(--cream)'}
+                                                                          onMouseLeave={e => e.currentTarget.style.background='var(--cream-warm)'}
+                                                                        >
+                                                                          <span style={{ fontWeight: 600 }}>{s.team}</span>
+                                                                          <span style={{ fontSize: '8px', color: 'var(--cream)', background: 'var(--burgundy)', borderRadius: '3px', padding: '1px 5px', marginLeft: '6px', textTransform: 'uppercase', letterSpacing: '0.5px', verticalAlign: 'middle' }}>Entered</span>
+                                                                          {squad?.length ? <span style={{ color: 'var(--muted)', marginLeft: '4px' }}>{squad.map(p => p.name).join(', ')}</span> : null}
+                                                                        </div>
+                                                                      );
+                                                                    })}
                                                                     {hits.map(t => (
                                                                       <div key={t.name}
                                                                         onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: t.name, handicap: t.handicap ?? tt.handicap, players: (t.players||[]).map(p=>({...p})), _teamSugOpen: false})); }}
