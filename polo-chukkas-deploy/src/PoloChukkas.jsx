@@ -1663,10 +1663,19 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const bumpPlayerGoals = (fixtureId, dayId, matchId, teamKey, playerIdx, delta) => {
     updLiveMatch(fixtureId, dayId, matchId, m => {
       const team = m[teamKey] || { players: [] };
-      const players = (team.players || []).map((p, i) => i !== playerIdx ? p : ({
-        ...p, goals: Math.max(0, (p.goals == null ? 0 : Number(p.goals)) + delta)
-      }));
-      return { ...m, [teamKey]: { ...team, players } };
+      let applied = 0; // actual change after flooring the player's goals at 0
+      const players = (team.players || []).map((p, i) => {
+        if (i !== playerIdx) return p;
+        const cur = p.goals == null ? 0 : Number(p.goals);
+        const next = Math.max(0, cur + delta);
+        applied = next - cur;
+        return { ...p, goals: next };
+      });
+      // A goal credited to a player also counts on that team's scoreline.
+      const scoreKey = teamKey === 'teamA' ? 'scoreA' : 'scoreB';
+      const curScore = m[scoreKey] == null ? 0 : Number(m[scoreKey]);
+      const nextScore = Math.max(0, curScore + applied);
+      return { ...m, [teamKey]: { ...team, players }, [scoreKey]: nextScore };
     });
   };
 
