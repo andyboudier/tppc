@@ -922,7 +922,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       availableTo: availableTo || '',
  
       vip: captainMode ? vip : false,
-      noConsecutive: captainMode ? noConsecutive : false,   };
+      noConsecutive: noConsecutive,   };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
     setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false);
@@ -3368,7 +3368,21 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     </div>
                   </div>
 
-                  {/* VIP and No-Consecutive checkboxes — captain only */}
+                  {/* No consecutive — any player can set this for themselves */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
+                    <input
+                      type="checkbox"
+                      checked={noConsecutive}
+                      onChange={(e) => setNoConsecutive(e.target.checked)}
+                      style={{ width: '18px', height: '18px', accentColor: 'var(--burgundy)', cursor: 'pointer', flexShrink: 0 }}
+                    />
+                    <div>
+                      <span style={{ fontWeight: 600 }}>No consecutive chukkas</span>
+                      <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Always leaves a gap of at least one chukka between plays</span>
+                    </div>
+                  </label>
+
+                  {/* VIP — captain only */}
                   {captainMode && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
                       <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '2px', fontFamily: "'Fraunces', serif", fontStyle: 'italic' }}>
@@ -3384,18 +3398,6 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                         <div>
                           <span style={{ fontWeight: 600 }}>VIP</span>
                           <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Placed first · chukka count never reduced below request</span>
-                        </div>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)' }}>
-                        <input
-                          type="checkbox"
-                          checked={noConsecutive}
-                          onChange={(e) => setNoConsecutive(e.target.checked)}
-                          style={{ width: '18px', height: '18px', accentColor: 'var(--burgundy)', cursor: 'pointer', flexShrink: 0 }}
-                        />
-                        <div>
-                          <span style={{ fontWeight: 600 }}>No consecutive</span>
-                          <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Always leaves a gap of at least one chukka between plays</span>
                         </div>
                       </label>
                     </div>
