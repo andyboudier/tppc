@@ -273,13 +273,17 @@ function drawMatch(doc, match, startY) {
     y += 6;
   }
 
-  // Umpires
-  if (match.umpires) {
+  // Officials — umpires, goal judges, timekeeper
+  const officials = [];
+  if (match.umpires) officials.push(`UMPIRES: ${match.umpires.toUpperCase()}`);
+  if (match.goalJudges) officials.push(`GOAL JUDGES: ${match.goalJudges.toUpperCase()}`);
+  if (match.timekeeper) officials.push(`TIMEKEEPER: ${match.timekeeper.toUpperCase()}`);
+  if (officials.length) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...MUTED);
-    doc.text(`UMPIRES: ${match.umpires.toUpperCase()}`, PAGE_W / 2, y, { align: 'center' });
-    y += 7;
+    officials.forEach((line) => { doc.text(line, PAGE_W / 2, y, { align: 'center' }); y += 5; });
+    y += 2;
   } else {
     y += 2;
   }
