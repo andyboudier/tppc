@@ -4073,12 +4073,48 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                         if (byLabel) return sd[byLabel];
                                         return Object.values(sd).reduce((best, arr) => (arr && arr.length > best.length ? arr : best), []);
                                       };
+                                      // One-tap scaffold: create a day block per fixture day (pre-labelled and
+                                      // keyed so the day-aware fill matches automatically), pairing the entered
+                                      // teams into draft matches with their per-day squads dropped in.
+                                      const buildDaysFromEntered = () => {
+                                        if (!enteredTeams.length) return;
+                                        const fxd = fixtureDays(fx);
+                                        const hasContent = (draft.days || []).some(d => (d.matches || []).length > 0 || (d.dateLabel || '').trim() || (d.ground || '').trim());
+                                        if (hasContent && !window.confirm('Replace the current match details with days and matches built from the entered teams? Your current version is saved to backups first, so you can undo from the Fixtures screen.')) return;
+                                        const START_MIN = 10 * 60; // first match 10:00
+                                        const STEP_MIN = 75;        // 1h15 between matches
+                                        const mkTeam = (s, d) => s
+                                          ? { name: s.team, handicap: s.handicap ?? null, players: (squadForDay(s, { id: d.key, dateLabel: d.label }) || []).map(p => ({ ...p })) }
+                                          : { name: 'TBC', handicap: null, players: [] };
+                                        const newDays = fxd.map(d => {
+                                          const matches = [];
+                                          for (let i = 0; i < enteredTeams.length; i += 2) {
+                                            matches.push({
+                                              id: 'm' + Date.now() + '-' + d.key + '-' + i + '-' + Math.random().toString(36).slice(2, 6),
+                                              time: fmtTime(START_MIN + matches.length * STEP_MIN),
+                                              label: '',
+                                              teamA: mkTeam(enteredTeams[i], d),
+                                              teamB: mkTeam(enteredTeams[i + 1], d),
+                                              umpires: '', notes: '',
+                                            });
+                                          }
+                                          return { id: d.key, dateLabel: d.label, ground: '', matches, prizegiving: false };
+                                        });
+                                        if (newDays.length) newDays[newDays.length - 1].prizegiving = true;
+                                        writeBackup(fixtureDetails); // snapshot current state first so this is undoable
+                                        setDraft({ ...draft, days: newDays });
+                                      };
                                       return (
                                         <div style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                             <div className="label-eyebrow" style={{ fontSize: '10px' }}>Match details</div>
                                             <button onClick={() => setEditingDetailsId(null)} style={{ background: 'none', border: 'none', fontSize: '20px', color: 'var(--muted)', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
                                           </div>
+                                          {enteredTeams.length > 0 && (
+                                            <button onClick={buildDaysFromEntered} style={{ width: '100%', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '12px' }}>
+                                              ⚡ Build {fixtureDays(fx).length > 1 ? `${fixtureDays(fx).length} days` : 'day'} from {enteredTeams.length} entered team{enteredTeams.length === 1 ? '' : 's'}
+                                            </button>
+                                          )}
                                           {(draft.days || []).map((day, di) => (
                                             <div key={di} style={{ background: 'white', border: '1px solid var(--line)', borderRadius: '4px', padding: '10px', marginBottom: '10px' }}>
                                               <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
