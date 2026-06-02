@@ -125,6 +125,28 @@ const isTournamentActive = (fx) => {
   return now >= range.start && now <= range.end;
 };
 
+// Derive the individual days a fixture spans from its date string, so a team
+// can field a (possibly different) squad on each one.
+//   'Sat 18 & Sun 19 April' → [{key:'sat', label:'Saturday 18 April'}, {key:'sun', label:'Sunday 19 April'}]
+//   'Mon 25 May'            → [{key:'mon', label:'Monday 25 May'}]
+const WEEKDAY_FULL = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+const fixtureDays = (fx) => {
+  const segs = (fx?.date || '').split('&').map(s => s.trim());
+  const seen = {};
+  const out = [];
+  segs.forEach(seg => {
+    const m = seg.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})/i);
+    if (!m) return;
+    const base = m[1].toLowerCase();
+    // Keep keys unique even in the rare case a fixture repeats a weekday.
+    const key = seen[base] ? `${base}${m[2]}` : base;
+    seen[base] = true;
+    out.push({ key, label: `${WEEKDAY_FULL[base]} ${m[2]} ${fx.month}` });
+  });
+  if (out.length === 0) out.push({ key: 'day', label: fx?.date || 'Match day' });
+  return out;
+};
+
 // Format minutes-since-midnight as HH:MM
 const fmtTime = (mins) => {
   const h = Math.floor(mins / 60);
@@ -474,6 +496,19 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [fError, setFError] = useState('');
   const [fixtureDetails, setFixtureDetails] = useState({ 'may-30-b': GRENADIER_TROPHY_DETAILS });
   const [teamsDb, setTeamsDb] = useState({}); // { [teamNameLower]: { name, handicap, players: [{name, handicap}] } }
+
+  // Tournament team sign-ups — a team enters a fixture and can field a
+  // different squad per day (e.g. Sat line-up ≠ Sun line-up by availability).
+  // { [fixtureId]: [{ id, team, handicap, contact?, mobile?, perDay, days: { [dayKey]: [{name, handicap}] } }] }
+  const [teamSignups, setTeamSignups] = useState({});
+  const [tName, setTName] = useState('');
+  const [tHandicap, setTHandicap] = useState('');
+  const [tContact, setTContact] = useState('');
+  const [tMobile, setTMobile] = useState('');
+  const [tPerDay, setTPerDay] = useState(false);
+  const [tSquads, setTSquads] = useState({}); // working draft: { [dayKey]: [{name, handicap}] }
+  const [tError, setTError] = useState('');
+  const [showTeamForm, setShowTeamForm] = useState(false);
   const [editingDetailsId, setEditingDetailsId] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
@@ -716,6 +751,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         if (fd?.value) setFixtureDetails(JSON.parse(fd.value));
         const tdb = await window.storage.get('teams-db', true);
         if (tdb?.value) setTeamsDb(JSON.parse(tdb.value));
+        const ts = await window.storage.get('team-signups', true);
+        if (ts?.value) setTeamSignups(JSON.parse(ts.value));
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -1643,7 +1680,120 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const toggleFixture = (id) => {
     setFError('');
     setFName(''); setFHandicap(''); setFMobile(''); setFEmail('');
-    setExpandedId(expandedId === id ? null : id);
+    const opening = expandedId === id ? null : id;
+    setExpandedId(opening);
+    setShowTeamForm(false);
+    if (opening) {
+      const fx = FIXTURES_2026.find(f => f.id === opening);
+      if (fx) resetTeamForm(fx);
+    }
+  };
+
+  // ── Tournament team sign-up ───────────────────────────
+  const saveTeamSignups = async (next) => {
+    setTeamSignups(next);
+    try { await window.storage.set('team-signups', JSON.stringify(next), true); }
+    catch (e) { setTError('Saved locally only — check your connection.'); }
+  };
+
+  // Every team name we know about — from the persisted teams-db, from teams in
+  // published match details, and from teams already entered into any fixture.
+  // Used to autofill the team name + its last squad.
+  const knownTeams = () => {
+    const map = {}; // lower → { name, handicap, players }
+    Object.values(teamsDb).forEach(t => {
+      if (t?.name?.trim()) map[t.name.trim().toLowerCase()] = { name: t.name.trim(), handicap: t.handicap ?? null, players: t.players || [] };
+    });
+    Object.values(fixtureDetails).forEach(det => (det?.days || []).forEach(d => (d.matches || []).forEach(m => ['teamA', 'teamB'].forEach(tk => {
+      const t = m[tk];
+      if (t?.name?.trim() && t.name.trim().toUpperCase() !== 'TBC') {
+        map[t.name.trim().toLowerCase()] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+      }
+    }))));
+    Object.values(teamSignups).forEach(arr => (arr || []).forEach(s => {
+      if (s?.team?.trim()) {
+        const key = s.team.trim().toLowerCase();
+        if (!map[key]) {
+          const firstSquad = Object.values(s.days || {}).find(a => a && a.length) || [];
+          map[key] = { name: s.team.trim(), handicap: s.handicap ?? null, players: firstSquad };
+        }
+      }
+    }));
+    return map;
+  };
+
+  // Reset the working team form to blank 4-player squads for this fixture's days.
+  const resetTeamForm = (fx) => {
+    const blank = {};
+    fixtureDays(fx).forEach(d => {
+      blank[d.key] = [{ name: '', handicap: '' }, { name: '', handicap: '' }, { name: '', handicap: '' }, { name: '', handicap: '' }];
+    });
+    setTSquads(blank);
+    setTName(''); setTHandicap(''); setTContact(''); setTMobile(''); setTPerDay(false); setTError('');
+  };
+
+  // Autofill the squad(s) when the typed/selected team name matches a known team.
+  const onTeamNameChange = (fx, value) => {
+    setTName(value);
+    const match = knownTeams()[value.trim().toLowerCase()];
+    if (!match) return;
+    if (match.handicap !== null && match.handicap !== undefined) setTHandicap(String(match.handicap));
+    const players = (match.players || []).filter(p => p.name?.trim())
+      .map(p => ({ name: p.name, handicap: (p.handicap === 0 || p.handicap) ? String(p.handicap) : '' }));
+    if (!players.length) return;
+    setTSquads(prev => {
+      const next = { ...prev };
+      fixtureDays(fx).forEach(d => { next[d.key] = players.map(p => ({ ...p })); });
+      return next;
+    });
+  };
+
+  const setSquadPlayer = (dayKey, idx, field, value) =>
+    setTSquads(prev => ({ ...prev, [dayKey]: (prev[dayKey] || []).map((r, i) => i === idx ? { ...r, [field]: value } : r) }));
+  const addSquadPlayer = (dayKey) =>
+    setTSquads(prev => ({ ...prev, [dayKey]: [...(prev[dayKey] || []), { name: '', handicap: '' }] }));
+  const removeSquadPlayer = (dayKey, idx) =>
+    setTSquads(prev => ({ ...prev, [dayKey]: (prev[dayKey] || []).filter((_, i) => i !== idx) }));
+
+  const registerTeam = (fx) => {
+    setTError('');
+    if (!tName.trim()) return setTError('Please enter a team name.');
+    const days = fixtureDays(fx);
+    const cleanRows = (rows) => (rows || [])
+      .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10) }))
+      .filter(r => r.name);
+    const usePerDay = tPerDay && days.length > 1;
+    const daysOut = {};
+    if (usePerDay) {
+      days.forEach(d => { daysOut[d.key] = cleanRows(tSquads[d.key]); });
+    } else {
+      const base = cleanRows(tSquads[days[0].key]);
+      days.forEach(d => { daysOut[d.key] = base.map(p => ({ ...p })); });
+    }
+    if (!Object.values(daysOut).some(arr => arr.length)) return setTError('Add at least one player to the squad.');
+    const entry = {
+      id: Date.now(),
+      team: tName.trim(),
+      handicap: tHandicap === '' ? null : parseInt(tHandicap, 10),
+      perDay: usePerDay,
+      days: daysOut,
+    };
+    if (tContact.trim()) entry.contact = tContact.trim();
+    if (tMobile.trim()) entry.mobile = tMobile.trim();
+    const list = teamSignups[fx.id] || [];
+    saveTeamSignups({ ...teamSignups, [fx.id]: [...list, entry] });
+    // Remember this team (fullest day's squad) so it autofills next time.
+    const canonical = Object.values(daysOut).reduce((best, arr) => arr.length > best.length ? arr : best, []);
+    saveTeamsDb({ ...teamsDb, [entry.team.toLowerCase()]: { name: entry.team, handicap: entry.handicap, players: canonical } });
+    resetTeamForm(fx);
+    setShowTeamForm(false);
+  };
+
+  const removeTeam = (fixtureId, entryId) => {
+    const list = (teamSignups[fixtureId] || []).filter(s => s.id !== entryId);
+    const next = { ...teamSignups };
+    if (list.length === 0) delete next[fixtureId]; else next[fixtureId] = list;
+    saveTeamSignups(next);
   };
 
   const totalChukkas = players.reduce((s, p) => s + p.chukkas, 0);
@@ -2643,6 +2793,112 @@ const [noConsecutive, setNoConsecutive] = useState(false);
           border: 1px solid var(--line);
           border-radius: 4px;
         }
+        .team-entry {
+          padding: 10px 12px;
+          margin-bottom: 8px;
+          background: white;
+          border: 1px solid var(--line);
+          border-left: 3px solid var(--burgundy);
+          border-radius: 4px;
+        }
+        .squad-line {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+          margin-top: 6px;
+        }
+        .squad-day {
+          font-size: 10px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: var(--burgundy);
+          font-weight: 600;
+          width: 100%;
+          margin-bottom: 1px;
+        }
+        .squad-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          background: var(--cream-warm);
+          border: 1px solid var(--line);
+          border-radius: 999px;
+          padding: 3px 10px;
+          font-size: 12.5px;
+          color: var(--ink);
+        }
+        .squad-chip em {
+          font-style: normal;
+          font-family: 'Fraunces', serif;
+          font-weight: 600;
+          font-size: 11px;
+          color: var(--burgundy);
+        }
+        .enter-team-btn {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          background: transparent;
+          border: 1px dashed var(--gold);
+          border-radius: 4px;
+          color: var(--burgundy);
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+        .enter-team-btn:hover { background: var(--cream-warm); }
+        .perday-toggle {
+          display: flex;
+          gap: 6px;
+        }
+        .perday-toggle button {
+          flex: 1;
+          padding: 9px 6px;
+          background: transparent;
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          color: var(--muted);
+          font-size: 11.5px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .perday-toggle button.active {
+          background: var(--burgundy);
+          color: var(--cream);
+          border-color: var(--burgundy);
+        }
+        .squad-editor {
+          padding: 10px;
+          background: var(--cream-pale);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+        }
+        .squad-editor-head {
+          font-size: 10px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: var(--burgundy);
+          font-weight: 600;
+          margin-bottom: 8px;
+        }
+        .squad-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 6px;
+        }
+        .add-player-btn {
+          background: transparent;
+          border: none;
+          color: var(--burgundy);
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 2px 0;
+        }
 
         .anim-in { animation: fadeIn 0.45s ease-out backwards; }
         @keyframes fadeIn {
@@ -3620,7 +3876,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                   <span className="ornament-line" />
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
-                  Tap a fixture to register your interest and see who else has signed up.
+                  Tap a fixture to enter a team or register your interest, and see who else has signed up.
                 </div>
                 {totalRegistrations > 0 && (
                   <div style={{ fontSize: '12px', color: 'var(--burgundy)', marginTop: '8px', fontWeight: 500 }}>
@@ -3670,6 +3926,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                     {monthFixtures.map((fx) => {
                       const registered = interest[fx.id] || [];
+                      const teamsHere = teamSignups[fx.id] || [];
+                      const fxDays = fixtureDays(fx);
                       const isExpanded = expandedId === fx.id;
                       return (
                         <div key={fx.id} data-fixture-id={fx.id} className={`fixture-card ${isExpanded ? 'expanded' : ''}`}>
@@ -3680,7 +3938,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                               {fx.level && <div className="fixture-level">{fx.level}</div>}
                             </div>
                             <div className="fixture-meta">
-                              {registered.length > 0 ? (
+                              {teamsHere.length > 0 ? (
+                                <>
+                                  <div className="fixture-count">{teamsHere.length}</div>
+                                  <div>{teamsHere.length === 1 ? 'team' : 'teams'}</div>
+                                </>
+                              ) : registered.length > 0 ? (
                                 <>
                                   <div className="fixture-count">{registered.length}</div>
                                   <div>signed up</div>
@@ -3926,6 +4189,155 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                   </div>
                                 );
                               })()}
+
+                              {/* ── Tournament team sign-up ── */}
+                              <div style={{ paddingTop: '10px' }}>
+                                <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '6px' }}>Teams Entered</div>
+                                {teamsHere.length === 0 ? (
+                                  <div className="display-italic" style={{ fontSize: '13px', color: 'var(--muted)', padding: '2px 0 6px' }}>
+                                    No teams entered yet.
+                                  </div>
+                                ) : teamsHere.map(s => (
+                                  <div key={s.id} className="team-entry">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      {s.handicap != null && <div className="mini-badge">{fmtH(s.handicap)}</div>}
+                                      <div style={{ fontWeight: 600, fontSize: '15px', flex: 1, minWidth: 0 }}>{s.team}</div>
+                                      {captainMode && (
+                                        <button className="remove-btn" onClick={() => removeTeam(fx.id, s.id)} aria-label={`Remove ${s.team}`} style={{ fontSize: '18px' }}>×</button>
+                                      )}
+                                    </div>
+                                    {(() => {
+                                      if (!s.perDay) {
+                                        const squad = s.days[fxDays[0].key] || [];
+                                        return (
+                                          <div className="squad-line">
+                                            {fxDays.length > 1 && <span className="squad-day">Both days</span>}
+                                            {squad.length === 0
+                                              ? <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Squad TBC</span>
+                                              : squad.map((p, i) => <span key={i} className="squad-chip">{p.name}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
+                                          </div>
+                                        );
+                                      }
+                                      return fxDays.map(d => (
+                                        <div key={d.key} className="squad-line">
+                                          <span className="squad-day">{d.label}</span>
+                                          {(s.days[d.key] || []).length === 0
+                                            ? <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Squad TBC</span>
+                                            : (s.days[d.key] || []).map((p, i) => <span key={i} className="squad-chip">{p.name}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
+                                        </div>
+                                      ));
+                                    })()}
+                                    {captainMode && s.contact && (
+                                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                                        Captain: {s.contact}
+                                        {s.mobile && <> · <a href={`tel:${s.mobile.replace(/\s+/g, '')}`} className="phone-link" onClick={(e) => e.stopPropagation()}>{s.mobile}</a></>}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+
+                                {!isTournamentActive(fx) && (showTeamForm ? (
+                                  <div className="register-form" style={{ marginTop: '12px' }}>
+                                    <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Enter a team</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                      <input
+                                        className="input-field"
+                                        list="known-team-names"
+                                        type="text"
+                                        placeholder="Team name"
+                                        value={tName}
+                                        onChange={(e) => onTeamNameChange(fx, e.target.value)}
+                                        style={{ padding: '12px 14px', fontSize: '15px' }}
+                                      />
+                                      <datalist id="known-team-names">
+                                        {Object.values(knownTeams()).map(t => <option key={t.name} value={t.name} />)}
+                                      </datalist>
+                                      <select
+                                        className="input-field select-field"
+                                        value={tHandicap}
+                                        onChange={(e) => setTHandicap(e.target.value)}
+                                        style={{ padding: '12px 14px', fontSize: '15px' }}
+                                      >
+                                        <option value="">Team handicap (optional)…</option>
+                                        {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
+                                      </select>
+
+                                      {fxDays.length > 1 && (
+                                        <div className="perday-toggle">
+                                          <button type="button" className={!tPerDay ? 'active' : ''} onClick={() => setTPerDay(false)}>Same team both days</button>
+                                          <button type="button" className={tPerDay ? 'active' : ''} onClick={() => setTPerDay(true)}>Different per day</button>
+                                        </div>
+                                      )}
+
+                                      {(tPerDay && fxDays.length > 1 ? fxDays : [fxDays[0]]).map(d => (
+                                        <div key={d.key} className="squad-editor">
+                                          <div className="squad-editor-head">
+                                            {tPerDay && fxDays.length > 1 ? d.label : (fxDays.length > 1 ? 'Squad — both days' : 'Squad')}
+                                          </div>
+                                          {(tSquads[d.key] || []).map((row, idx) => (
+                                            <div key={idx} className="squad-row">
+                                              <input
+                                                className="input-field"
+                                                type="text"
+                                                placeholder={`Player ${idx + 1}`}
+                                                value={row.name}
+                                                onChange={(e) => setSquadPlayer(d.key, idx, 'name', e.target.value)}
+                                                style={{ flex: 1, minWidth: 0, padding: '10px 12px', fontSize: '14px' }}
+                                              />
+                                              <select
+                                                className="input-field select-field"
+                                                value={row.handicap}
+                                                onChange={(e) => setSquadPlayer(d.key, idx, 'handicap', e.target.value)}
+                                                style={{ width: '70px', flexShrink: 0, padding: '10px 4px', fontSize: '14px' }}
+                                              >
+                                                <option value="">–</option>
+                                                {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
+                                              </select>
+                                              {(tSquads[d.key] || []).length > 1 && (
+                                                <button type="button" className="remove-btn" onClick={() => removeSquadPlayer(d.key, idx)} aria-label="Remove player" style={{ fontSize: '18px', flexShrink: 0 }}>×</button>
+                                              )}
+                                            </div>
+                                          ))}
+                                          <button type="button" className="add-player-btn" onClick={() => addSquadPlayer(d.key)}>＋ Add player</button>
+                                        </div>
+                                      ))}
+
+                                      <input
+                                        className="input-field"
+                                        type="text"
+                                        placeholder="Team captain name (optional)"
+                                        value={tContact}
+                                        onChange={(e) => setTContact(e.target.value)}
+                                        style={{ padding: '12px 14px', fontSize: '15px' }}
+                                      />
+                                      <input
+                                        className="input-field"
+                                        type="tel"
+                                        placeholder="Captain mobile (optional, captain only)"
+                                        value={tMobile}
+                                        onChange={(e) => setTMobile(e.target.value)}
+                                        style={{ padding: '12px 14px', fontSize: '15px' }}
+                                      />
+                                      <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
+                                        Start typing a team name to pull through last season's squad.{fxDays.length > 1 ? ' Choose “Different per day” if your Saturday and Sunday line-ups differ.' : ''}
+                                      </div>
+                                      {tError && (
+                                        <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
+                                          {tError}
+                                        </div>
+                                      )}
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button className="btn-primary" onClick={() => registerTeam(fx)} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>Enter Team</button>
+                                        <button onClick={() => setShowTeamForm(false)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '13px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button className="enter-team-btn" onClick={() => { resetTeamForm(fx); setShowTeamForm(true); }}>
+                                    ＋ Enter a team for this fixture
+                                  </button>
+                                ))}
+                              </div>
 
                               {registered.length > 0 ? (
                                 <div style={{ paddingTop: '10px' }}>
