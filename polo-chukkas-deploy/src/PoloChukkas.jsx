@@ -466,6 +466,17 @@ while (safety-- > 0) {
 // then on. New players fill the lighter side, balancing size then handicap.
 const playerColor = new Map(); // id -> 'A' | 'B'
 
+// Seed the first four players (roster order) onto alternating shirt colours so
+// they're always split across the two teams, whichever chukka they're in:
+// 1st White, 2nd Blue, 3rd White, 4th Blue. (teamA = Blue = 'A', teamB = White
+// = 'B'.) They're seated before anyone else in each chukka so they keep these
+// colours; everyone else is coloured by the balancing algorithm below.
+const fixedColorIds = new Set();
+players.slice(0, 4).forEach((p, i) => {
+  playerColor.set(p.id, i % 2 === 0 ? 'B' : 'A'); // even index → White(B), odd → Blue(A)
+  fixedColorIds.add(p.id);
+});
+
 const chukkas = chukkaPlayers.map((inChukka, c) => {
   const n = inChukka.length;
   const capA = Math.ceil(n / 2);
@@ -491,8 +502,10 @@ const chukkas = chukkaPlayers.map((inChukka, c) => {
     (col === 'A' ? addA : addB)(p);
   };
 
-  // Returning players first (honour their colour), then newcomers (balance).
-  sorted.filter(p => playerColor.has(p.id)).forEach(place);
+  // Fixed first-four seated first (so they always keep their colour), then
+  // other returning players (honour their colour), then newcomers (balance).
+  sorted.filter(p => fixedColorIds.has(p.id)).forEach(place);
+  sorted.filter(p => !fixedColorIds.has(p.id) && playerColor.has(p.id)).forEach(place);
   sorted.filter(p => !playerColor.has(p.id)).forEach(place);
 
   return {
