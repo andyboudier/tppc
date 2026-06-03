@@ -1697,14 +1697,25 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     });
   };
 
-  // --- Live handicap head-start (traditional polo half-goal start) ---
+  // --- Live handicap head-start (HPA handicap-conditions formula) ---
+  // The difference between the two team handicaps is multiplied by the number
+  // of chukkas to be played, then divided by 4 (the number of chukkas handicaps
+  // are based on). That is the number of goals given to the lower-handicap team.
+  // Any fraction of a goal is counted as half a goal.
+  const matchChukkas = (match) => {
+    const n = Number(match && match.chukkas);
+    return Number.isFinite(n) && n > 0 ? n : 4; // matches default to 4 chukkas
+  };
   const liveHeadStart = (match, teamKey) => {
     const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
     const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
     if (hA === hB) return 0;
-    const diff = Math.abs(hA - hB) + 0.5;
+    // Work in quarter-goals to stay exact: |diff| * chukkas gives value*4.
+    const quarters = Math.abs(hA - hB) * matchChukkas(match);
+    const whole = Math.floor(quarters / 4);
+    const goals = whole + (quarters % 4 > 0 ? 0.5 : 0); // any fraction → half a goal
     const lower = hA < hB ? 'A' : 'B';
-    return teamKey === lower ? diff : 0;
+    return teamKey === lower ? goals : 0;
   };
   const fmtHalf = (n) => {
     const whole = Math.floor(n);
@@ -4258,7 +4269,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                               label: '',
                                               teamA: mkTeam(enteredTeams[i], d),
                                               teamB: mkTeam(enteredTeams[i + 1], d),
-                                              umpires: '', goalJudges: '', timekeeper: '', notes: '',
+                                              chukkas: 4, umpires: '', goalJudges: '', timekeeper: '', notes: '',
                                             });
                                           }
                                           return { id: d.key, dateLabel: d.label, ground: '', matches, prizegiving: false };
@@ -4301,7 +4312,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                 <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '80px', padding: '5px 7px', fontSize: '12px' }} />
-                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, padding: '5px 7px', fontSize: '12px' }} />
+                                                    <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '48px', padding: '5px 5px', fontSize: '12px', textAlign: 'center' }} />
+                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
                                                   <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
@@ -4402,14 +4414,14 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                     id: 'm' + Date.now() + Math.random(),
                                                     time: '',
                                                     label: '',
-                                                    umpires: '', goalJudges: '', timekeeper: '',
+                                                    chukkas: 4, umpires: '', goalJudges: '', timekeeper: '',
                                                     teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: (m.teamA?.players || []).map(p => ({...p})) },
                                                     teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: (m.teamB?.players || []).map(p => ({...p})) },
                                                   }));
                                                   updDay(di, d => ({...d, matches: copiedMatches}));
                                                 }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
                                               )}
-                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, umpires:'', goalJudges:'', timekeeper:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, chukkas:4, umpires:'', goalJudges:'', timekeeper:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
                                             </div>
                                           ))}
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
@@ -4733,6 +4745,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
                             <div style={{ flex: 1, textAlign: 'center' }}>
                               <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamA && curMatch.teamA.name) || 'TBC'}</div>
+                              {liveHeadStart(curMatch, 'A') > 0 && (
+                                <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px' }}>+{fmtHalf(liveHeadStart(curMatch, 'A'))} on handicap</div>
+                              )}
                               <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{liveDisplayScore(curMatch, 'A')}</div>
                               {captainMode && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
@@ -4744,6 +4759,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                             <div style={{ alignSelf: 'center', fontSize: '16px', color: '#bbb', fontWeight: 700 }}>vs</div>
                             <div style={{ flex: 1, textAlign: 'center' }}>
                               <div style={{ fontWeight: 700, fontSize: '14px', textTransform: 'uppercase', color: 'var(--ink)', minHeight: '34px' }}>{(curMatch.teamB && curMatch.teamB.name) || 'TBC'}</div>
+                              {liveHeadStart(curMatch, 'B') > 0 && (
+                                <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px' }}>+{fmtHalf(liveHeadStart(curMatch, 'B'))} on handicap</div>
+                              )}
                               <div style={{ fontSize: '46px', fontWeight: 800, color: 'var(--burgundy)', lineHeight: 1.1 }}>{liveDisplayScore(curMatch, 'B')}</div>
                               {captainMode && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '6px' }}>
