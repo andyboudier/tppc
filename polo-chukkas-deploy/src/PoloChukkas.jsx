@@ -1764,10 +1764,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   };
 
   // --- Live handicap head-start (HPA handicap-conditions formula) ---
-  // The difference between the two team handicaps is multiplied by the number
-  // of chukkas to be played, then divided by 4 (the number of chukkas handicaps
-  // are based on). That is the number of goals given to the lower-handicap team.
+  // The goal difference between the two teams is multiplied by the number of
+  // chukkas being played (normally 4), then divided by 6 — the number of
+  // chukkas in National and International matches, which the handicap system is
+  // based on. That is the number of goals given to the lower-handicap team.
   // Any fraction of a goal is counted as half a goal.
+  //   e.g. 2-goal diff over 4 chukkas = (2*4)/6 = 1.5; 1-goal diff = (1*4)/6 = 0.5;
+  //        3-goal diff = (3*4)/6 = 2; 2-goal diff over 2 chukkas = (2*2)/6 = 0.5.
   const matchChukkas = (match) => {
     const n = Number(match && match.chukkas);
     return Number.isFinite(n) && n > 0 ? n : 4; // matches default to 4 chukkas
@@ -1776,10 +1779,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
     const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
     if (hA === hB) return 0;
-    // Work in quarter-goals to stay exact: |diff| * chukkas gives value*4.
-    const quarters = Math.abs(hA - hB) * matchChukkas(match);
-    const whole = Math.floor(quarters / 4);
-    const goals = whole + (quarters % 4 > 0 ? 0.5 : 0); // any fraction → half a goal
+    const units = Math.abs(hA - hB) * matchChukkas(match); // goal diff * chukkas
+    const whole = Math.floor(units / 6);
+    const goals = whole + (units % 6 > 0 ? 0.5 : 0); // divide by 6; any fraction → half a goal
     const lower = hA < hB ? 'A' : 'B';
     return teamKey === lower ? goals : 0;
   };
