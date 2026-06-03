@@ -176,6 +176,15 @@ const parseTime = (str) => {
   return h * 60 + min;
 };
 
+// --- Native local notifications (iOS app only; completely inert on the web) ---
+// Reached through the Capacitor runtime global so the web/Vercel build needs no
+// extra dependency and is unaffected. On iOS the LocalNotifications plugin is
+// injected here once @capacitor/local-notifications is installed and synced.
+const CapBridge = (typeof window !== 'undefined' && window.Capacitor) ? window.Capacitor : null;
+const isNativeApp = !!(CapBridge && typeof CapBridge.isNativePlatform === 'function' && CapBridge.isNativePlatform());
+const LocalNotifications = (CapBridge && CapBridge.Plugins) ? CapBridge.Plugins.LocalNotifications : null;
+const REMINDER_ID_BASE = 7000; // ids 7000-7999 reserved for chukka reminders
+
 // Example rosters for testing the app
 const EXAMPLES = {
   may20: {
@@ -722,6 +731,76 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     target.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
     return target;
   };
+
+  // Sign-up cutoff datetime (ms) for a day — mirrors isBookingClosed():
+  //   Wed closes Tuesday 12:00; Sat/Sun/Thu close 24h before throw-in.
+  const cutoffTime = (dayKey) => {
+    if (dayKey === 'wed') {
+      const wed = targetDayThrowIn('wed');
+      const tue = new Date(wed);
+      tue.setDate(wed.getDate() - 1);
+      tue.setHours(12, 0, 0, 0);
+      return tue.getTime();
+    }
+    return targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
+  };
+
+  // Schedule iOS reminders for upcoming sessions that have sign-ups. Re-run on
+  // launch and whenever rosters / throw-in times change. No-op on the web.
+  const refreshLocalReminders = async () => {
+    if (!isNativeApp || !LocalNotifications) return;
+    try {
+      let perm = await LocalNotifications.checkPermissions();
+      if (perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
+      if (perm.display !== 'granted') return;
+
+      // Clear our own previously scheduled reminders before re-adding them.
+      const pending = await LocalNotifications.getPending();
+      const ours = (pending.notifications || []).filter(
+        n => n.id >= REMINDER_ID_BASE && n.id < REMINDER_ID_BASE + 1000
+      );
+      if (ours.length) await LocalNotifications.cancel({ notifications: ours.map(n => ({ id: n.id })) });
+
+      const now = Date.now();
+      const toSchedule = [];
+      DAY_KEYS.forEach((dayKey, i) => {
+        const roster = rosters[dayKey] || [];
+        if (!roster.length) return; // only remind about days that actually have players
+        const cfg = DAY_CONFIG[dayKey];
+        const timeStr = fmtTime(throwInMins[dayKey]);
+
+        // Throw-in reminder — 2 hours before.
+        const remindAt = targetDayThrowIn(dayKey).getTime() - 120 * 60 * 1000;
+        if (remindAt > now + 60 * 1000) {
+          toSchedule.push({
+            id: REMINDER_ID_BASE + i * 2,
+            title: 'Polo today 🏇',
+            body: `${cfg.fullLabel} chukkas — throw-in ${timeStr}. ${roster.length} signed up.`,
+            schedule: { at: new Date(remindAt) },
+          });
+        }
+
+        // Sign-ups closing reminder — 3 hours before the cutoff.
+        const closeText = dayKey === 'wed' ? 'Tuesday at 12:00' : `${cfg.eveningPrev} at ${timeStr}`;
+        const warnAt = cutoffTime(dayKey) - 180 * 60 * 1000;
+        if (warnAt > now + 60 * 1000) {
+          toSchedule.push({
+            id: REMINDER_ID_BASE + i * 2 + 1,
+            title: 'Sign-ups closing soon',
+            body: `${cfg.fullLabel} chukkas sign-ups close ${closeText}.`,
+            schedule: { at: new Date(warnAt) },
+          });
+        }
+      });
+      if (toSchedule.length) await LocalNotifications.schedule({ notifications: toSchedule });
+    } catch (e) { /* reminders are best-effort — never block the app */ }
+  };
+
+  // (Re)schedule reminders on launch and whenever sessions change. iOS only.
+  useEffect(() => {
+    refreshLocalReminders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosters, throwInMins]);
 
   // Check session storage on mount — captain mode persists until tab closes
   useEffect(() => {
