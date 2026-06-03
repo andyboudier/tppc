@@ -277,7 +277,18 @@ const ordered = [...vipPlayers, ...regularPlayers];
 
 const totalRequested = ordered.reduce((s, p) => s + p.chukkas, 0);
 const maxIndividual = ordered.length ? Math.max(...ordered.map(p => p.chukkas)) : 1;
-const numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), maxIndividual);
+// Start from the capacity- and keenest-request-driven size, then shrink only
+// if there aren't enough player-slots to fill every chukka to a valid format
+// (>=4 players = 2v2). effTotalSlots(K) caps each player's slots at K, so it
+// reflects the slots actually available at that chukka count. This keeps
+// everyone's requested count wherever the bodies allow it, and trims chukkas
+// (capping the keenest, reported below) only when needed to avoid sub-format
+// (1v1 / 2v1) chukkas.
+let numChukkas = Math.max(1, Math.ceil(totalRequested / SLOTS_PER_CHUKKA), maxIndividual);
+const effTotalSlots = (K) => ordered.reduce((s, p) => s + Math.min(p.chukkas, K), 0);
+while (numChukkas > 1 && effTotalSlots(numChukkas) < MIN_PLAYERS_PER_CHUKKA * numChukkas) {
+  numChukkas--;
+}
 
 // Each chukka has a strict cap of SLOTS_PER_CHUKKA (= 8 = 4 per team)
 const chukkaPlayers = Array.from({ length: numChukkas }, () => []);
@@ -291,16 +302,23 @@ const reduced = []; // got fewer chukkas than wanted due to capacity
 // chukkaPlayers in place. No per-chukka hard cap — uneven teams are allowed.
 const placePlayer = (player, wantedCount, availableIdx, availableToIdx, minStep) => {
   const placed = [];
-  let lastPlaced = availableIdx - minStep; // sentinel so first slot always passes
-  for (let c = availableIdx; c <= availableToIdx; c++) {
-    if (placed.length >= wantedCount) break;
-    if (c - lastPlaced < minStep) continue;
-    if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue; // cap at 4 per team (max 4v4)
-    placed.push(c);
-    lastPlaced = c;
-    chukkaPlayers[c].push(player);
+  while (placed.length < wantedCount) {
+    // Pick the least-loaded valid chukka in the player's window so players
+    // spread evenly across the evening. This maximises how many people get
+    // their full requested count instead of front-loading early chukkas to
+    // the 4v4 cap and starving everyone placed later.
+    let bestC = -1, bestLoad = Infinity;
+    for (let c = availableIdx; c <= availableToIdx; c++) {
+      if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue;       // never exceed 4v4
+      if (placed.includes(c)) continue;                                // already in this chukka
+      if (minStep > 1 && placed.some(pc => Math.abs(pc - c) < minStep)) continue; // keep the no-back-to-back gap
+      if (chukkaPlayers[c].length < bestLoad) { bestLoad = chukkaPlayers[c].length; bestC = c; }
+    }
+    if (bestC === -1) break; // no valid slot left in the window
+    placed.push(bestC);
+    chukkaPlayers[bestC].push(player);
   }
-  return placed;
+  return placed.sort((a, b) => a - b);
 };
 
 ordered.forEach(player => {
