@@ -55,6 +55,14 @@ const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'Jul
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 // Team (aggregate) handicaps run higher than individual player handicaps — up to 12-goal.
 const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+// A player accumulates live-match goals while a game is scored. Whenever a team
+// or squad is reused — pulled into another fixture/match, copied to another
+// day, or remembered in the teams directory — strip those goals so last match's
+// score never carries over. Keeps only name + handicap, dropping empty rows.
+const cleanSquad = (players) => (players || [])
+  .filter(p => p && (p.name || '').trim())
+  .map(p => ({ name: p.name, handicap: p.handicap ?? null }));
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
@@ -573,7 +581,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [fMobile, setFMobile] = useState('');
   const [fEmail, setFEmail] = useState('');
   const [fError, setFError] = useState('');
-  const [fixtureDetails, setFixtureDetails] = useState({ 'may-30-b': GRENADIER_TROPHY_DETAILS });
+  const [fixtureDetails, setFixtureDetails] = useState({});
   const [teamsDb, setTeamsDb] = useState({}); // { [teamNameLower]: { name, handicap, players: [{name, handicap}] } }
 
   // Tournament team sign-ups — a team enters a fixture and can field a
@@ -833,7 +841,19 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       } catch (e) {}
       try {
         const fd = await window.storage.get('fixture-details', true);
-        if (fd?.value) setFixtureDetails(JSON.parse(fd.value));
+        if (fd?.value) {
+          let parsed = JSON.parse(fd.value);
+          // Legacy cleanup: an early build wrongly seeded the Grenadier Trophy
+          // sample onto fixture 'may-30-b' (Queen's Royal Lancers Trophy). Remove
+          // it only if it's still the untouched sample, so any real edits stay.
+          if (parsed['may-30-b'] && JSON.stringify(parsed['may-30-b']) === JSON.stringify(GRENADIER_TROPHY_DETAILS)) {
+            const cleaned = { ...parsed };
+            delete cleaned['may-30-b'];
+            parsed = cleaned;
+            try { await window.storage.set('fixture-details', JSON.stringify(parsed), true); } catch (e) {}
+          }
+          setFixtureDetails(parsed);
+        }
         const tdb = await window.storage.get('teams-db', true);
         if (tdb?.value) setTeamsDb(JSON.parse(tdb.value));
         const ts = await window.storage.get('team-signups', true);
@@ -1624,7 +1644,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
             const t = m[tk];
             if (t?.name?.trim()) {
               const key = t.name.trim().toLowerCase();
-              next[key] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+              next[key] = { name: t.name.trim(), handicap: t.handicap ?? null, players: cleanSquad(t.players) };
             }
           });
         });
@@ -1819,7 +1839,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     Object.values(fixtureDetails).forEach(det => (det?.days || []).forEach(d => (d.matches || []).forEach(m => ['teamA', 'teamB'].forEach(tk => {
       const t = m[tk];
       if (t?.name?.trim() && t.name.trim().toUpperCase() !== 'TBC') {
-        map[t.name.trim().toLowerCase()] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+        map[t.name.trim().toLowerCase()] = { name: t.name.trim(), handicap: t.handicap ?? null, players: cleanSquad(t.players) };
       }
     }))));
     Object.values(teamSignups).forEach(arr => (arr || []).forEach(s => {
@@ -4258,7 +4278,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                       if (t?.name?.trim()) {
                                         const k = t.name.trim().toLowerCase();
                                         if (!map[k] || (t.players?.length && (!map[k].players?.length))) {
-                                          map[k] = { name: t.name.trim(), handicap: t.handicap ?? null, players: (t.players || []).filter(p => p.name?.trim()) };
+                                          map[k] = { name: t.name.trim(), handicap: t.handicap ?? null, players: cleanSquad(t.players) };
                                         }
                                       }
                                     });
@@ -4291,7 +4311,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                         const START_MIN = 10 * 60; // first match 10:00
                                         const STEP_MIN = 75;        // 1h15 between matches
                                         const mkTeam = (s, d) => s
-                                          ? { name: s.team, handicap: s.handicap ?? null, players: (squadForDay(s, { id: d.key, dateLabel: d.label }) || []).map(p => ({ ...p })) }
+                                          ? { name: s.team, handicap: s.handicap ?? null, players: cleanSquad(squadForDay(s, { id: d.key, dateLabel: d.label })) }
                                           : { name: 'TBC', handicap: null, players: [] };
                                         const newDays = fxd.map(d => {
                                           const matches = [];
@@ -4395,7 +4415,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                                       const squad = squadForDay(s, day);
                                                                       return (
                                                                         <div key={'e' + s.id}
-                                                                          onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: s.team, handicap: s.handicap ?? tt.handicap, players: (squad || []).map(p => ({...p})), _teamSugOpen: false})); }}
+                                                                          onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: s.team, handicap: s.handicap ?? tt.handicap, players: cleanSquad(squad), _teamSugOpen: false})); }}
                                                                           style={{ padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid var(--line)', lineHeight: 1.3, background: 'var(--cream-warm)' }}
                                                                           onMouseEnter={e => e.currentTarget.style.background='var(--cream)'}
                                                                           onMouseLeave={e => e.currentTarget.style.background='var(--cream-warm)'}
@@ -4408,7 +4428,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                                     })}
                                                                     {hits.map(t => (
                                                                       <div key={t.name}
-                                                                        onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: t.name, handicap: t.handicap ?? tt.handicap, players: (t.players||[]).map(p=>({...p})), _teamSugOpen: false})); }}
+                                                                        onMouseDown={e => { e.preventDefault(); updTeam(di, mi, tk, tt => ({...tt, name: t.name, handicap: t.handicap ?? tt.handicap, players: cleanSquad(t.players), _teamSugOpen: false})); }}
                                                                         style={{ padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderBottom: '1px solid var(--line)', lineHeight: 1.3 }}
                                                                         onMouseEnter={e => e.currentTarget.style.background='var(--cream)'}
                                                                         onMouseLeave={e => e.currentTarget.style.background='white'}
@@ -4448,8 +4468,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                                                     time: '',
                                                     label: '',
                                                     chukkas: 4, umpires: '', goalJudges: '', timekeeper: '',
-                                                    teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: (m.teamA?.players || []).map(p => ({...p})) },
-                                                    teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: (m.teamB?.players || []).map(p => ({...p})) },
+                                                    teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: cleanSquad(m.teamA?.players) },
+                                                    teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: cleanSquad(m.teamB?.players) },
                                                   }));
                                                   updDay(di, d => ({...d, matches: copiedMatches}));
                                                 }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
