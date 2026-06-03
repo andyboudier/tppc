@@ -302,21 +302,54 @@ const reduced = []; // got fewer chukkas than wanted due to capacity
 // chukkaPlayers in place. No per-chukka hard cap — uneven teams are allowed.
 const placePlayer = (player, wantedCount, availableIdx, availableToIdx, minStep) => {
   const placed = [];
-  while (placed.length < wantedCount) {
-    // Pick the least-loaded valid chukka in the player's window so players
-    // spread evenly across the evening. This maximises how many people get
-    // their full requested count instead of front-loading early chukkas to
-    // the 4v4 cap and starving everyone placed later.
-    let bestC = -1, bestLoad = Infinity;
-    for (let c = availableIdx; c <= availableToIdx; c++) {
-      if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue;       // never exceed 4v4
-      if (placed.includes(c)) continue;                                // already in this chukka
-      if (minStep > 1 && placed.some(pc => Math.abs(pc - c) < minStep)) continue; // keep the no-back-to-back gap
-      if (chukkaPlayers[c].length < bestLoad) { bestLoad = chukkaPlayers[c].length; bestC = c; }
+
+  if (minStep <= 1) {
+    // Regular players: spread across the least-loaded chukkas so the load is
+    // even and as many people as possible get their full requested count.
+    while (placed.length < wantedCount) {
+      let bestC = -1, bestLoad = Infinity;
+      for (let c = availableIdx; c <= availableToIdx; c++) {
+        if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue; // never exceed 4v4
+        if (placed.includes(c)) continue;
+        if (chukkaPlayers[c].length < bestLoad) { bestLoad = chukkaPlayers[c].length; bestC = c; }
+      }
+      if (bestC === -1) break;
+      placed.push(bestC);
+      chukkaPlayers[bestC].push(player);
     }
-    if (bestC === -1) break; // no valid slot left in the window
-    placed.push(bestC);
-    chukkaPlayers[bestC].push(player);
+    return placed.sort((a, b) => a - b);
+  }
+
+  // No-consecutive players: keep an every-other-chukka rhythm — a preferred gap
+  // of exactly minStep (= 2) — so they're never back-to-back AND never stranded
+  // (e.g. first chukka then nothing until the last). Pick the start phase
+  // (odd/even) that's less loaded and can fit the most, then step by 2, only
+  // widening the gap past a full chukka.
+  const phaseScore = (start) => {
+    let load = 0, fit = 0, last = -Infinity;
+    for (let c = start; c <= availableToIdx && fit < wantedCount; c++) {
+      if (c - last < minStep) continue;
+      if (chukkaPlayers[c].length >= SLOTS_PER_CHUKKA) continue;
+      load += chukkaPlayers[c].length; fit++; last = c;
+    }
+    // Heavily prefer phases that fit more of the requested chukkas, then lighter load.
+    return (wantedCount - fit) * 1000 + load;
+  };
+  let cursor = availableIdx;
+  if (availableIdx + 1 <= availableToIdx && phaseScore(availableIdx + 1) < phaseScore(availableIdx)) {
+    cursor = availableIdx + 1;
+  }
+  while (placed.length < wantedCount && cursor <= availableToIdx) {
+    // earliest non-full slot at/after the cursor that keeps the >=2 gap
+    let c = cursor;
+    while (c <= availableToIdx && (
+      chukkaPlayers[c].length >= SLOTS_PER_CHUKKA ||
+      (placed.length && c - placed[placed.length - 1] < minStep)
+    )) c++;
+    if (c > availableToIdx) break;
+    placed.push(c);
+    chukkaPlayers[c].push(player);
+    cursor = c + minStep; // prefer the next slot exactly 2 chukkas later
   }
   return placed.sort((a, b) => a - b);
 };
