@@ -69,7 +69,26 @@ const storage = {
 // ── Live sync: subscribe to every shared key the app uses ────────────
 // When Firestore changes (from this device OR any other), update the cache
 // AND dispatch a window-level event so React components can re-read.
-const SYNC_KEYS = ['roster', 'fixture-interest', 'wa-link', 'members', 'team-signups', 'fixtures'];
+// IMPORTANT: every persistent *shared* key must appear here or it silently won't
+// sync across devices. Per-day keys follow PoloChukkas.jsx's storageKey scheme:
+// `base` for Wednesday, `base-<day>` for thu/sat/sun.
+const DAYS = ['wed', 'thu', 'sat', 'sun'];
+const perDay = (base) => DAYS.map((d) => (d === 'wed' ? base : `${base}-${d}`));
+
+const SYNC_KEYS = [
+  ...perDay('roster'),       // rosters for every day (was: Wednesday only)
+  ...perDay('roster-week'),  // roster week-stamps (drive auto-clear)
+  ...perDay('schedule'),     // drawn chukka schedules
+  ...perDay('throwin'),      // per-day throw-in times
+  'fixture-interest',
+  'wa-link',
+  'members',
+  'team-signups',
+  'fixtures',
+  'fixture-details',         // match details / teams shown on the fixtures tab
+  'teams-db',
+  'fixture-details-backups',
+];
 
 SYNC_KEYS.forEach((key) => {
   const cacheKey = `shared/${key}`;
