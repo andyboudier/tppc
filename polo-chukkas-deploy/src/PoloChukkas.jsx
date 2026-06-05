@@ -1780,6 +1780,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   // path (which snapshots a backup first), so an import is undoable.
   const importMatchDetails = async () => {
     setImportMsg('');
+    const MTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    const dayOrder = (d) => {
+      const lbl = (d.dateLabel || '').toLowerCase();
+      const dayNum = parseInt((lbl.match(/\d+/) || ['99'])[0], 10);
+      const mi = MTHS.findIndex(m => lbl.includes(m));
+      return (mi < 0 ? 99 : mi) * 100 + (isNaN(dayNum) ? 99 : dayNum);
+    };
     let payload;
     try { payload = JSON.parse(importText); }
     catch (e) { setImportMsg('That is not valid JSON — check you pasted the whole block.'); return; }
@@ -1805,7 +1812,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       const existing = nextDetails[fx.id] || { days: [] };
       const byLabel = new Map((existing.days || []).map(d => [d.dateLabel, d]));
       entry.days.forEach(d => byLabel.set(d.dateLabel, d));
-      nextDetails[fx.id] = { ...existing, days: Array.from(byLabel.values()) };
+      const merged = Array.from(byLabel.values()).sort((a, b) => dayOrder(a) - dayOrder(b));
+      nextDetails[fx.id] = { ...existing, days: merged };
       updated++;
     }
     if (!updated) { setImportMsg('Nothing to import — each entry needs a "fixture" name and a "days" array.'); return; }
