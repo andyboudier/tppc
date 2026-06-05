@@ -13,11 +13,12 @@ const config: CapacitorConfig = {
     handleApplicationNotifications: true,
   },
   server: {
-    // Local-bundle mode: the JS lives inside the .ipa.
-    // To switch to remote-load (instant updates without resubmission), set:
-    //   url: 'https://tppc-chukkas.vercel.app',
-    //   cleartext: false,
-    // Apple's review team is friendlier to local bundles — recommended.
+    // Remote-load mode: the app loads the live web app from Vercel, so web
+    // changes appear instantly without re-archiving. Native/Watch changes still
+    // need an archive. To revert to local-bundle (friendlier for App Store
+    // submission review), comment out the url + cleartext lines below.
+    url: 'https://tppc-chukkas.vercel.app',
+    cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',
   },
