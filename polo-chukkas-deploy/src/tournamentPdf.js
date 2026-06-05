@@ -49,8 +49,6 @@ const CLUB_ADDRESS = [
   'TEL: 01980 846705',
 ];
 
-const FOOTER_NOTE = 'PLEASE SELF MOUNT FOR UMPIRING DUTIES. PLEASE LET TPPC KNOW IF YOU NEED TO BOOK A PONY.';
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 // Handicap format used in the example PDF: '2', '0', '-2' (no '+' sign).
@@ -173,6 +171,28 @@ function drawCoverPage(doc, fixture, subtitle) {
   }
 }
 
+// Vertical height (mm) a match block consumes. Mirrors the y-advances in
+// drawMatch exactly, so drawDayPage can space matches evenly down the page.
+function measureMatch(match) {
+  let h = 0;
+  const timeLine = `${match.time || ''}${match.label ? ' ' + match.label.toUpperCase() : ''}`.trim();
+  if (timeLine) h += 7;            // time line
+  h += 5;                          // "TEAM A V TEAM B"
+  if (hasResult(match)) h += 6;    // result score
+  let officials = 0;
+  if (match.umpires) officials++;
+  if (match.goalJudges) officials++;
+  if (match.timekeeper) officials++;
+  h += officials ? officials * 5 + 2 : 2;
+  h += 5;                          // team headers
+  const rows = Math.max(
+    (match.teamA?.players || []).length,
+    (match.teamB?.players || []).length,
+  );
+  h += rows * 4.6;                 // player rows
+  return h;
+}
+
 function drawDayPage(doc, fixture, subtitle, day) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
@@ -215,17 +235,25 @@ function drawDayPage(doc, fixture, subtitle, day) {
     y += 8;
   }
 
-  // Matches
-  (day.matches || []).forEach((match) => {
-    y = drawMatch(doc, match, y);
-    y += 6;
-  });
+  // Matches — distributed evenly down the remaining page height so each page
+  // fills nicely instead of bunching at the top with empty space below.
+  const matches = day.matches || [];
+  if (matches.length) {
+    const startY = y;
+    // Leave a bottom margin; reserve extra room when a prizegiving line shows.
+    const bottomY = day.prizegiving ? PAGE_H - 28 : PAGE_H - 22;
+    const sumH = matches.reduce((acc, m) => acc + measureMatch(m), 0);
+    const leftover = (bottomY - startY) - sumH;
+    // Equal whitespace above, between, and below the matches.
+    const gap = leftover > 0 ? leftover / (matches.length + 1) : 6;
+    let my = startY + gap;
+    matches.forEach((match) => {
+      my = drawMatch(doc, match, my);
+      my += gap;
+    });
+  }
 
-  // Bottom-of-page elements (footer note, optional prizegiving)
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...MUTED);
-  doc.text(FOOTER_NOTE, PAGE_W / 2, PAGE_H - 25, { align: 'center' });
+  // Optional prizegiving label, pinned near the bottom of the page
 
   if (day.prizegiving) {
     doc.setFont('helvetica', 'bold');
