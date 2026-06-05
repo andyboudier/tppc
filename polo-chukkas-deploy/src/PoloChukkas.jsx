@@ -632,6 +632,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
   const backupTimerRef = useRef(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importMsg, setImportMsg] = useState('');
 
   // Manual schedule editing
   const [activePlayer, setActivePlayer] = useState(null); // { chukkaIdx, playerId } | null
@@ -1769,6 +1772,47 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     try { await window.storage.set('fixture-details', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
     scheduleBackup(next);
+  };
+
+  // Captain: bulk-import match details from pasted JSON. Fixtures are matched by
+  // name (an ad hoc fixture is created if none exists); days are merged by
+  // dateLabel so existing days for a fixture are preserved. Saves via the normal
+  // path (which snapshots a backup first), so an import is undoable.
+  const importMatchDetails = async () => {
+    setImportMsg('');
+    let payload;
+    try { payload = JSON.parse(importText); }
+    catch (e) { setImportMsg('That is not valid JSON — check you pasted the whole block.'); return; }
+    const entries = Array.isArray(payload) ? payload
+      : (Array.isArray(payload?.matches) ? payload.matches : null);
+    if (!entries || !entries.length) { setImportMsg('Expected a "matches" array in the JSON.'); return; }
+    const nextFixtures = fixtures.slice();
+    const nextDetails = { ...fixtureDetails };
+    let created = 0, updated = 0;
+    for (const entry of entries) {
+      const fxName = (entry.fixture || '').trim();
+      if (!fxName || !Array.isArray(entry.days)) continue;
+      let fx = nextFixtures.find(f => f.name.trim().toLowerCase() === fxName.toLowerCase());
+      if (!fx) {
+        const slug = fxName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'fixture';
+        let id = 'adhoc-' + slug;
+        const ids = new Set(nextFixtures.map(f => f.id));
+        while (ids.has(id)) id = 'adhoc-' + slug + '-' + Math.random().toString(36).slice(2, 5);
+        fx = { id, month: entry.month || MONTHS_ORDER[0], date: entry.date || '', name: fxName, level: entry.level || '', adhoc: true };
+        nextFixtures.push(fx);
+        created++;
+      }
+      const existing = nextDetails[fx.id] || { days: [] };
+      const byLabel = new Map((existing.days || []).map(d => [d.dateLabel, d]));
+      entry.days.forEach(d => byLabel.set(d.dateLabel, d));
+      nextDetails[fx.id] = { ...existing, days: Array.from(byLabel.values()) };
+      updated++;
+    }
+    if (!updated) { setImportMsg('Nothing to import — each entry needs a "fixture" name and a "days" array.'); return; }
+    if (created > 0) await saveFixtures(nextFixtures);
+    await saveFixtureDetails(nextDetails);
+    setImportMsg(`Imported ${updated} fixture${updated === 1 ? '' : 's'}${created ? ` (${created} newly created)` : ''}. Open the fixture to check.`);
+    setImportText('');
   };
 
   // ── Automatic backups of match details / scores ─────────────────────────
@@ -4227,6 +4271,31 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           <button onClick={() => restoreBackup(b)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap' }}>Restore</button>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {captainMode && (
+                <div style={{ maxWidth: '480px', margin: '0 auto 16px', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 12px' }}>
+                  <button
+                    onClick={() => { setShowImport(v => !v); setImportMsg(''); }}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--burgundy)', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', padding: '4px' }}>
+                    {showImport ? 'Hide import' : 'Import match details (paste JSON)'}
+                  </button>
+                  {showImport && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', lineHeight: 1.5 }}>
+                        Paste a match-details JSON block. Fixtures are matched by name (a new one is created if it doesn’t exist yet) and days are merged, so existing details aren’t lost. A backup is saved first, so this can be undone.
+                      </div>
+                      <textarea
+                        value={importText}
+                        onChange={e => setImportText(e.target.value)}
+                        placeholder='{ "matches": [ … ] }'
+                        style={{ width: '100%', minHeight: '120px', fontFamily: 'monospace', fontSize: '11px', padding: '8px', borderRadius: '4px', border: '1px solid var(--line)', boxSizing: 'border-box' }}
+                      />
+                      {importMsg && <div style={{ fontSize: '11px', color: 'var(--burgundy)', margin: '6px 0', lineHeight: 1.4 }}>{importMsg}</div>}
+                      <button onClick={importMatchDetails} disabled={!importText.trim()} style={{ marginTop: '6px', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: importText.trim() ? 'pointer' : 'default', opacity: importText.trim() ? 1 : 0.5 }}>Import</button>
                     </div>
                   )}
                 </div>
