@@ -623,6 +623,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   // persisted so captains can add ad hoc fixtures, edit details, and change the
   // handicap level. Stored under 'fixtures' and synced across devices.
   const [fixtures, setFixtures] = useState(FIXTURES_2026);
+  // True once the Firestore 'fixtures' doc has been read at least once. Until then
+  // we must not persist the built-in seed — doing so would resurrect deleted
+  // fixtures (and wipe ad hoc ones) for everyone.
+  const fixturesLoadedRef = useRef(false);
   const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
   const [editingDetailsId, setEditingDetailsId] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
@@ -951,7 +955,22 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         const ts = await window.storage.get('team-signups', true);
         if (ts?.value) setTeamSignups(JSON.parse(ts.value));
         const fxs = await window.storage.get('fixtures', true);
-        if (fxs?.value) { const arr = JSON.parse(fxs.value); if (Array.isArray(arr) && arr.length) setFixtures(arr); }
+        if (fxs?.value) {
+          // Firestore is authoritative once the doc exists: apply it verbatim,
+          // even if it is shorter than the built-in seed (captains may have
+          // deleted fixtures). This stops the hardcoded FIXTURES_2026 seed from
+          // masquerading as live data — which was resurrecting deleted fixtures
+          // (e.g. Queen's Royal Lancers) and hiding ad hoc ones (e.g. 9th Lancer).
+          const arr = JSON.parse(fxs.value);
+          if (Array.isArray(arr)) setFixtures(arr);
+          fixturesLoadedRef.current = true;
+        } else {
+          // No fixtures doc yet (genuine first run): establish it from the
+          // built-in seed so future adds/edits/deletes persist instead of
+          // falling back to the seed on the next load.
+          try { await window.storage.set('fixtures', JSON.stringify(FIXTURES_2026), true); } catch (e) {}
+          fixturesLoadedRef.current = true;
+        }
       } catch (e) {}
       try {
         const w = await window.storage.get('wa-link', true);
@@ -2024,6 +2043,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
   // ── Captain: add / edit / delete fixtures ─────────────────
   const saveFixtures = async (next) => {
+    // Never persist before the Firestore list has loaded — writing the built-in
+    // seed over a real (edited) list would resurrect deleted fixtures for everyone.
+    if (!fixturesLoadedRef.current) return;
     setFixtures(next);
     try { await window.storage.set('fixtures', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
