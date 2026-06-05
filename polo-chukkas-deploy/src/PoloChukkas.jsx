@@ -4951,13 +4951,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
           {activeTab === 'live' && (
             <div style={{ maxWidth: '760px', margin: '0 auto' }}>
               <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Live Game</div>
-              <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Update scores and player goals as the match is played. Changes save automatically.</div>
-              {!captainMode && (
-                <div style={{ background: '#fff', border: '1px solid #e5e0d8', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '13px', color: 'var(--ink)', marginBottom: '12px' }}>Scores are visible to everyone. Only captains can update them.</div>
-                  <button onClick={() => setPinModalOpen(true)} style={{ background: 'var(--burgundy)', color: '#fff', border: 'none', borderRadius: '6px', padding: '10px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN</button>
-                </div>
-              )}
+              <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Live scores update automatically as matches are played.</div>
               {(
                 (() => {
                   const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
@@ -5061,6 +5055,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     </div>
                   );
                 })()
+              )}
+              {!captainMode && (
+                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', color: '#777', marginBottom: '10px' }}>Scores are visible to everyone. Only captains can update them.</div>
+                  <button onClick={() => setPinModalOpen(true)} style={{ background: 'none', border: '1px solid var(--burgundy)', color: 'var(--burgundy)', borderRadius: '6px', padding: '9px 18px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN to enter scores</button>
+                </div>
               )}
             </div>
           )}
