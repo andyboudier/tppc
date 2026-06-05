@@ -594,6 +594,14 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
   // Members directory — remembers handicap/mobile/availability per name across weeks
   const [members, setMembers] = useState({});
+  // Player database — captain-curated records, richer than the members autofill
+  // cache. Synced under 'players'. Named playerDb to avoid clashing with the
+  // existing roster `players` accessor. Carries military + subsidies[] so the
+  // upcoming payment screen can attach subsidy pricing.
+  const [playerDb, setPlayerDb] = useState([]);
+  const [playerEditor, setPlayerEditor] = useState(null); // null | draft record being added/edited
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [pdbError, setPdbError] = useState('');
 
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
@@ -837,6 +845,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
   const lockCaptainMode = () => {
     setCaptainMode(false);
+    setActiveTab(prev => (prev === 'players' ? 'wed' : prev));
     try { sessionStorage.removeItem('tppc-captain'); } catch (e) {}
   };
 
@@ -983,6 +992,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         const m = await window.storage.get('members', true);
         if (m?.value) setMembers(JSON.parse(m.value));
       } catch (e) {}
+      try {
+        const p = await window.storage.get('players', true);
+        if (p?.value) { const arr = JSON.parse(p.value); if (Array.isArray(arr)) setPlayerDb(arr); }
+      } catch (e) {}
       setLoaded(true);
     };
     loadAll();
@@ -1052,6 +1065,80 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     try { await window.storage.set('members', JSON.stringify(updated), true); } catch (e) {}
     return updated;
   };
+
+  // --- Player database (captain-managed) ---
+  const PLAYER_TYPES = ['Member', 'Associate', 'Guest'];
+  const blankPlayer = () => ({
+    id: '', name: '', handicap: '', email: '', mobile: '',
+    type: 'Member', military: false, unit: '', active: true,
+    subsidies: [], notes: '',
+  });
+  const newPlayerId = (salt = '') => `p-${Date.now()}-${salt}${Math.random().toString(36).slice(2, 7)}`;
+  const savePlayerDb = async (next) => {
+    setPlayerDb(next);
+    try { await window.storage.set('players', JSON.stringify(next), true); } catch (e) {}
+  };
+  const openNewPlayer = () => { setPdbError(''); setPlayerEditor(blankPlayer()); };
+  const openEditPlayer = (p) => {
+    setPdbError('');
+    setPlayerEditor({ ...blankPlayer(), ...p, handicap: p.handicap == null ? '' : String(p.handicap) });
+  };
+  const savePlayer = async () => {
+    const draft = playerEditor || {};
+    const name = (draft.name || '').trim();
+    if (!name) { setPdbError('Please enter a name.'); return; }
+    const email = (draft.email || '').trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setPdbError('That email address looks off.'); return; }
+    const record = {
+      id: draft.id || newPlayerId(),
+      name,
+      handicap: draft.handicap === '' || draft.handicap == null ? null : Number(draft.handicap),
+      email,
+      mobile: (draft.mobile || '').trim(),
+      type: draft.type || 'Member',
+      military: !!draft.military,
+      unit: draft.military ? (draft.unit || '').trim() : '',
+      active: draft.active !== false,
+      subsidies: Array.isArray(draft.subsidies) ? draft.subsidies : [],
+      notes: (draft.notes || '').trim(),
+      updatedAt: Date.now(),
+    };
+    const exists = playerDb.some(p => p.id === record.id);
+    const next = (exists ? playerDb.map(p => (p.id === record.id ? record : p)) : [...playerDb, record])
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    await savePlayerDb(next);
+    // Keep the lightweight members autofill cache in step with the database.
+    try { await upsertMember({ name: record.name, handicap: record.handicap, mobile: record.mobile }); } catch (e) {}
+    setPlayerEditor(null);
+    setPdbError('');
+  };
+  const deletePlayer = async (id) => {
+    const p = playerDb.find(x => x.id === id);
+    if (!window.confirm(`Remove ${p ? p.name : 'this player'} from the database? This does not affect rosters or fixtures.`)) return;
+    await savePlayerDb(playerDb.filter(x => x.id !== id));
+    setPlayerEditor(null);
+  };
+  const importFromMembers = async () => {
+    setPdbError('');
+    const existing = new Set(playerDb.map(p => (p.name || '').trim().toLowerCase()));
+    const additions = Object.values(members)
+      .filter(m => m && m.name && !existing.has(m.name.trim().toLowerCase()))
+      .map((m, i) => ({
+        id: newPlayerId(`${i}-`),
+        name: m.name.trim(),
+        handicap: (m.handicap == null || m.handicap === '') ? null : Number(m.handicap),
+        email: '', mobile: m.mobile || '', type: 'Member',
+        military: false, unit: '', active: true, subsidies: [], notes: '',
+        updatedAt: Date.now(),
+      }));
+    if (!additions.length) { setPdbError('No new names found in the members directory.'); return; }
+    await savePlayerDb([...playerDb, ...additions].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    setPdbError(`Imported ${additions.length} player${additions.length === 1 ? '' : 's'} from the members directory.`);
+  };
+  const visiblePlayers = playerDb
+    .filter(p => !playerSearch.trim() || (p.name || '').toLowerCase().includes(playerSearch.trim().toLowerCase()))
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   // Fill the booking form from a saved member
   const fillFromMember = (m) => {
@@ -3338,6 +3425,11 @@ const [noConsecutive, setNoConsecutive] = useState(false);
           <button className={`tab-btn ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>
             Live Game
           </button>
+          {captainMode && (
+            <button className={`tab-btn ${activeTab === 'players' ? 'active' : ''}`} onClick={() => setActiveTab('players')}>
+              Players
+            </button>
+          )}
         </nav>
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
@@ -5061,6 +5153,94 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                   <div style={{ fontSize: '12px', color: '#777', marginBottom: '10px' }}>Scores are visible to everyone. Only captains can update them.</div>
                   <button onClick={() => setPinModalOpen(true)} style={{ background: 'none', border: '1px solid var(--burgundy)', color: 'var(--burgundy)', borderRadius: '6px', padding: '9px 18px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN to enter scores</button>
                 </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'players' && captainMode && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Player Database</div>
+              <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px' }}>
+                {playerDb.length} player{playerDb.length === 1 ? '' : 's'} &middot; captain only &middot; synced across devices
+              </div>
+
+              {pdbError && (
+                <div style={{ fontSize: '12px', color: 'var(--burgundy)', padding: '8px 12px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', marginBottom: '12px' }}>{pdbError}</div>
+              )}
+
+              {!playerEditor && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  <input className="input-field" type="text" placeholder="Search players…" value={playerSearch} onChange={e => setPlayerSearch(e.target.value)} style={{ flex: 1, minWidth: '140px', padding: '10px 12px', fontSize: '14px' }} />
+                  <button onClick={openNewPlayer} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>+ Add</button>
+                  <button onClick={importFromMembers} style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--line)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Import from members</button>
+                </div>
+              )}
+
+              {playerEditor && (
+                <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '16px', background: 'var(--cream-pale)' }}>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--burgundy)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{playerEditor.id ? 'Edit player' : 'New player'}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <input className="input-field" type="text" placeholder="Full name" value={playerEditor.name} onChange={e => setPlayerEditor({ ...playerEditor, name: e.target.value })} style={{ padding: '11px 13px', fontSize: '15px' }} />
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select className="input-field select-field" value={playerEditor.handicap} onChange={e => setPlayerEditor({ ...playerEditor, handicap: e.target.value })} style={{ width: '120px', flexShrink: 0, padding: '11px 8px', fontSize: '14px' }}>
+                        <option value="">Handicap…</option>
+                        {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{h > 0 ? `+${h}` : h}</option>)}
+                      </select>
+                      <select className="input-field select-field" value={playerEditor.type} onChange={e => setPlayerEditor({ ...playerEditor, type: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
+                        {PLAYER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <input className="input-field" type="email" placeholder="Email" value={playerEditor.email} onChange={e => setPlayerEditor({ ...playerEditor, email: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    <input className="input-field" type="tel" placeholder="Mobile" value={playerEditor.mobile} onChange={e => setPlayerEditor({ ...playerEditor, mobile: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!playerEditor.military} onChange={e => setPlayerEditor({ ...playerEditor, military: e.target.checked })} />
+                      Military (eligible for subsidies)
+                    </label>
+                    {playerEditor.military && (
+                      <input className="input-field" type="text" placeholder="Regiment / unit (optional)" value={playerEditor.unit} onChange={e => setPlayerEditor({ ...playerEditor, unit: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    )}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={playerEditor.active !== false} onChange={e => setPlayerEditor({ ...playerEditor, active: e.target.checked })} />
+                      Active member
+                    </label>
+                    <textarea className="input-field" placeholder="Notes (optional)" value={playerEditor.notes} onChange={e => setPlayerEditor({ ...playerEditor, notes: e.target.value })} rows={2} style={{ padding: '11px 13px', fontSize: '13px', resize: 'vertical' }} />
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                      <button onClick={savePlayer} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '12px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Save</button>
+                      <button onClick={() => { setPlayerEditor(null); setPdbError(''); }} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '12px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                      {playerEditor.id && (
+                        <button onClick={() => deletePlayer(playerEditor.id)} style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '12px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Delete</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!playerEditor && (
+                visiblePlayers.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: 'var(--muted)', textAlign: 'center', padding: '28px 12px', lineHeight: 1.5 }}>
+                    {playerDb.length === 0 ? 'No players yet. Add one, or import from the members directory.' : 'No players match your search.'}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {visiblePlayers.map(p => (
+                      <div key={p.id} onClick={() => openEditPlayer(p)} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: '#fff', cursor: 'pointer', opacity: p.active === false ? 0.55 : 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.name}</span>
+                          {p.handicap != null && <span style={{ fontSize: '13px', color: 'var(--muted)' }}>({p.handicap > 0 ? `+${p.handicap}` : p.handicap})</span>}
+                          <span style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                            {p.military && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--gold)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Mil</span>}
+                            {p.active === false && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Inactive</span>}
+                          </span>
+                        </div>
+                        {(p.email || p.mobile || p.unit) && (
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>
+                            {[p.unit, p.mobile, p.email].filter(Boolean).join('  ·  ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           )}
