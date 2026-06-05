@@ -68,6 +68,10 @@ const hasResult = (match) =>
   match && (match.scoreA !== null && match.scoreA !== undefined ||
             match.scoreB !== null && match.scoreB !== undefined);
 
+// Heading text for a match: "14:45 MEN'S CLUB CHALLENGE III" (time + title).
+const timeLineOf = (m) =>
+  `${m.time || ''}${m.label ? ' ' + m.label.toUpperCase() : ''}`.trim();
+
 // Add ordinal suffix: 30 → '30th', 1 → '1st'.
 const ordinal = (n) => {
   const lasttwo = n % 100;
@@ -193,6 +197,58 @@ function measureMatch(match) {
   return h;
 }
 
+// Distinct officials lines across a set of matches (deduped, first seen wins).
+function uniqueOfficials(matches) {
+  const out = [];
+  const seen = new Set();
+  matches.forEach((m) => {
+    const lines = [];
+    if (m.umpires) lines.push(`UMPIRES: ${m.umpires.toUpperCase()}`);
+    if (m.goalJudges) lines.push(`GOAL JUDGES: ${m.goalJudges.toUpperCase()}`);
+    if (m.timekeeper) lines.push(`TIMEKEEPER: ${m.timekeeper.toUpperCase()}`);
+    lines.forEach((l) => { if (!seen.has(l)) { seen.add(l); out.push(l); } });
+  });
+  return out;
+}
+
+// Distinct teams across a set of matches, by name (first occurrence wins).
+function uniqueTeams(matches) {
+  const out = [];
+  const seen = new Set();
+  matches.forEach((m) => {
+    [m.teamA, m.teamB].forEach((t) => {
+      if (!t || !t.name) return;
+      const k = t.name.trim().toUpperCase();
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(t);
+    });
+  });
+  return out;
+}
+
+// Height (mm) of a group: a lone match is just measureMatch; a multi-match
+// group prints one heading, the pairing lines, shared officials, then each
+// distinct team's roster two-per-row. Mirrors drawGroup exactly.
+function measureGroup(g) {
+  if (g.matches.length === 1) return measureMatch(g.matches[0]);
+  let h = 0;
+  if (g.head) h += 7;                          // shared time + title
+  h += g.matches.length * 6;                   // one pairing line per match
+  h += 1;                                       // pad below pairings
+  const offs = uniqueOfficials(g.matches);
+  h += offs.length ? offs.length * 5 + 2 : 2;   // officials
+  const teams = uniqueTeams(g.matches);
+  for (let i = 0; i < teams.length; i += 2) {
+    const a = teams[i], b = teams[i + 1];
+    h += 5;                                      // team header line
+    const rows = Math.max((a?.players || []).length, (b?.players || []).length);
+    h += rows * 4.6;                             // player rows
+    h += 5;                                      // gap after the row of teams
+  }
+  return h;
+}
+
 function drawDayPage(doc, fixture, subtitle, day) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
@@ -235,20 +291,30 @@ function drawDayPage(doc, fixture, subtitle, day) {
     y += 8;
   }
 
-  // Matches — distributed evenly down the remaining page height so each page
+  // Group consecutive matches that share the SAME time and title into one block
+  // (e.g. a round-robin), so the time + match title print only once.
+  const groups = [];
+  (day.matches || []).forEach((m) => {
+    const t = (m.time || '').trim();
+    const key = t ? `${t}__${(m.label || '').trim().toUpperCase()}` : null;
+    const last = groups[groups.length - 1];
+    if (key && last && last.key === key) last.matches.push(m);
+    else groups.push({ key, head: timeLineOf(m), matches: [m] });
+  });
+
+  // Distribute the groups evenly down the remaining page height so each page
   // fills nicely instead of bunching at the top with empty space below.
-  const matches = day.matches || [];
-  if (matches.length) {
+  if (groups.length) {
     const startY = y;
     // Leave a bottom margin; reserve extra room when a prizegiving line shows.
     const bottomY = day.prizegiving ? PAGE_H - 28 : PAGE_H - 22;
-    const sumH = matches.reduce((acc, m) => acc + measureMatch(m), 0);
+    const sumH = groups.reduce((acc, g) => acc + measureGroup(g), 0);
     const leftover = (bottomY - startY) - sumH;
-    // Equal whitespace above, between, and below the matches.
-    const gap = leftover > 0 ? leftover / (matches.length + 1) : 6;
+    // Equal whitespace above, between, and below the match blocks.
+    const gap = leftover > 0 ? leftover / (groups.length + 1) : 6;
     let my = startY + gap;
-    matches.forEach((match) => {
-      my = drawMatch(doc, match, my);
+    groups.forEach((g) => {
+      my = drawGroup(doc, g, my);
       my += gap;
     });
   }
@@ -343,6 +409,82 @@ function drawMatch(doc, match, startY) {
     if (pa?.name) doc.text(`${pa.name.toUpperCase()}${fmtHcp(pa.handicap)}`, colAx, y, { align: 'center' });
     if (pb?.name) doc.text(`${pb.name.toUpperCase()}${fmtHcp(pb.handicap)}`, colBx, y, { align: 'center' });
     y += 4.6;
+  }
+
+  return y;
+}
+
+// Draw a group of matches. A single match defers to drawMatch. A multi-match
+// group (same time + title) prints the heading once, then the pairing lines,
+// shared officials, and each distinct team's roster two-per-row (a lone team
+// is centred) — matching the printed round-robin layout.
+function drawGroup(doc, g, startY) {
+  if (g.matches.length === 1) return drawMatch(doc, g.matches[0], startY);
+  let y = startY;
+
+  // Shared time + title (once), italic bold + underlined
+  if (g.head) {
+    doc.setFont('times', 'bolditalic');
+    doc.setFontSize(15);
+    doc.setTextColor(...INK);
+    doc.text(g.head, PAGE_W / 2, y, { align: 'center' });
+    underlineCentered(doc, g.head, PAGE_W / 2, y);
+    y += 7;
+  }
+
+  // Pairing lines: "TEAM A V TEAM B" (with score appended once played)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...INK);
+  g.matches.forEach((m) => {
+    const a = (m.teamA?.name || 'TBC').toUpperCase();
+    const b = (m.teamB?.name || 'TBC').toUpperCase();
+    let line = `${a} V ${b}`;
+    if (hasResult(m)) line += `  ${m.scoreA ?? 0} \u2013 ${m.scoreB ?? 0}`;
+    doc.text(line, PAGE_W / 2, y, { align: 'center' });
+    y += 6;
+  });
+  y += 1;
+
+  // Officials, deduped across the block
+  const offs = uniqueOfficials(g.matches);
+  if (offs.length) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    offs.forEach((line) => { doc.text(line, PAGE_W / 2, y, { align: 'center' }); y += 5; });
+    y += 2;
+  } else {
+    y += 2;
+  }
+
+  // Distinct team rosters, two per row (a lone final team is centred)
+  doc.setTextColor(...INK);
+  const colW = (PAGE_W - 2 * MARGIN) / 2;
+  const colAx = MARGIN + colW / 2;
+  const colBx = MARGIN + colW + colW / 2;
+  const teams = uniqueTeams(g.matches);
+  for (let i = 0; i < teams.length; i += 2) {
+    const a = teams[i], b = teams[i + 1];
+    const ax = b ? colAx : PAGE_W / 2;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`${a.name.toUpperCase()}${fmtHcp(a.handicap)}`, ax, y, { align: 'center' });
+    if (b) doc.text(`${b.name.toUpperCase()}${fmtHcp(b.handicap)}`, colBx, y, { align: 'center' });
+    y += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const pa = a.players || [];
+    const pb = (b && b.players) || [];
+    const rows = Math.max(pa.length, pb.length);
+    for (let r = 0; r < rows; r++) {
+      if (pa[r]?.name) doc.text(`${pa[r].name.toUpperCase()}${fmtHcp(pa[r].handicap)}`, ax, y, { align: 'center' });
+      if (b && pb[r]?.name) doc.text(`${pb[r].name.toUpperCase()}${fmtHcp(pb[r].handicap)}`, colBx, y, { align: 'center' });
+      y += 4.6;
+    }
+    y += 5;
   }
 
   return y;
