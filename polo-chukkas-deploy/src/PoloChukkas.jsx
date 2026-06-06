@@ -1440,6 +1440,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setLessonError(`Recorded £${fmtMoney(bd.total)} (${lesson.method}) for ${pl.name} — ${bd.lessonLabel}.`);
     setLesson(prev => ({ ...prev, playerId: '', note: '' }));
   };
+  const doLessonDue = async () => {
+    setLessonError('');
+    const pl = playerDb.find(p => p.id === lesson.playerId);
+    if (!pl) { setLessonError('Pick a player first.'); return; }
+    const bd = priceLesson(pl, lesson.lessonId);   // pots are drawn down on settle, not now
+    const dueTx = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'lesson',
+      playerId: pl.id, playerName: pl.name, day: null,
+      lessonId: bd.lessonId, lessonLabel: bd.lessonLabel, base: bd.base, militaryRate: bd.militaryRate,
+      subsidyDeductions: bd.subsidyDeductions.filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+      total: bd.total, status: 'due', method: '', note: (lesson.note || '').trim(),
+    };
+    const nextTx = [dueTx, ...transactions];
+    setTransactions(nextTx);
+    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    setLessonError(`Booked ${bd.lessonLabel} for ${pl.name} — £${fmtMoney(bd.total)} added to invoices.`);
+    setLesson(prev => ({ ...prev, playerId: '', note: '' }));
+  };
   const doMarkPaid = async () => {
     setCoError('');
     const pl = playerDb.find(p => p.id === checkout.playerId);
@@ -5776,12 +5794,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       return (
                         <div style={{ marginBottom: '22px' }}>
                           <div style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '4px' }}>To invoice ({due.length})</div>
-                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px', lineHeight: 1.5 }}>Players on a roster who owe for chukkas. Mark paid once settled (this draws down any subsidy pots), or remove them from the roster on the day tab if they don't pay then Void the charge here.</div>
-                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk)).map(dk => (
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px', lineHeight: 1.5 }}>Outstanding charges — chukkas owed by players on a roster, plus lessons booked to settle later. Mark paid once settled (this draws down any subsidy pots), or Void the charge if it's no longer owed.</div>
+                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk && t.kind !== 'lesson')).map(dk => (
                             <div key={dk} style={{ marginBottom: '12px' }}>
                               <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{dayNames[dk] || dk}</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {due.filter(t => t.day === dk).map(t => (
+                                {due.filter(t => t.day === dk && t.kind !== 'lesson').map(t => (
                                   <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
                                       <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
@@ -5802,6 +5820,31 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               </div>
                             </div>
                           ))}
+                          {due.some(t => t.kind === 'lesson') && (
+                            <div style={{ marginBottom: '12px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>Lessons</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {due.filter(t => t.kind === 'lesson').map(t => (
+                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
+                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                                      {t.lessonLabel || 'Lesson'}{t.militaryRate ? ' · mil rate' : ''}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                      <select value={dueMethod[t.id] || 'cash'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
+                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                                      </select>
+                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'cash')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
+                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -5907,7 +5950,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 const sortedPl = [...playerDb].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 const pl = playerDb.find(p => p.id === lesson.playerId);
                 const bd = pl ? priceLesson(pl, lesson.lessonId) : null;
-                const ok = lessonError && lessonError.indexOf('Recorded') === 0;
+                const ok = lessonError && (lessonError.indexOf('Recorded') === 0 || lessonError.indexOf('Booked') === 0);
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
@@ -5958,9 +6001,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     {lessonError && (
                       <div style={{ fontSize: '12px', color: ok ? 'var(--burgundy)' : 'var(--danger)', background: ok ? '#f2f6f2' : '#fbf2f2', border: `1px solid ${ok ? 'var(--line)' : 'var(--danger)'}`, borderRadius: '6px', padding: '9px 12px' }}>{lessonError}</div>
                     )}
-                    <button onClick={doLessonPaid} disabled={!pl} style={{ background: pl ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
-                      {pl && bd ? `Mark paid £${fmtMoney(bd.total)}` : 'Mark paid'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={doLessonPaid} disabled={!pl} style={{ flex: 1, background: pl ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
+                        {pl && bd ? `Mark paid £${fmtMoney(bd.total)}` : 'Mark paid'}
+                      </button>
+                      <button onClick={doLessonDue} disabled={!pl} style={{ flex: 1, background: 'transparent', color: pl ? 'var(--burgundy)' : 'var(--muted)', border: `1px solid ${pl ? 'var(--burgundy)' : 'var(--line)'}`, padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
+                        Book — invoice later
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-4px' }}>“Book — invoice later” adds the charge to the Checkout “To invoice” list; pots are drawn down when you settle it.</div>
                   </div>
                 );
               })()}
