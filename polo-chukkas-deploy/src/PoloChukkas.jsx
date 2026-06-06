@@ -587,7 +587,7 @@ export default function PoloChukkas() {
   const [availableTo, setAvailableTo] = useState('');
 const [vip, setVip] = useState(false);
 const [noConsecutive, setNoConsecutive] = useState(false);
-const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony (affects price)
+const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pony (affects price) — off by default
   const [error, setError] = useState('');
   const [bookingMsg, setBookingMsg] = useState('');   // post-signup cost confirmation
   const [dueMethod, setDueMethod] = useState({});      // per-due payment-method picker in Checkout
@@ -1480,7 +1480,7 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
         setBookingMsg('Added to the roster — no charge.');
       }
     }
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(true);
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
     saveSchedule(null);
   };
 
