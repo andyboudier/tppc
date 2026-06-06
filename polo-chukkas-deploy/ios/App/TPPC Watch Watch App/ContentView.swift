@@ -5,6 +5,7 @@
 
 import SwiftUI
 import Combine
+import Foundation
 
 // MARK: - Day
 
@@ -458,6 +459,26 @@ private func fmtNum(_ n: Double?) -> String? {
     return n == n.rounded() ? String(Int(n)) : String(n)
 }
 
+// True when a day label like "Saturday 30th May" / "Sun 7 June" falls on the
+// device's current date (day-of-month + month; year is absent from labels).
+private let liveMonthNames = ["january", "february", "march", "april", "may", "june",
+                              "july", "august", "september", "october", "november", "december"]
+private func isLabelToday(_ label: String?) -> Bool {
+    guard let raw = label?.lowercased(), !raw.isEmpty else { return false }
+    var month: Int? = nil
+    for (i, m) in liveMonthNames.enumerated() {
+        if raw.range(of: m) != nil || raw.range(of: String(m.prefix(3))) != nil { month = i + 1; break }
+    }
+    var digits = ""
+    for ch in raw {
+        if ch.isNumber { digits.append(ch); if digits.count == 2 { break } }
+        else if !digits.isEmpty { break }
+    }
+    guard let mo = month, let dy = Int(digits), dy >= 1, dy <= 31 else { return false }
+    let comp = Calendar.current.dateComponents([.day, .month], from: Date())
+    return comp.day == dy && comp.month == mo
+}
+
 // MARK: - Live store
 
 @MainActor
@@ -578,12 +599,13 @@ struct LiveScreen: View {
         case .error(let message):
             MessageView(title: "Couldn't load", detail: message)
         case .loaded:
-            if store.items.isEmpty {
-                MessageView(title: "No live games",
-                            detail: "Scores appear here once a match is being scored.")
+            let todays = store.items.filter { isLabelToday($0.dateLabel) }
+            if todays.isEmpty {
+                MessageView(title: "No games today",
+                            detail: "Only matches scheduled for today appear here.")
             } else {
-                let live = store.items.filter { $0.match.hasScore }
-                let rest = store.items.filter { !$0.match.hasScore }
+                let live = todays.filter { $0.match.hasScore }
+                let rest = todays.filter { !$0.match.hasScore }
                 VStack(spacing: 6) {
                     if !live.isEmpty {
                         SectionLabel("In play")
