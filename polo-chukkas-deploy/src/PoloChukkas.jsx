@@ -1369,6 +1369,19 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
     setTransactions(next);
     try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
   };
+  const deleteTx = async (txId) => {
+    const next = transactions.filter(t => t.id !== txId);
+    setTransactions(next);
+    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
+  };
+  const clearHistory = async () => {
+    const paid = transactions.filter(t => t.status !== 'due');
+    if (!paid.length) return;
+    if (!window.confirm(`Clear ${paid.length} recorded payment${paid.length === 1 ? '' : 's'} from the history? This removes the records only — it does not refund subsidy pots or change outstanding dues.`)) return;
+    const next = transactions.filter(t => t.status === 'due');
+    setTransactions(next);
+    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
+  };
   const doMarkPaid = async () => {
     setCoError('');
     const pl = playerDb.find(p => p.id === checkout.playerId);
@@ -1389,7 +1402,7 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
   const fillFromMember = (m) => {
     setName(m.name);
     setMobile(m.mobile || '');
-    setHandicap(String(m.handicap));
+    setHandicap(m.handicap == null ? '' : String(m.handicap));
     // Availability is day-specific — it depends on that day's throw-in and
     // chukka times — so we deliberately do NOT carry it across sessions (same
     // reasoning as chukkas). Clear it; it defaults to this day's throw-in /
@@ -2528,10 +2541,12 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
   // Autofill suggestions: members not yet in the roster, filtered by typed text
   const nameInputLower = name.trim().toLowerCase();
   const rosterNames = new Set(players.map(p => p.name.toLowerCase()));
-  const suggestions = Object.values(members)
-    .filter(m => !rosterNames.has(m.name.toLowerCase()))
-    .filter(m => nameInputLower === '' || m.name.toLowerCase().includes(nameInputLower))
-    .sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0))
+  const suggestions = playerDb
+    .filter(p => p.active !== false)
+    .filter(p => !rosterNames.has((p.name || '').toLowerCase()))
+    .filter(p => nameInputLower === '' || (p.name || '').toLowerCase().includes(nameInputLower))
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     .slice(0, 8);
 
   return (
@@ -3704,6 +3719,11 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
 
+          {/* Shared quick-add list of registered players (chukkas + tournaments) */}
+          <datalist id="playerdb-names">
+            {playerDb.filter(p => p.active !== false).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => <option key={p.id} value={p.name} />)}
+          </datalist>
+
           {/* ─── DAY CHUKKAS TABS (Wed/Thu/Sat/Sun) ─── */}
           {DAY_KEYS.includes(activeTab) && (
             <div className="reveal">
@@ -3884,6 +3904,7 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                   <input
                     className="input-field"
                     type="text"
+                    list="playerdb-names"
                     placeholder="Your name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -3901,7 +3922,7 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                           className="suggestion-chip"
                           onClick={() => fillFromMember(s)}
                         >
-                          {s.name}<span className="chip-hcp">{fmtH(s.handicap)}</span>
+                          {s.name}{s.handicap != null && <span className="chip-hcp">{fmtH(s.handicap)}</span>}
                         </button>
                       ))}
                     </div>
@@ -5167,9 +5188,10 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                                               <input
                                                 className="input-field"
                                                 type="text"
+                                                list="playerdb-names"
                                                 placeholder={`Player ${idx + 1}`}
                                                 value={row.name}
-                                                onChange={(e) => setSquadPlayer(d.key, idx, 'name', e.target.value)}
+                                                onChange={(e) => { const v = e.target.value; setSquadPlayer(d.key, idx, 'name', v); const rec = playerDb.find(p => (p.name || '').toLowerCase() === v.trim().toLowerCase()); if (rec && rec.handicap != null) setSquadPlayer(d.key, idx, 'handicap', String(rec.handicap)); }}
                                                 style={{ flex: 1, minWidth: 0, padding: '10px 12px', fontSize: '14px' }}
                                               />
                                               <select
@@ -5802,7 +5824,12 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                       </div>
                     )}
 
-                    <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', margin: '22px 0 8px' }}>Recent payments</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '22px 0 8px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)' }}>Recent payments</div>
+                      {transactions.filter(t => t.status !== 'due').length > 0 && (
+                        <button onClick={clearHistory} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '5px 10px', borderRadius: '4px', fontSize: '10px', letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Clear</button>
+                      )}
+                    </div>
                     {transactions.filter(t => t.status !== 'due').length === 0 ? (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '16px 12px' }}>No payments recorded yet.</div>
                     ) : (
@@ -5811,7 +5838,10 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                           <div key={tx.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
                               <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.playerName}</span>
-                              <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(tx.total)}</span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(tx.total)}</span>
+                                <button onClick={() => deleteTx(tx.id)} title="Remove this record" style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '16px', lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
+                              </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                               {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.chukkas} chukka{tx.chukkas === 1 ? '' : 's'} &middot; {tx.method}
