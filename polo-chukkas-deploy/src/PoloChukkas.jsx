@@ -589,6 +589,8 @@ const [vip, setVip] = useState(false);
 const [noConsecutive, setNoConsecutive] = useState(false);
 const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony (affects price)
   const [error, setError] = useState('');
+  const [bookingMsg, setBookingMsg] = useState('');   // post-signup cost confirmation
+  const [dueMethod, setDueMethod] = useState({});      // per-due payment-method picker in Checkout
 
   // Throw-in time editor (captain mode)
   const [throwInEditing, setThrowInEditing] = useState(false);
@@ -1335,13 +1337,37 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
       playerId: player.id, playerName: player.name, chukkas: bd.chukkas, ponyLevel: bd.ponyLevel,
       ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
       subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
-      total: bd.total, method: o.method || 'manual', note: (o.note || '').trim(),
+      total: bd.total, status: 'paid', day: o.day || null, method: o.method || 'manual', note: (o.note || '').trim(), paidDate: Date.now(),
     };
     const nextTx = [tx, ...transactions];
     setTransactions(nextTx);
     try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
     if (o.addToRoster && o.day) await addPlayerToRoster(o.day, player, bd.chukkas);
     return tx;
+  };
+  const markDuePaid = async (txId, method) => {
+    const tx = transactions.find(t => t.id === txId);
+    if (!tx || tx.status === 'paid') return;
+    if (tx.subsidyDeductions && tx.subsidyDeductions.length) {
+      const nextSubs = subsidies.map(s => {
+        const d = tx.subsidyDeductions.find(x => x.id === s.id);
+        if (!d) return s;
+        const take = Math.max(0, Math.min(d.amount, Number(s.balance) || 0)); // never push a pot negative
+        return { ...s, balance: (Number(s.balance) || 0) - take, spent: (Number(s.spent) || 0) + take, updatedAt: Date.now() };
+      });
+      await saveSubsidies(nextSubs);
+    }
+    const next = transactions.map(t => (t.id === txId ? { ...t, status: 'paid', method: method || 'cash', paidDate: Date.now() } : t));
+    setTransactions(next);
+    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
+  };
+  const voidDue = async (txId) => {
+    const tx = transactions.find(t => t.id === txId);
+    if (!tx) return;
+    if (!window.confirm(`Remove the £${fmtMoney(tx.total)} charge for ${tx.playerName}? Use this if they didn't play or you've taken them off the roster.`)) return;
+    const next = transactions.filter(t => t.id !== txId);
+    setTransactions(next);
+    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
   };
   const doMarkPaid = async () => {
     setCoError('');
@@ -1417,6 +1443,30 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
       ponyHire: ponyHire,   };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
+    // Interim (pre-Stripe): quote the cost and, if anything is owed, log a 'due'
+    // item the captain settles under Checkout. They go on the roster either way;
+    // the captain can remove them later if unpaid.
+    {
+      const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
+      const subject = rec || { membership: 'none', military: false, subsidies: [] };
+      const bd = priceBooking(subject, c, ponyHire ? 'club' : 'none');
+      if (bd.total > 0) {
+        const dueTx = {
+          id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
+          playerId: rec ? rec.id : null, playerName: cleanedName, day: activeDay,
+          chukkas: c, ponyLevel: ponyHire ? 'club' : 'none',
+          ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
+          subsidyDeductions: bd.subsidyDeductions.filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+          total: bd.total, status: 'due', method: '', note: '',
+        };
+        const nextTx = [dueTx, ...transactions];
+        setTransactions(nextTx);
+        window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
+        setBookingMsg(`Added to the roster. £${fmtMoney(bd.total)} due${ponyHire ? ' (incl. pony hire)' : ''} — please settle with the Captain.`);
+      } else {
+        setBookingMsg('Added to the roster — no charge.');
+      }
+    }
     setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(true);
     saveSchedule(null);
   };
@@ -4008,6 +4058,12 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                     </div>
                   )}
 
+                  {bookingMsg && (
+                    <div style={{ fontSize: '13px', color: 'var(--burgundy)', padding: '10px 14px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', lineHeight: 1.5 }}>
+                      {bookingMsg}
+                    </div>
+                  )}
+
                   <button
                     className="btn-primary"
                     onClick={handleAdd}
@@ -5637,6 +5693,45 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                       <div style={{ fontSize: '12px', color: 'var(--burgundy)', padding: '8px 12px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', marginBottom: '12px', lineHeight: 1.5 }}>{coError}</div>
                     )}
 
+                    {(() => {
+                      const due = transactions.filter(t => t.status === 'due');
+                      if (due.length === 0) return null;
+                      const dayNames = { wed: 'Wednesday', thu: 'Thursday', sat: 'Saturday', sun: 'Sunday' };
+                      const methodOpts = [['cash', 'Cash'], ['transfer', 'Transfer'], ['card', 'Card'], ['other', 'Other']];
+                      return (
+                        <div style={{ marginBottom: '22px' }}>
+                          <div style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '4px' }}>To invoice ({due.length})</div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px', lineHeight: 1.5 }}>Players on a roster who owe for chukkas. Mark paid once settled (this draws down any subsidy pots), or remove them from the roster on the day tab if they don't pay then Void the charge here.</div>
+                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk)).map(dk => (
+                            <div key={dk} style={{ marginBottom: '12px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{dayNames[dk] || dk}</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {due.filter(t => t.day === dk).map(t => (
+                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
+                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                                      {t.chukkas} chukka{t.chukkas === 1 ? '' : 's'}{t.ponyLevel === 'none' ? ' · own pony' : ' · pony hire'}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                      <select value={dueMethod[t.id] || 'cash'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
+                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                                      </select>
+                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'cash')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
+                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '8px' }}>Take a payment manually</div>
                     <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
                       <select className="input-field select-field" value={checkout.playerId} onChange={e => {
                         setCoError('');
@@ -5708,11 +5803,11 @@ const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony
                     )}
 
                     <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', margin: '22px 0 8px' }}>Recent payments</div>
-                    {transactions.length === 0 ? (
+                    {transactions.filter(t => t.status !== 'due').length === 0 ? (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '16px 12px' }}>No payments recorded yet.</div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {transactions.slice(0, 25).map(tx => (
+                        {transactions.filter(t => t.status !== 'due').slice(0, 25).map(tx => (
                           <div key={tx.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
                               <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.playerName}</span>
