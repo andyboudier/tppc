@@ -635,7 +635,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [subsidies, setSubsidies] = useState([]);
   const [subsidyEditor, setSubsidyEditor] = useState(null); // null | draft
   const [subError, setSubError] = useState('');
-  const [playersView, setPlayersView] = useState('players'); // 'players' | 'subsidies'
+  const [playersView, setPlayersView] = useState('players'); // 'players' | 'subsidies' | 'checkout'
+  const [transactions, setTransactions] = useState([]);
+  const [checkout, setCheckout] = useState({ playerId: '', day: 'wed', chukkas: '4', ponyLevel: 'club', method: 'cash', note: '' });
+  const [coError, setCoError] = useState('');
 
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
@@ -1034,6 +1037,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         const s = await window.storage.get('subsidies', true);
         if (s?.value) { const arr = JSON.parse(s.value); if (Array.isArray(arr)) setSubsidies(arr); }
       } catch (e) {}
+      try {
+        const t = await window.storage.get('transactions', true);
+        if (t?.value) { const arr = JSON.parse(t.value); if (Array.isArray(arr)) setTransactions(arr); }
+      } catch (e) {}
       setLoaded(true);
     };
     loadAll();
@@ -1266,6 +1273,88 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   };
   const activeSubsidies = subsidies.filter(s => s.active !== false);
   const lowSubsidies = activeSubsidies.filter(s => (Number(s.balance) || 0) <= (Number(s.lowThreshold) || 0));
+
+  // --- Payments / checkout (manual mark-paid; Stripe slots in here later) ---
+  const chukkaFeeFor = (p) => {
+    const mem = membershipById((p && p.membership) || 'none');
+    if (mem.chukkasIncluded) return 0;
+    const mil = !!(p && p.military) || !!mem.mil;
+    if (mil) return mem.id === 'none' ? 20 : 11;   // military: non-member £20 vs member £11
+    return mem.id === 'civ-day' ? 16 : 26;          // civilian: day member £16 vs non-member £26
+  };
+  const priceBooking = (player, chukkas, ponyLevel) => {
+    const n = Math.max(0, parseInt(chukkas, 10) || 0);
+    const mem = membershipById((player && player.membership) || 'none');
+    if (mem.chukkasIncluded || n === 0) {
+      return { included: mem.chukkasIncluded, chukkas: n, ponyLevel: ponyLevel || 'club', ponyHire: 0, chukkaFee: 0, gross: 0, militaryDiscount: 0, subsidyDeductions: [], total: 0 };
+    }
+    const ponyHire = PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club;
+    const chukkaFee = chukkaFeeFor(player);
+    const gross = (ponyHire + chukkaFee) * n;
+    const militaryDiscount = (player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n;
+    let running = Math.max(0, gross - militaryDiscount);
+    const subsidyDeductions = [];
+    ((player && player.subsidies) || []).forEach(sid => {
+      const s = subsidies.find(x => x.id === sid && x.active !== false);
+      if (!s) return;
+      const desired = (Number(s.discountPerChukka) || 0) * n;
+      const amount = Math.max(0, Math.min(desired, Number(s.balance) || 0, running)); // capped at pot + remaining total
+      if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
+      running -= amount;
+    });
+    return { included: false, chukkas: n, ponyLevel: ponyLevel || 'club', ponyHire, chukkaFee, gross, militaryDiscount, subsidyDeductions, total: Math.max(0, running) };
+  };
+  const addPlayerToRoster = async (dayKey, player, chukkas) => {
+    const list = rosters[dayKey] || [];
+    const norm = (player.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if (list.some(p => (p.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === norm)) return false;
+    const entry = {
+      id: Date.now(), name: player.name, mobile: player.mobile || undefined,
+      handicap: player.handicap == null ? 0 : Number(player.handicap),
+      chukkas: Math.max(1, Math.min(8, parseInt(chukkas, 10) || 1)),
+      availableFrom: '', availableTo: '', vip: false, noConsecutive: false,
+    };
+    await saveRoster([...list, entry], dayKey);
+    return true;
+  };
+  const recordPayment = async (player, bd, opts) => {
+    const o = opts || {};
+    const paid = (bd.subsidyDeductions || []).filter(d => d.amount > 0);
+    if (paid.length) {
+      const nextSubs = subsidies.map(s => {
+        const d = paid.find(x => x.id === s.id);
+        return d ? { ...s, balance: (Number(s.balance) || 0) - d.amount, spent: (Number(s.spent) || 0) + d.amount, updatedAt: Date.now() } : s;
+      });
+      await saveSubsidies(nextSubs);
+    }
+    const tx = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
+      playerId: player.id, playerName: player.name, chukkas: bd.chukkas, ponyLevel: bd.ponyLevel,
+      ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
+      subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+      total: bd.total, method: o.method || 'manual', note: (o.note || '').trim(),
+    };
+    const nextTx = [tx, ...transactions];
+    setTransactions(nextTx);
+    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    if (o.addToRoster && o.day) await addPlayerToRoster(o.day, player, bd.chukkas);
+    return tx;
+  };
+  const doMarkPaid = async () => {
+    setCoError('');
+    const pl = playerDb.find(p => p.id === checkout.playerId);
+    if (!pl) { setCoError('Pick a player first.'); return; }
+    const dayUp = (checkout.day || 'wed').toUpperCase();
+    const bd = priceBooking(pl, checkout.chukkas, checkout.ponyLevel);
+    if (bd.included) {
+      const added = await addPlayerToRoster(checkout.day, pl, checkout.chukkas);
+      setCoError(added ? `${pl.name} added to ${dayUp} roster — chukkas included, no charge.` : `${pl.name} is already on the ${dayUp} roster.`);
+      return;
+    }
+    await recordPayment(pl, bd, { method: checkout.method, note: checkout.note, addToRoster: true, day: checkout.day });
+    setCoError(`Recorded £${fmtMoney(bd.total)} (${checkout.method}) for ${pl.name} and added to ${dayUp} roster.`);
+    setCheckout(prev => ({ ...prev, playerId: '', note: '' }));
+  };
 
   // Fill the booking form from a saved member
   const fillFromMember = (m) => {
@@ -5287,8 +5376,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
           {activeTab === 'players' && captainMode && (
             <div>
               <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-                <button onClick={() => setPlayersView('players')} style={{ flex: 1, padding: '9px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
-                <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, padding: '9px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length} low)` : ''}</button>
+                <button onClick={() => setPlayersView('players')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
+                <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length})` : ''}</button>
+                <button onClick={() => setPlayersView('checkout')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'checkout' ? 'none' : '1px solid var(--line)', background: playersView === 'checkout' ? 'var(--burgundy)' : 'transparent', color: playersView === 'checkout' ? 'var(--cream)' : 'var(--muted)' }}>Checkout</button>
               </div>
 
               {playersView === 'players' && (<>
@@ -5496,6 +5586,107 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                   )}
                 </div>
               )}
+
+              {playersView === 'checkout' && (() => {
+                const pl = playerDb.find(p => p.id === checkout.playerId) || null;
+                const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel) : null;
+                const n = bd ? bd.chukkas : 0;
+                const dayLabels = { wed: 'Wed', thu: 'Thu', sat: 'Sat', sun: 'Sun' };
+                const ponyOpts = [['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
+                const methods = [['cash', 'Cash'], ['transfer', 'Bank transfer'], ['card', 'Card (manual)'], ['other', 'Other']];
+                return (
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Checkout</div>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+                      Record a payment (cash, transfer or card) and add the player to a day's roster. Subsidy pots draw down automatically. Online card via Stripe wires in here later.
+                    </div>
+
+                    {coError && (
+                      <div style={{ fontSize: '12px', color: 'var(--burgundy)', padding: '8px 12px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', marginBottom: '12px', lineHeight: 1.5 }}>{coError}</div>
+                    )}
+
+                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
+                      <select className="input-field select-field" value={checkout.playerId} onChange={e => { setCoError(''); setCheckout({ ...checkout, playerId: e.target.value }); }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                        <option value="">Select a registered player…</option>
+                        {playerDb.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}{membershipById(p.membership || 'none').chukkasIncluded ? ' · member' : ''}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {pl && (
+                      <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ fontSize: '12px', color: bd.included ? 'var(--burgundy)' : 'var(--muted)' }}>
+                          {membershipById(pl.membership || 'none').label}{pl.military ? ' · military' : ''}
+                          {bd.included ? ' — chukkas included' : ' — pays per chukka'}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <select className="input-field select-field" value={checkout.day} onChange={e => setCheckout({ ...checkout, day: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
+                            {DAY_KEYS.map(d => <option key={d} value={d}>{dayLabels[d] || d}</option>)}
+                          </select>
+                          <select className="input-field select-field" value={checkout.chukkas} onChange={e => setCheckout({ ...checkout, chukkas: e.target.value })} style={{ width: '110px', flexShrink: 0, padding: '11px 8px', fontSize: '14px' }}>
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map(c => <option key={c} value={String(c)}>{c} chukka{c === 1 ? '' : 's'}</option>)}
+                          </select>
+                        </div>
+
+                        {!bd.included && (
+                          <select className="input-field select-field" value={checkout.ponyLevel} onChange={e => setCheckout({ ...checkout, ponyLevel: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
+                            {ponyOpts.map(([k, l]) => <option key={k} value={k}>Pony hire: {l} (£{PONY_HIRE_2026[k]})</option>)}
+                          </select>
+                        )}
+
+                        {bd.included ? (
+                          <div style={{ fontSize: '13px', color: 'var(--burgundy)', padding: '12px', background: 'var(--cream-pale)', borderRadius: '6px', border: '1px solid var(--line)' }}>
+                            Chukkas are included in this membership — no charge. They'll be added straight to the roster.
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>
+                              {bd.chukkaFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Chukka fee × {n}</span><span>£{fmtMoney(bd.chukkaFee * n)}</span></div>}
+                              {bd.militaryDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)' }}><span>Military discount × {n}</span><span>−£{fmtMoney(bd.militaryDiscount)}</span></div>}
+                              {bd.subsidyDeductions.map(d => (
+                                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: d.capped ? 'var(--danger)' : 'var(--muted)' }}>
+                                  <span>{d.name}{d.capped ? ' (pot capped)' : ''}</span><span>−£{fmtMoney(d.amount)}</span>
+                                </div>
+                              ))}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', marginTop: '6px', borderTop: '1px solid var(--line)', fontWeight: 700, fontSize: '15px', color: 'var(--burgundy)' }}><span>Total</span><span>£{fmtMoney(bd.total)}</span></div>
+                            </div>
+                            <select className="input-field select-field" value={checkout.method} onChange={e => setCheckout({ ...checkout, method: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
+                              {methods.map(([k, l]) => <option key={k} value={k}>Paid by: {l}</option>)}
+                            </select>
+                            <input className="input-field" type="text" placeholder="Note (optional)" value={checkout.note} onChange={e => setCheckout({ ...checkout, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                          </>
+                        )}
+
+                        <button onClick={doMarkPaid} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+                          {bd.included ? `Add to ${dayLabels[checkout.day] || checkout.day} roster` : `Mark paid £${fmtMoney(bd.total)} & add to roster`}
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', margin: '22px 0 8px' }}>Recent payments</div>
+                    {transactions.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '16px 12px' }}>No payments recorded yet.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {transactions.slice(0, 25).map(tx => (
+                          <div key={tx.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                              <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.playerName}</span>
+                              <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(tx.total)}</span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.chukkas} chukka{tx.chukkas === 1 ? '' : 's'} &middot; {tx.method}
+                              {tx.subsidyDeductions && tx.subsidyDeductions.length ? ` · ${tx.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
