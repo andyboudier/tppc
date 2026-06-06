@@ -63,6 +63,26 @@ const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5,
 const MILITARY_DISCOUNT_PER_CHUKKA = 5;
 const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 145, '2 to 4': 180 };
 
+// 2026 membership categories from the price list. `chukkasIncluded` drives the
+// booking branch: included → added straight to the roster; not included (or no
+// membership) → sent to checkout to pay per chukka.
+const MEMBERSHIP_TYPES_2026 = [
+  { id: 'none',             label: 'No membership · pays per chukka',    chukkasIncluded: false },
+  { id: 'civ-full',         label: 'Civ · Full Playing (incl chukkas)',  chukkasIncluded: true },
+  { id: 'civ-full-u23',     label: 'Civ · Full Playing U23',             chukkasIncluded: true },
+  { id: 'civ-full-u16',     label: 'Civ · Full Playing U16',             chukkasIncluded: true },
+  { id: 'civ-individual',   label: 'Civ · Individual (chukkas only)',    chukkasIncluded: true },
+  { id: 'civ-full-excl',    label: 'Civ · Full (excl chukka fees)',      chukkasIncluded: false },
+  { id: 'civ-pro',          label: 'Civ · Pro (incl chukkas)',           chukkasIncluded: true },
+  { id: 'civ-nonplaying',   label: 'Civ · Non-Playing',                  chukkasIncluded: false },
+  { id: 'civ-day',          label: 'Civ · Day Member',                   chukkasIncluded: false },
+  { id: 'mil-full-pony',    label: 'Mil · Full Playing, Pony Owner',     chukkasIncluded: true,  mil: true },
+  { id: 'mil-full-nonpony', label: 'Mil · Full Playing, Non-Pony Owner', chukkasIncluded: true,  mil: true },
+  { id: 'mil-day',          label: 'Mil · Day Member',                   chukkasIncluded: false, mil: true },
+  { id: 'mil-unit',         label: 'Mil · Unit Membership',              chukkasIncluded: true,  mil: true },
+];
+const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || MEMBERSHIP_TYPES_2026[0];
+
 // A player accumulates live-match goals while a game is scored. Whenever a team
 // or squad is reused — pulled into another fixture/match, copied to another
 // day, or remembered in the teams directory — strip those goals so last match's
@@ -1088,7 +1108,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const PLAYER_TYPES = ['Member', 'Associate', 'Guest'];
   const blankPlayer = () => ({
     id: '', name: '', handicap: '', email: '', mobile: '',
-    type: 'Member', military: false, unit: '', active: true,
+    type: 'Member', membership: 'none', military: false, unit: '', active: true,
     subsidies: [], notes: '',
   });
   const newPlayerId = (salt = '') => `p-${Date.now()}-${salt}${Math.random().toString(36).slice(2, 7)}`;
@@ -1114,6 +1134,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       email,
       mobile: (draft.mobile || '').trim(),
       type: draft.type || 'Member',
+      membership: draft.membership || 'none',
       military: !!draft.military,
       unit: draft.military ? (draft.unit || '').trim() : '',
       active: draft.active !== false,
@@ -1136,22 +1157,44 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     await savePlayerDb(playerDb.filter(x => x.id !== id));
     setPlayerEditor(null);
   };
-  const importFromMembers = async () => {
+  const importEveryone = async () => {
     setPdbError('');
+    const found = new Map(); // lower -> { name, handicap, mobile }
+    const add = (nm, handicap, mobile) => {
+      const name = (nm || '').trim();
+      if (!name || name.toUpperCase() === 'TBC') return;
+      const key = name.toLowerCase();
+      const cur = found.get(key) || { name, handicap: null, mobile: '' };
+      if ((cur.handicap == null) && handicap != null && handicap !== '') cur.handicap = handicap;
+      if (!cur.mobile && mobile) cur.mobile = mobile;
+      found.set(key, cur);
+    };
+    // Chukkas: members directory + every day's roster
+    Object.values(members).forEach(m => add(m && m.name, m && m.handicap, m && m.mobile));
+    Object.values(rosters || {}).forEach(arr => Array.isArray(arr) && arr.forEach(p => add(p.name, p.handicap, p.mobile)));
+    // Tournaments: per-day sign-up squads, published match line-ups, teams DB
+    Object.values(teamSignups || {}).forEach(list => Array.isArray(list) && list.forEach(s => {
+      Object.values((s && s.days) || {}).forEach(sq => Array.isArray(sq) && sq.forEach(p => add(p.name, p.handicap)));
+    }));
+    Object.values(fixtureDetails || {}).forEach(det => ((det && det.days) || []).forEach(d => ((d && d.matches) || []).forEach(m => {
+      ['teamA', 'teamB'].forEach(tk => ((m[tk] && m[tk].players) || []).forEach(p => add(p.name, p.handicap)));
+    })));
+    Object.values(teamsDb || {}).forEach(t => ((t && t.players) || []).forEach(p => add(p.name, p.handicap)));
+
     const existing = new Set(playerDb.map(p => (p.name || '').trim().toLowerCase()));
-    const additions = Object.values(members)
-      .filter(m => m && m.name && !existing.has(m.name.trim().toLowerCase()))
-      .map((m, i) => ({
+    const additions = [...found.values()]
+      .filter(f => !existing.has(f.name.toLowerCase()))
+      .map((f, i) => ({
         id: newPlayerId(`${i}-`),
-        name: m.name.trim(),
-        handicap: (m.handicap == null || m.handicap === '') ? null : Number(m.handicap),
-        email: '', mobile: m.mobile || '', type: 'Member',
+        name: f.name,
+        handicap: (f.handicap == null || f.handicap === '') ? null : Number(f.handicap),
+        email: '', mobile: f.mobile || '', type: 'Member', membership: 'none',
         military: false, unit: '', active: true, subsidies: [], notes: '',
         updatedAt: Date.now(),
       }));
-    if (!additions.length) { setPdbError('No new names found in the members directory.'); return; }
+    if (!additions.length) { setPdbError('Everyone from chukkas and tournaments is already registered.'); return; }
     await savePlayerDb([...playerDb, ...additions].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    setPdbError(`Imported ${additions.length} player${additions.length === 1 ? '' : 's'} from the members directory.`);
+    setPdbError(`Registered ${additions.length} player${additions.length === 1 ? '' : 's'} from chukkas and tournaments. Now set their memberships below.`);
   };
   const visiblePlayers = playerDb
     .filter(p => !playerSearch.trim() || (p.name || '').toLowerCase().includes(playerSearch.trim().toLowerCase()))
@@ -5262,7 +5305,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
                   <input className="input-field" type="text" placeholder="Search players…" value={playerSearch} onChange={e => setPlayerSearch(e.target.value)} style={{ flex: 1, minWidth: '140px', padding: '10px 12px', fontSize: '14px' }} />
                   <button onClick={openNewPlayer} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>+ Add</button>
-                  <button onClick={importFromMembers} style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--line)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Import from members</button>
+                  <button onClick={importEveryone} style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--line)', padding: '10px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Import all</button>
                 </div>
               )}
 
@@ -5276,9 +5319,14 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                         <option value="">Handicap…</option>
                         {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{h > 0 ? `+${h}` : h}</option>)}
                       </select>
-                      <select className="input-field select-field" value={playerEditor.type} onChange={e => setPlayerEditor({ ...playerEditor, type: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
-                        {PLAYER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      <select className="input-field select-field" value={playerEditor.membership || 'none'} onChange={e => setPlayerEditor({ ...playerEditor, membership: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
+                        {MEMBERSHIP_TYPES_2026.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                       </select>
+                    </div>
+                    <div style={{ fontSize: '11px', color: membershipById(playerEditor.membership || 'none').chukkasIncluded ? 'var(--burgundy)' : 'var(--muted)', marginTop: '-4px', lineHeight: 1.45 }}>
+                      {membershipById(playerEditor.membership || 'none').chukkasIncluded
+                        ? '✓ Chukka fees included — booking adds them straight to the roster.'
+                        : 'Pays per chukka — booking sends them to checkout to pay first.'}
                     </div>
                     <input className="input-field" type="email" placeholder="Email" value={playerEditor.email} onChange={e => setPlayerEditor({ ...playerEditor, email: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
                     <input className="input-field" type="tel" placeholder="Mobile" value={playerEditor.mobile} onChange={e => setPlayerEditor({ ...playerEditor, mobile: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
@@ -5348,6 +5396,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.name}</span>
                           {p.handicap != null && <span style={{ fontSize: '13px', color: 'var(--muted)' }}>({p.handicap > 0 ? `+${p.handicap}` : p.handicap})</span>}
                           <span style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                            {!membershipById(p.membership || 'none').chukkasIncluded && <span title="Pays per chukka — no chukka-inclusive membership" style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px' }}>£/chukka</span>}
                             {p.military && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--gold)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Mil</span>}
                             {p.active === false && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Inactive</span>}
                           </span>
