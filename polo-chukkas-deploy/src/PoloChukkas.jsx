@@ -79,6 +79,32 @@ const LESSON_TYPES_2026 = [
 ];
 const lessonById = (id) => LESSON_TYPES_2026.find(l => l.id === id) || LESSON_TYPES_2026[0];
 
+// 2026 tournament team entry fees (per team). Members/Non-Members use handicap
+// bands over a 2-day (or 3-day) tournament; Military is priced by duration.
+const TOURNAMENT_ENTRY_2026 = {
+  member: [
+    { id: 'm-6-2',    label: '−6 to −2 Goal (2-day)', fee: 525 },
+    { id: 'm-4-0',    label: '−4 to 0 Goal (2-day)',  fee: 550 },
+    { id: 'm-0-2',    label: '0 to 2 Goal (2-day)',   fee: 575 },
+    { id: 'm-2-4',    label: '2 to 4 Goal (2-day)',   fee: 605 },
+    { id: 'm-2-4-3d', label: '2 to 4 Goal (3-day)',   fee: 685 },
+  ],
+  nonmember: [
+    { id: 'n-6-2',    label: '−6 to −2 Goal (2-day)', fee: 675 },
+    { id: 'n-4-0',    label: '−4 to 0 Goal (2-day)',  fee: 715 },
+    { id: 'n-0-2',    label: '0 to 2 Goal (2-day)',   fee: 755 },
+    { id: 'n-2-4',    label: '2 to 4 Goal (2-day)',   fee: 800 },
+    { id: 'n-2-4-3d', label: '2 to 4 Goal (3-day)',   fee: 900 },
+  ],
+  military: [
+    { id: 'mil-1d',   label: '1 Day',  fee: 295 },
+    { id: 'mil-2d',   label: '2 Days', fee: 565 },
+  ],
+};
+const ENTRY_CATEGORY_LABEL = { member: 'Members', nonmember: 'Non-Members', military: 'Military' };
+const entryOptions = (cat) => TOURNAMENT_ENTRY_2026[cat] || [];
+const entryOptionById = (cat, id) => entryOptions(cat).find(o => o.id === id) || null;
+
 // 2026 membership categories from the price list. `chukkasIncluded` drives the
 // booking branch: included → added straight to the roster; not included (or no
 // membership) → sent to checkout to pay per chukka.
@@ -660,6 +686,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [coError, setCoError] = useState('');
   const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '' });
   const [lessonError, setLessonError] = useState('');
+  const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-6-2', method: 'transfer', note: '' });
+  const [teamRegError, setTeamRegError] = useState('');
 
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
@@ -1457,6 +1485,51 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
     setLessonError(`Booked ${bd.lessonLabel} for ${pl.name} — £${fmtMoney(bd.total)} added to invoices.`);
     setLesson(prev => ({ ...prev, playerId: '', note: '' }));
+  };
+
+  // --- Tournament team registration + entry-fee payment (Teams tab). ---
+  const priceEntry = (category, optionId) => {
+    const o = entryOptionById(category, optionId) || entryOptions(category)[0];
+    return { category, optionId: o ? o.id : '', label: o ? o.label : '', fee: o ? o.fee : 0 };
+  };
+  const validateEntry = () => {
+    if (!teamReg.fixtureId) { setTeamRegError('Pick a fixture.'); return false; }
+    if (!(teamReg.team || '').trim()) { setTeamRegError('Enter a team name.'); return false; }
+    if (!entryOptionById(teamReg.category, teamReg.optionId)) { setTeamRegError('Pick an entry band.'); return false; }
+    return true;
+  };
+  const buildEntryTx = (status, method) => {
+    const fx = fixtures.find(f => f.id === teamReg.fixtureId);
+    const bd = priceEntry(teamReg.category, teamReg.optionId);
+    return {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'entry',
+      fixtureId: teamReg.fixtureId, fixtureName: fx ? fx.name : '', fixtureDate: fx ? fx.date : '',
+      team: (teamReg.team || '').trim(), contact: (teamReg.contact || '').trim(), mobile: (teamReg.mobile || '').trim(),
+      category: bd.category, optionId: bd.optionId, entryLabel: bd.label, total: bd.fee,
+      subsidyDeductions: [], status, method: status === 'paid' ? (method || 'transfer') : '',
+      note: (teamReg.note || '').trim(), paidDate: status === 'paid' ? Date.now() : null,
+    };
+  };
+  const persistTx = async (tx) => {
+    const nextTx = [tx, ...transactions];
+    setTransactions(nextTx);
+    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+  };
+  const doEntryPaid = async () => {
+    setTeamRegError('');
+    if (!validateEntry()) return;
+    const tx = buildEntryTx('paid', teamReg.method);
+    await persistTx(tx);
+    setTeamRegError(`Recorded £${fmtMoney(tx.total)} (${tx.method}) — ${tx.team} entered in ${tx.fixtureName || 'fixture'}.`);
+    setTeamReg(prev => ({ ...prev, team: '', contact: '', mobile: '', note: '' }));
+  };
+  const doEntryDue = async () => {
+    setTeamRegError('');
+    if (!validateEntry()) return;
+    const tx = buildEntryTx('due', '');
+    await persistTx(tx);
+    setTeamRegError(`Registered ${tx.team} for ${tx.fixtureName || 'fixture'} — £${fmtMoney(tx.total)} added to invoices.`);
+    setTeamReg(prev => ({ ...prev, team: '', contact: '', mobile: '', note: '' }));
   };
   const doMarkPaid = async () => {
     setCoError('');
@@ -3791,6 +3864,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               Players
             </button>
           )}
+          {captainMode && (
+            <button className={`tab-btn ${activeTab === 'teams' ? 'active' : ''}`} onClick={() => setActiveTab('teams')}>
+              Teams
+            </button>
+          )}
         </nav>
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
@@ -5795,11 +5873,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         <div style={{ marginBottom: '22px' }}>
                           <div style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '4px' }}>To invoice ({due.length})</div>
                           <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px', lineHeight: 1.5 }}>Outstanding charges — chukkas owed by players on a roster, plus lessons booked to settle later. Mark paid once settled (this draws down any subsidy pots), or Void the charge if it's no longer owed.</div>
-                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk && t.kind !== 'lesson')).map(dk => (
+                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk && t.kind !== 'lesson' && t.kind !== 'entry')).map(dk => (
                             <div key={dk} style={{ marginBottom: '12px' }}>
                               <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{dayNames[dk] || dk}</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {due.filter(t => t.day === dk && t.kind !== 'lesson').map(t => (
+                                {due.filter(t => t.day === dk && t.kind !== 'lesson' && t.kind !== 'entry').map(t => (
                                   <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
                                       <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
@@ -5838,6 +5916,31 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                         {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                                       </select>
                                       <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'cash')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
+                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {due.some(t => t.kind === 'entry') && (
+                            <div style={{ marginBottom: '12px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>Tournament entries</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {due.filter(t => t.kind === 'entry').map(t => (
+                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.team || 'Team'}</span>
+                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                                      {t.fixtureName || 'Fixture'} · {ENTRY_CATEGORY_LABEL[t.category] || t.category} · {t.entryLabel}{t.contact ? ` · ${t.contact}` : ''}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                      <select value={dueMethod[t.id] || 'transfer'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
+                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                                      </select>
+                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'transfer')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
                                       <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
                                     </div>
                                   </div>
@@ -5928,14 +6031,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         {transactions.filter(t => t.status !== 'due').slice(0, 25).map(tx => (
                           <div key={tx.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                              <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.playerName}</span>
+                              <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.kind === 'entry' ? (tx.team || 'Team') : tx.playerName}</span>
                               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(tx.total)}</span>
                                 <button onClick={() => deleteTx(tx.id)} title="Remove this record" style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '16px', lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
+                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : tx.kind === 'entry' ? `${tx.fixtureName ? tx.fixtureName + ' · ' : ''}entry` : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
                               {tx.subsidyDeductions && tx.subsidyDeductions.length ? ` · ${tx.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
                             </div>
                           </div>
@@ -6015,6 +6118,132 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               })()}
             </div>
           )}
+
+          {activeTab === 'teams' && captainMode && (() => {
+            const opts = entryOptions(teamReg.category);
+            const sel = entryOptionById(teamReg.category, teamReg.optionId) || opts[0];
+            const fee = sel ? sel.fee : 0;
+            const ready = !!(teamReg.fixtureId && (teamReg.team || '').trim() && sel);
+            const ok = teamRegError && (teamRegError.indexOf('Recorded') === 0 || teamRegError.indexOf('Registered') === 0);
+            const knownTeams = Array.from(new Set([
+              ...Object.values(teamsDb || {}).map(t => t && t.name).filter(Boolean),
+              ...Object.values(teamSignups || {}).flatMap(list => Array.isArray(list) ? list.map(s => s && s.team) : []).filter(Boolean),
+            ])).sort((a, b) => a.localeCompare(b));
+            const entries = transactions.filter(t => t.kind === 'entry');
+            const fixtureIds = Array.from(new Set(entries.map(e => e.fixtureId)));
+            return (
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+                  Register a team into a tournament and take the entry fee. Fees come from the 2026 price list by category and handicap band. Pay now, or invoice later and settle from Checkout.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Fixture
+                    <select className="input-field select-field" value={teamReg.fixtureId} onChange={e => { setTeamRegError(''); setTeamReg({ ...teamReg, fixtureId: e.target.value }); }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                      <option value="">— Select fixture —</option>
+                      {fixtures.map(f => <option key={f.id} value={f.id}>{f.date} — {f.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Team
+                    <input className="input-field" list="teamreg-teams" placeholder="Team name" value={teamReg.team} onChange={e => { setTeamRegError(''); setTeamReg({ ...teamReg, team: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                    <datalist id="teamreg-teams">{knownTeams.map(n => <option key={n} value={n} />)}</datalist>
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <label style={{ flex: 1, fontSize: '12px', color: 'var(--muted)' }}>Contact (optional)
+                      <input className="input-field" placeholder="Captain / contact" value={teamReg.contact} onChange={e => setTeamReg({ ...teamReg, contact: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                    </label>
+                    <label style={{ flex: 1, fontSize: '12px', color: 'var(--muted)' }}>Mobile (optional)
+                      <input className="input-field" inputMode="tel" placeholder="07…" value={teamReg.mobile} onChange={e => setTeamReg({ ...teamReg, mobile: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <label style={{ flex: 1, fontSize: '12px', color: 'var(--muted)' }}>Category
+                      <select className="input-field select-field" value={teamReg.category} onChange={e => { const c = e.target.value; const first = (entryOptions(c)[0] || {}).id || ''; setTeamRegError(''); setTeamReg({ ...teamReg, category: c, optionId: first }); }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                        <option value="member">Members</option>
+                        <option value="nonmember">Non-Members</option>
+                        <option value="military">Military</option>
+                      </select>
+                    </label>
+                    <label style={{ flex: 1.4, fontSize: '12px', color: 'var(--muted)' }}>Entry band
+                      <select className="input-field select-field" value={teamReg.optionId} onChange={e => { setTeamRegError(''); setTeamReg({ ...teamReg, optionId: e.target.value }); }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                        {opts.map(o => <option key={o.id} value={o.id}>{o.label} — £{o.fee}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  {sel && (
+                    <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{ENTRY_CATEGORY_LABEL[teamReg.category]} · {sel.label}</span>
+                        <span style={{ fontWeight: 700 }}>£{fmtMoney(fee)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Method
+                    <select className="input-field select-field" value={teamReg.method} onChange={e => setTeamReg({ ...teamReg, method: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                      <option value="cash">Cash</option>
+                      <option value="transfer">Bank transfer</option>
+                      <option value="card">Card</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <input className="input-field" placeholder="Note (optional)" value={teamReg.note} onChange={e => setTeamReg({ ...teamReg, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '13px' }} />
+                  {teamRegError && (
+                    <div style={{ fontSize: '12px', color: ok ? 'var(--burgundy)' : 'var(--danger)', background: ok ? '#f2f6f2' : '#fbf2f2', border: `1px solid ${ok ? 'var(--line)' : 'var(--danger)'}`, borderRadius: '6px', padding: '9px 12px' }}>{teamRegError}</div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={doEntryPaid} disabled={!ready} style={{ flex: 1, background: ready ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: ready ? 'pointer' : 'not-allowed' }}>
+                      {ready ? `Mark paid £${fmtMoney(fee)}` : 'Mark paid'}
+                    </button>
+                    <button onClick={doEntryDue} disabled={!ready} style={{ flex: 1, background: 'transparent', color: ready ? 'var(--burgundy)' : 'var(--muted)', border: `1px solid ${ready ? 'var(--burgundy)' : 'var(--line)'}`, padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: ready ? 'pointer' : 'not-allowed' }}>
+                      Register — invoice later
+                    </button>
+                  </div>
+                </div>
+                {entries.length > 0 && (
+                  <div style={{ marginTop: '24px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--burgundy)', marginBottom: '10px' }}>Registered teams ({entries.length})</div>
+                    {fixtureIds.map(fid => {
+                      const list = entries.filter(e => e.fixtureId === fid);
+                      const fxLabel = (list[0] && list[0].fixtureName) || (fixtures.find(f => f.id === fid) || {}).name || 'Fixture';
+                      return (
+                        <div key={fid || 'none'} style={{ marginBottom: '14px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{fxLabel}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {list.map(t => (
+                              <div key={t.id} style={{ border: `1px solid ${t.status === 'due' ? 'var(--danger)' : 'var(--line)'}`, borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.team}</span>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontWeight: 700, fontSize: '14px', color: t.status === 'due' ? 'var(--danger)' : 'var(--burgundy)' }}>£{fmtMoney(t.total)}</span>
+                                    <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: t.status === 'due' ? 'var(--danger)' : 'var(--burgundy)' }}>{t.status === 'due' ? 'Due' : 'Paid'}</span>
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                                  {ENTRY_CATEGORY_LABEL[t.category] || t.category} · {t.entryLabel}{t.contact ? ` · ${t.contact}` : ''}{t.mobile ? ` · ${t.mobile}` : ''}{t.status !== 'due' && t.method ? ` · ${t.method}` : ''}
+                                </div>
+                                {t.status === 'due' ? (
+                                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                    <select value={dueMethod[t.id] || 'transfer'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
+                                      <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card</option><option value="other">Other</option>
+                                    </select>
+                                    <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'transfer')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
+                                    <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: '8px', textAlign: 'right' }}>
+                                    <button onClick={() => deleteTx(t.id)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '6px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Remove record</button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         </main>
 
