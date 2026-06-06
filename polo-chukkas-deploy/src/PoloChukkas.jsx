@@ -56,6 +56,13 @@ const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 // Team (aggregate) handicaps run higher than individual player handicaps — up to 12-goal.
 const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
+// 2026 pricing inputs for the payment screen. Pony hire is the per-chukka base;
+// every military pony-hire rate sits exactly £5 below the civilian rate, so the
+// military discount is modelled as a flat £5/chukka. Match-level rates and
+// per-membership chukka fees get wired in when the checkout screen lands.
+const MILITARY_DISCOUNT_PER_CHUKKA = 5;
+const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 145, '2 to 4': 180 };
+
 // A player accumulates live-match goals while a game is scored. Whenever a team
 // or squad is reused — pulled into another fixture/match, copied to another
 // day, or remembered in the teams directory — strip those goals so last match's
@@ -602,6 +609,13 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const [playerEditor, setPlayerEditor] = useState(null); // null | draft record being added/edited
   const [playerSearch, setPlayerSearch] = useState('');
   const [pdbError, setPdbError] = useState('');
+  // Subsidies — captain-managed pots that fund per-chukka discounts for military
+  // players. Synced under 'subsidies'. playersView toggles the Players tab between
+  // the player list and subsidy management.
+  const [subsidies, setSubsidies] = useState([]);
+  const [subsidyEditor, setSubsidyEditor] = useState(null); // null | draft
+  const [subError, setSubError] = useState('');
+  const [playersView, setPlayersView] = useState('players'); // 'players' | 'subsidies'
 
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
@@ -996,6 +1010,10 @@ const [noConsecutive, setNoConsecutive] = useState(false);
         const p = await window.storage.get('players', true);
         if (p?.value) { const arr = JSON.parse(p.value); if (Array.isArray(arr)) setPlayerDb(arr); }
       } catch (e) {}
+      try {
+        const s = await window.storage.get('subsidies', true);
+        if (s?.value) { const arr = JSON.parse(s.value); if (Array.isArray(arr)) setSubsidies(arr); }
+      } catch (e) {}
       setLoaded(true);
     };
     loadAll();
@@ -1139,6 +1157,72 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     .filter(p => !playerSearch.trim() || (p.name || '').toLowerCase().includes(playerSearch.trim().toLowerCase()))
     .slice()
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  // --- Subsidies (captain-managed pots that power the payment screen) ---
+  const fmtMoney = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const newSubsidyId = () => `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const blankSubsidy = () => ({ id: '', name: '', balance: '', discountPerChukka: '', lowThreshold: '', active: true });
+  const saveSubsidies = async (next) => {
+    setSubsidies(next);
+    try { await window.storage.set('subsidies', JSON.stringify(next), true); } catch (e) {}
+  };
+  const openNewSubsidy = () => { setSubError(''); setSubsidyEditor(blankSubsidy()); };
+  const openEditSubsidy = (s) => {
+    setSubError('');
+    setSubsidyEditor({ id: s.id, name: s.name, balance: String(s.balance ?? ''), discountPerChukka: String(s.discountPerChukka ?? ''), lowThreshold: String(s.lowThreshold ?? ''), active: s.active !== false });
+  };
+  const saveSubsidy = async () => {
+    const d = subsidyEditor || {};
+    const name = (d.name || '').trim();
+    if (!name) { setSubError('Please name the subsidy.'); return; }
+    const disc = Number(d.discountPerChukka);
+    if (!(disc > 0)) { setSubError('Per-chukka discount must be greater than £0.'); return; }
+    const low = d.lowThreshold === '' ? 0 : Number(d.lowThreshold);
+    if (isNaN(low) || low < 0) { setSubError('Low-balance threshold must be £0 or more.'); return; }
+    const existing = subsidies.find(x => x.id === d.id);
+    let record;
+    if (existing) {
+      // Editing never overwrites a live pot — the balance only moves via top-ups/spending.
+      record = { ...existing, name, discountPerChukka: disc, lowThreshold: low, active: d.active !== false, updatedAt: Date.now() };
+    } else {
+      const opening = d.balance === '' ? 0 : Number(d.balance);
+      if (isNaN(opening) || opening < 0) { setSubError('Opening balance must be £0 or more.'); return; }
+      record = {
+        id: newSubsidyId(), name, balance: opening, discountPerChukka: disc, lowThreshold: low,
+        active: d.active !== false,
+        topups: opening > 0 ? [{ id: newSubsidyId(), date: Date.now(), amount: opening, note: 'Opening balance' }] : [],
+        spent: 0, updatedAt: Date.now(),
+      };
+    }
+    const next = (existing ? subsidies.map(x => (x.id === record.id ? record : x)) : [...subsidies, record])
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    await saveSubsidies(next);
+    setSubsidyEditor(null);
+    setSubError('');
+  };
+  const topUpSubsidy = async (id) => {
+    const s = subsidies.find(x => x.id === id); if (!s) return;
+    const raw = window.prompt(`Top up "${s.name}". Current balance £${fmtMoney(s.balance)}.\nAmount to add (£):`, '');
+    if (raw == null) return;
+    const amt = Number(raw);
+    if (!(amt > 0)) { setSubError('Top-up amount must be greater than £0.'); return; }
+    const newBal = (Number(s.balance) || 0) + amt;
+    const next = subsidies.map(x => (x.id === id
+      ? { ...x, balance: newBal, topups: [...(x.topups || []), { id: newSubsidyId(), date: Date.now(), amount: amt }], updatedAt: Date.now() }
+      : x));
+    await saveSubsidies(next);
+    setSubError(`Topped up "${s.name}" by £${fmtMoney(amt)} — new balance £${fmtMoney(newBal)}.`);
+  };
+  const deleteSubsidy = async (id) => {
+    const s = subsidies.find(x => x.id === id);
+    if (!window.confirm(`Delete subsidy "${s ? s.name : ''}"? The remaining pot balance is discarded and it is removed from all players.`)) return;
+    await saveSubsidies(subsidies.filter(x => x.id !== id));
+    const cleaned = playerDb.map(p => (Array.isArray(p.subsidies) && p.subsidies.includes(id)) ? { ...p, subsidies: p.subsidies.filter(sid => sid !== id) } : p);
+    if (JSON.stringify(cleaned) !== JSON.stringify(playerDb)) await savePlayerDb(cleaned);
+    setSubsidyEditor(null);
+  };
+  const activeSubsidies = subsidies.filter(s => s.active !== false);
+  const lowSubsidies = activeSubsidies.filter(s => (Number(s.balance) || 0) <= (Number(s.lowThreshold) || 0));
 
   // Fill the booking form from a saved member
   const fillFromMember = (m) => {
@@ -5159,6 +5243,12 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
           {activeTab === 'players' && captainMode && (
             <div>
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
+                <button onClick={() => setPlayersView('players')} style={{ flex: 1, padding: '9px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
+                <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, padding: '9px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length} low)` : ''}</button>
+              </div>
+
+              {playersView === 'players' && (<>
               <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Player Database</div>
               <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px' }}>
                 {playerDb.length} player{playerDb.length === 1 ? '' : 's'} &middot; captain only &middot; synced across devices
@@ -5198,6 +5288,36 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     </label>
                     {playerEditor.military && (
                       <input className="input-field" type="text" placeholder="Regiment / unit (optional)" value={playerEditor.unit} onChange={e => setPlayerEditor({ ...playerEditor, unit: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    )}
+                    {playerEditor.military && (
+                      <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '8px' }}>Subsidies</div>
+                        {activeSubsidies.length === 0 ? (
+                          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>No subsidies defined yet — add them under the Subsidies tab.</div>
+                        ) : (
+                          activeSubsidies.map(s => (
+                            <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer', padding: '3px 0' }}>
+                              <input type="checkbox" checked={(playerEditor.subsidies || []).includes(s.id)} onChange={e => {
+                                const cur = new Set(playerEditor.subsidies || []);
+                                if (e.target.checked) cur.add(s.id); else cur.delete(s.id);
+                                setPlayerEditor({ ...playerEditor, subsidies: [...cur] });
+                              }} />
+                              {s.name} <span style={{ color: 'var(--muted)' }}>(−£{fmtMoney(s.discountPerChukka)}/chukka)</span>
+                            </label>
+                          ))
+                        )}
+                        {(() => {
+                          const base = PONY_HIRE_2026.club;
+                          const subs = (playerEditor.subsidies || []).reduce((sum, sid) => { const s = subsidies.find(x => x.id === sid && x.active !== false); return sum + (s ? (Number(s.discountPerChukka) || 0) : 0); }, 0);
+                          const net = Math.max(0, base - MILITARY_DISCOUNT_PER_CHUKKA - subs);
+                          return (
+                            <div style={{ fontSize: '12px', color: 'var(--burgundy)', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--line)' }}>
+                              Est. club chukka: <strong>£{fmtMoney(net)}</strong>
+                              <span style={{ color: 'var(--muted)' }}> (£{base} base − £{MILITARY_DISCOUNT_PER_CHUKKA} mil{subs > 0 ? ` − £${fmtMoney(subs)} subsidies` : ''})</span>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     )}
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={playerEditor.active !== false} onChange={e => setPlayerEditor({ ...playerEditor, active: e.target.checked })} />
@@ -5241,6 +5361,91 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     ))}
                   </div>
                 )
+              )}
+              </>)}
+
+              {playersView === 'subsidies' && (
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Subsidies</div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+                    Pots the captain tops up through the year. Each gives a fixed £/chukka discount to the military players assigned to it; spending at checkout draws the pot down.
+                  </div>
+
+                  {subError && (
+                    <div style={{ fontSize: '12px', color: 'var(--burgundy)', padding: '8px 12px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', marginBottom: '12px' }}>{subError}</div>
+                  )}
+
+                  {lowSubsidies.length > 0 && !subsidyEditor && (
+                    <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '10px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)', marginBottom: '12px', lineHeight: 1.5 }}>
+                      <strong>Running low:</strong> {lowSubsidies.map(s => s.name).join(', ')}. Time to apply for more funds.
+                    </div>
+                  )}
+
+                  {!subsidyEditor && (
+                    <button onClick={openNewSubsidy} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '14px' }}>+ Add subsidy</button>
+                  )}
+
+                  {subsidyEditor && (
+                    <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '16px', background: 'var(--cream-pale)' }}>
+                      <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--burgundy)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{subsidyEditor.id ? 'Edit subsidy' : 'New subsidy'}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <input className="input-field" type="text" placeholder="Subsidy name e.g. RA Charitable Fund" value={subsidyEditor.name} onChange={e => setSubsidyEditor({ ...subsidyEditor, name: e.target.value })} style={{ padding: '11px 13px', fontSize: '15px' }} />
+                        {!subsidyEditor.id && (
+                          <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Opening balance (£)
+                            <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="1000" value={subsidyEditor.balance} onChange={e => setSubsidyEditor({ ...subsidyEditor, balance: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                          </label>
+                        )}
+                        <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Discount per chukka (£)
+                          <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="10" value={subsidyEditor.discountPerChukka} onChange={e => setSubsidyEditor({ ...subsidyEditor, discountPerChukka: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                        </label>
+                        <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Warn when balance falls to (£)
+                          <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="100" value={subsidyEditor.lowThreshold} onChange={e => setSubsidyEditor({ ...subsidyEditor, lowThreshold: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={subsidyEditor.active !== false} onChange={e => setSubsidyEditor({ ...subsidyEditor, active: e.target.checked })} />
+                          Active
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                          <button onClick={saveSubsidy} style={{ flex: 1, background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '12px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>Save</button>
+                          <button onClick={() => { setSubsidyEditor(null); setSubError(''); }} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '12px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                          {subsidyEditor.id && (
+                            <button onClick={() => deleteSubsidy(subsidyEditor.id)} style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '12px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Delete</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!subsidyEditor && (
+                    subsidies.length === 0 ? (
+                      <div style={{ fontSize: '13px', color: 'var(--muted)', textAlign: 'center', padding: '28px 12px', lineHeight: 1.5 }}>No subsidies yet. Add one to start managing a pot.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {subsidies.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(s => {
+                          const bal = Number(s.balance) || 0;
+                          const low = bal <= (Number(s.lowThreshold) || 0);
+                          const assigned = playerDb.filter(p => Array.isArray(p.subsidies) && p.subsidies.includes(s.id)).length;
+                          return (
+                            <div key={s.id} style={{ border: `1px solid ${low ? 'var(--danger)' : 'var(--line)'}`, borderRadius: '6px', padding: '12px 14px', background: '#fff', opacity: s.active === false ? 0.55 : 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                                <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{s.name}</span>
+                                {s.active === false && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Off</span>}
+                                <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: '15px', color: low ? 'var(--danger)' : 'var(--burgundy)' }}>£{fmtMoney(bal)}</span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>
+                                −£{fmtMoney(s.discountPerChukka)}/chukka &middot; {assigned} player{assigned === 1 ? '' : 's'} &middot; warn ≤ £{fmtMoney(s.lowThreshold)}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                <button onClick={() => topUpSubsidy(s.id)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Top up</button>
+                                <button onClick={() => openEditSubsidy(s)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Edit</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
+                  )}
+                </div>
               )}
             </div>
           )}

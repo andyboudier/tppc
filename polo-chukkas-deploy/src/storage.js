@@ -86,6 +86,7 @@ const SYNC_KEYS = [
   'team-signups',
   'fixtures',
   'players',                 // captain-managed player database
+  'subsidies',               // captain-managed subsidy pots (payment screen)
   'fixture-details',         // match details / teams shown on the fixtures tab
   'teams-db',
   'fixture-details-backups',
