@@ -186,30 +186,29 @@ const GRENADIER_TROPHY_DETAILS = {
 
 
 
-// One-time seed: Ladies & Gentlemen's Weekend (fixture jun-6-a) — Sunday 7 June
-// programme from the printed card: Women in Polo 12-goal + Gentlemen's Challenge
-// at Perham Down. Team handicaps and player handicaps are as printed.
-const LADIES_GENTS_SUN_7JUNE = {
-  id: 'sun', dateLabel: 'Sunday 7th June', ground: 'Perham Down', prizegiving: true,
-  matches: [
-    { id: 'wip-1', time: '13:00', label: 'Women in Polo 12 Goal',
-      teamA: { name: 'Parc Ferme', handicap: 12, players: [{ name: 'Emma Sanderson', handicap: 4 }, { name: 'Anna Dowling', handicap: 4 }, { name: 'Abby Foreman', handicap: 3 }, { name: 'Jackie Barber De Perez', handicap: 1 }] },
-      teamB: { name: 'Pink Power', handicap: 10, players: [{ name: 'Alex Jacobs', handicap: 5 }, { name: 'Claire Brougham', handicap: 5 }, { name: 'Mandie Beitner', handicap: 0 }, { name: 'Charlie Klein', handicap: 0 }] },
-      umpires: 'Paddy Selfe & Rosie Ross', notes: '' },
-    { id: 'wip-2', time: '14:15', label: 'Women in Polo 12 Goal',
-      teamA: { name: 'Huckelsbrook', handicap: 13, players: [{ name: 'Rosie Ross', handicap: 6 }, { name: 'Kirstie Otamendi', handicap: 5 }, { name: 'Jo Wells', handicap: 1 }, { name: 'Helen Gredington', handicap: 0 }] },
-      teamB: { name: 'Tedworth Park', handicap: 11, players: [{ name: 'Alex Jacobs', handicap: 5 }, { name: 'Rosie Lawrance', handicap: 3 }, { name: 'Alice Gipps', handicap: 3 }, { name: 'Jacqueline Hooper', handicap: 2 }] },
-      umpires: 'Paddy Selfe & Claire Brougham', notes: 'Prizegiving 15:30' },
-    { id: 'gent-1', time: '15:30', label: "Gentlemen's Challenge",
-      teamA: { name: 'Sea Horses', handicap: 0, players: [{ name: 'Brad Dommett-King', handicap: 1 }, { name: 'Steve Spiller', handicap: 0 }, { name: 'Helen Spiller', handicap: -1 }, { name: 'Bea Schofield', handicap: -1 }] },
-      teamB: { name: 'Pink Power', handicap: 0, players: [{ name: 'Josh Leiva', handicap: 1 }, { name: 'Nick Beitner', handicap: 0 }, { name: 'Robert Talbot-Rice', handicap: -1 }, { name: 'Nick Howe', handicap: -1 }] },
-      umpires: 'Rosie Ross', notes: '' },
-    { id: 'gent-2', time: '16:30', label: "Gentlemen's Challenge",
-      teamA: { name: 'Saltwood', handicap: -1, players: [{ name: 'Rosie Ross', handicap: 2 }, { name: 'Piers Fletcher', handicap: 0 }, { name: 'Peter Dennis', handicap: -1 }, { name: 'Harry Blissett', handicap: -2 }] },
-      teamB: { name: 'Xcess Polo', handicap: -1, players: [{ name: 'Brad Dommett-King', handicap: 1 }, { name: 'Alex Welham', handicap: 0 }, { name: 'Ed Richards', handicap: 0 }, { name: 'Steve Wells', handicap: -2 }] },
-      umpires: 'Josh Leiva', notes: 'Prizegiving 17:30' },
-  ],
-};
+// Sunday 7 June 2026 programme from the printed card, split by competition so
+// each set lands on the correct fixture. Team/player handicaps are as printed.
+const SUN_7JUNE_WIP_MATCHES = [   // Women in Polo 12 Goal
+  { id: 'wip-1', time: '13:00', label: 'Women in Polo 12 Goal',
+    teamA: { name: 'Parc Ferme', handicap: 12, players: [{ name: 'Emma Sanderson', handicap: 4 }, { name: 'Anna Dowling', handicap: 4 }, { name: 'Abby Foreman', handicap: 3 }, { name: 'Jackie Barber De Perez', handicap: 1 }] },
+    teamB: { name: 'Pink Power', handicap: 10, players: [{ name: 'Alex Jacobs', handicap: 5 }, { name: 'Claire Brougham', handicap: 5 }, { name: 'Mandie Beitner', handicap: 0 }, { name: 'Charlie Klein', handicap: 0 }] },
+    umpires: 'Paddy Selfe & Rosie Ross', notes: '' },
+  { id: 'wip-2', time: '14:15', label: 'Women in Polo 12 Goal',
+    teamA: { name: 'Huckelsbrook', handicap: 13, players: [{ name: 'Rosie Ross', handicap: 6 }, { name: 'Kirstie Otamendi', handicap: 5 }, { name: 'Jo Wells', handicap: 1 }, { name: 'Helen Gredington', handicap: 0 }] },
+    teamB: { name: 'Tedworth Park', handicap: 11, players: [{ name: 'Alex Jacobs', handicap: 5 }, { name: 'Rosie Lawrance', handicap: 3 }, { name: 'Alice Gipps', handicap: 3 }, { name: 'Jacqueline Hooper', handicap: 2 }] },
+    umpires: 'Paddy Selfe & Claire Brougham', notes: 'Prizegiving 15:30' },
+];
+const SUN_7JUNE_GENTS_MATCHES = [  // Gentlemen's Challenge Matches
+  { id: 'gent-1', time: '15:30', label: "Gentlemen's Challenge",
+    teamA: { name: 'Sea Horses', handicap: 0, players: [{ name: 'Brad Dommett-King', handicap: 1 }, { name: 'Steve Spiller', handicap: 0 }, { name: 'Helen Spiller', handicap: -1 }, { name: 'Bea Schofield', handicap: -1 }] },
+    teamB: { name: 'Pink Power', handicap: 0, players: [{ name: 'Josh Leiva', handicap: 1 }, { name: 'Nick Beitner', handicap: 0 }, { name: 'Robert Talbot-Rice', handicap: -1 }, { name: 'Nick Howe', handicap: -1 }] },
+    umpires: 'Rosie Ross', notes: '' },
+  { id: 'gent-2', time: '16:30', label: "Gentlemen's Challenge",
+    teamA: { name: 'Saltwood', handicap: -1, players: [{ name: 'Rosie Ross', handicap: 2 }, { name: 'Piers Fletcher', handicap: 0 }, { name: 'Peter Dennis', handicap: -1 }, { name: 'Harry Blissett', handicap: -2 }] },
+    teamB: { name: 'Xcess Polo', handicap: -1, players: [{ name: 'Brad Dommett-King', handicap: 1 }, { name: 'Alex Welham', handicap: 0 }, { name: 'Ed Richards', handicap: 0 }, { name: 'Steve Wells', handicap: -2 }] },
+    umpires: 'Josh Leiva', notes: 'Prizegiving 17:30' },
+];
+const sun7JuneDay = (matches) => ({ id: 'sun', dateLabel: 'Sunday 7th June', ground: 'Perham Down', prizegiving: true, matches });
 
 // Parse a fixture's date string into a { start, end } Date range (year 2026).
 // Handles: 'Sat 30 & Sun 31 May', 'Mon 25 May', 'Fri 24 & Sun 26 July' etc.
@@ -1071,22 +1070,41 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             parsed = cleaned;
             try { await window.storage.set('fixture-details', JSON.stringify(parsed), true); } catch (e) {}
           }
-          // One-time forced seed (v1): Ladies & Gentlemen's Weekend (jun-6-a)
-          // Sunday 7 June programme. Applies exactly once across all devices via a
-          // shared seed flag — even if a stale/placeholder Sunday day already
-          // existed — then never again, so later in-app edits stick. Other days
-          // (e.g. Saturday) are preserved.
+          // One-time forced seed (v2): split the Sunday 7 June programme across
+          // the correct fixtures — Women in Polo 12 Goal to its own fixture, the
+          // Gentlemen's Challenge to the Ladies & Gentlemen's Weekend. Resolves
+          // fixtures by name from the live list (creating the Women in Polo
+          // fixture if it doesn't exist). Runs once via a shared flag, replacing
+          // any Sunday day already there, and preserves other days.
           try {
             const flagsDoc = await window.storage.get('seed-flags', true);
             let flags = [];
             try { flags = flagsDoc && flagsDoc.value ? JSON.parse(flagsDoc.value) : []; } catch (e) { flags = []; }
             if (!Array.isArray(flags)) flags = [];
-            if (!flags.includes('lg-sun-7june-v1')) {
-              const cur = (parsed['jun-6-a'] && Array.isArray(parsed['jun-6-a'].days)) ? parsed['jun-6-a'].days : [];
-              const otherDays = cur.filter(d => d && d.id !== 'sun' && !((d.dateLabel || '').toLowerCase().includes('sunday 7')));
-              parsed = { ...parsed, 'jun-6-a': { ...(parsed['jun-6-a'] || {}), days: [...otherDays, LADIES_GENTS_SUN_7JUNE] } };
+            if (!flags.includes('lg-sun-7june-v2')) {
+              let fxList = FIXTURES_2026;
+              let fxDirty = false;
+              try {
+                const fxDoc = await window.storage.get('fixtures', true);
+                if (fxDoc && fxDoc.value) { const a = JSON.parse(fxDoc.value); if (Array.isArray(a)) fxList = a; }
+              } catch (e) {}
+              let wip = fxList.find(f => f && /women/i.test(f.name || ''));
+              if (!wip) {
+                wip = { id: 'jun-6-wip', month: 'June', date: 'Sat 6 & Sun 7 June', name: 'Women in Polo 12 Goal', level: '12 Goal' };
+                fxList = [...fxList, wip];
+                fxDirty = true;
+              }
+              const gentFixId = (fxList.find(f => f && /gentlem/i.test(f.name || '')) || { id: 'jun-6-a' }).id;
+              const setSunday = (obj, fixId, matches) => {
+                const cur = (obj[fixId] && Array.isArray(obj[fixId].days)) ? obj[fixId].days : [];
+                const other = cur.filter(d => d && d.id !== 'sun' && !((d.dateLabel || '').toLowerCase().includes('sunday 7')));
+                return { ...obj, [fixId]: { ...(obj[fixId] || {}), days: [...other, sun7JuneDay(matches)] } };
+              };
+              parsed = setSunday(parsed, gentFixId, SUN_7JUNE_GENTS_MATCHES);
+              parsed = setSunday(parsed, wip.id, SUN_7JUNE_WIP_MATCHES);
               try { await window.storage.set('fixture-details', JSON.stringify(parsed), true); } catch (e) {}
-              try { await window.storage.set('seed-flags', JSON.stringify([...flags, 'lg-sun-7june-v1']), true); } catch (e) {}
+              if (fxDirty) { try { await window.storage.set('fixtures', JSON.stringify(fxList), true); } catch (e) {} }
+              try { await window.storage.set('seed-flags', JSON.stringify([...flags, 'lg-sun-7june-v2']), true); } catch (e) {}
             }
           } catch (e) {}
           setFixtureDetails(parsed);
