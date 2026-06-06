@@ -63,6 +63,22 @@ const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5,
 const MILITARY_DISCOUNT_PER_CHUKKA = 5;
 const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 145, '2 to 4': 180 };
 
+// 2026 coaching/lesson rates (group rates are per person). Subsidy pots apply to
+// LESSONS (not chukkas). Military players pay the military rate.
+const LESSON_TYPES_2026 = [
+  { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315, mil: 300 },
+  { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600, mil: 540 },
+  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 110, mil: 105 },
+  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, mil: 190 },
+  { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80,  mil: 75 },
+  { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75, mil: 65 },
+  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 100, mil: 95 },
+  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 180, mil: 170 },
+  { id: 'inst-chukka',     label: 'Instructional Chukka',           civ: 110, mil: 105 },
+  { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160 },
+];
+const lessonById = (id) => LESSON_TYPES_2026.find(l => l.id === id) || LESSON_TYPES_2026[0];
+
 // 2026 membership categories from the price list. `chukkasIncluded` drives the
 // booking branch: included → added straight to the roster; not included (or no
 // membership) → sent to checkout to pay per chukka.
@@ -642,6 +658,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [transactions, setTransactions] = useState([]);
   const [checkout, setCheckout] = useState({ playerId: '', day: 'wed', chukkas: '4', ponyLevel: 'club', method: 'cash', note: '' });
   const [coError, setCoError] = useState('');
+  const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '' });
+  const [lessonError, setLessonError] = useState('');
 
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
@@ -1214,7 +1232,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // --- Subsidies (captain-managed pots that power the payment screen) ---
   const fmtMoney = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const newSubsidyId = () => `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const blankSubsidy = () => ({ id: '', name: '', balance: '', discountPerChukka: '', lowThreshold: '', active: true });
+  const subsidyDiscount = (s) => Number(s && (s.discountPerLesson != null ? s.discountPerLesson : s.discountPerChukka) || 0) || 0;
+  const blankSubsidy = () => ({ id: '', name: '', balance: '', discountPerLesson: '', lowThreshold: '', active: true });
   const saveSubsidies = async (next) => {
     setSubsidies(next);
     try { await window.storage.set('subsidies', JSON.stringify(next), true); } catch (e) {}
@@ -1222,26 +1241,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const openNewSubsidy = () => { setSubError(''); setSubsidyEditor(blankSubsidy()); };
   const openEditSubsidy = (s) => {
     setSubError('');
-    setSubsidyEditor({ id: s.id, name: s.name, balance: String(s.balance ?? ''), discountPerChukka: String(s.discountPerChukka ?? ''), lowThreshold: String(s.lowThreshold ?? ''), active: s.active !== false });
+    setSubsidyEditor({ id: s.id, name: s.name, balance: String(s.balance ?? ''), discountPerLesson: String(subsidyDiscount(s) || ''), lowThreshold: String(s.lowThreshold ?? ''), active: s.active !== false });
   };
   const saveSubsidy = async () => {
     const d = subsidyEditor || {};
     const name = (d.name || '').trim();
     if (!name) { setSubError('Please name the subsidy.'); return; }
-    const disc = Number(d.discountPerChukka);
-    if (!(disc > 0)) { setSubError('Per-chukka discount must be greater than £0.'); return; }
+    const disc = Number(d.discountPerLesson);
+    if (!(disc > 0)) { setSubError('Per-lesson discount must be greater than £0.'); return; }
     const low = d.lowThreshold === '' ? 0 : Number(d.lowThreshold);
     if (isNaN(low) || low < 0) { setSubError('Low-balance threshold must be £0 or more.'); return; }
     const existing = subsidies.find(x => x.id === d.id);
     let record;
     if (existing) {
       // Editing never overwrites a live pot — the balance only moves via top-ups/spending.
-      record = { ...existing, name, discountPerChukka: disc, lowThreshold: low, active: d.active !== false, updatedAt: Date.now() };
+      record = { ...existing, name, discountPerLesson: disc, discountPerChukka: undefined, lowThreshold: low, active: d.active !== false, updatedAt: Date.now() };
     } else {
       const opening = d.balance === '' ? 0 : Number(d.balance);
       if (isNaN(opening) || opening < 0) { setSubError('Opening balance must be £0 or more.'); return; }
       record = {
-        id: newSubsidyId(), name, balance: opening, discountPerChukka: disc, lowThreshold: low,
+        id: newSubsidyId(), name, balance: opening, discountPerLesson: disc, lowThreshold: low,
         active: d.active !== false,
         topups: opening > 0 ? [{ id: newSubsidyId(), date: Date.now(), amount: opening, note: 'Opening balance' }] : [],
         spent: 0, updatedAt: Date.now(),
@@ -1292,22 +1311,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const ponyHire = wantsPony ? (PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club) : 0;
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
     if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
-      return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, subsidyDeductions: [], total: 0 };
+      return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, total: 0 };
     }
     const gross = (ponyHire + chukkaFee) * n;
     const militaryDiscount = (wantsPony && player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n; // the £5 is the pony-hire delta
-    let running = Math.max(0, gross - militaryDiscount);
-    const subsidyDeductions = [];
-    ((player && player.subsidies) || []).forEach(sid => {
-      const s = subsidies.find(x => x.id === sid && x.active !== false);
-      if (!s) return;
-      const desired = (Number(s.discountPerChukka) || 0) * n;
-      const amount = Math.max(0, Math.min(desired, Number(s.balance) || 0, running)); // capped at pot + remaining total
-      if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
-      running -= amount;
-    });
-    const total = Math.max(0, running);
-    return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire, chukkaFee, gross, militaryDiscount, subsidyDeductions, total };
+    const total = Math.max(0, gross - militaryDiscount);   // subsidies apply to lessons, not chukkas
+    return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire, chukkaFee, gross, militaryDiscount, total };
   };
   const addPlayerToRoster = async (dayKey, player, chukkas) => {
     const list = rosters[dayKey] || [];
@@ -1381,6 +1390,55 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const next = transactions.filter(t => t.status === 'due');
     setTransactions(next);
     try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
+  };
+
+  // --- Lessons (coaching) pricing + payment. Subsidy pots apply here. ---
+  const priceLesson = (player, lessonId) => {
+    const lt = lessonById(lessonId);
+    const mil = !!(player && player.military);
+    const base = mil ? lt.mil : lt.civ;
+    let running = base;
+    const subsidyDeductions = [];
+    ((player && player.subsidies) || []).forEach(sid => {
+      const s = subsidies.find(x => x.id === sid && x.active !== false);
+      if (!s) return;
+      const desired = subsidyDiscount(s);
+      const amount = Math.max(0, Math.min(desired, Number(s.balance) || 0, running)); // capped at pot + remaining total
+      if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
+      running -= amount;
+    });
+    return { lessonId: lt.id, lessonLabel: lt.label, base, militaryRate: mil, subsidyDeductions, total: Math.max(0, running) };
+  };
+  const recordLessonPayment = async (player, bd, opts) => {
+    const o = opts || {};
+    const paid = (bd.subsidyDeductions || []).filter(d => d.amount > 0);
+    if (paid.length) {
+      const nextSubs = subsidies.map(s => {
+        const d = paid.find(x => x.id === s.id);
+        return d ? { ...s, balance: (Number(s.balance) || 0) - d.amount, spent: (Number(s.spent) || 0) + d.amount, updatedAt: Date.now() } : s;
+      });
+      await saveSubsidies(nextSubs);
+    }
+    const tx = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'lesson',
+      playerId: player.id, playerName: player.name, lessonId: bd.lessonId, lessonLabel: bd.lessonLabel,
+      base: bd.base, militaryRate: bd.militaryRate,
+      subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+      total: bd.total, status: 'paid', method: o.method || 'manual', note: (o.note || '').trim(), paidDate: Date.now(),
+    };
+    const nextTx = [tx, ...transactions];
+    setTransactions(nextTx);
+    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    return tx;
+  };
+  const doLessonPaid = async () => {
+    setLessonError('');
+    const pl = playerDb.find(p => p.id === lesson.playerId);
+    if (!pl) { setLessonError('Pick a player first.'); return; }
+    const bd = priceLesson(pl, lesson.lessonId);
+    await recordLessonPayment(pl, bd, { method: lesson.method, note: lesson.note });
+    setLessonError(`Recorded £${fmtMoney(bd.total)} (${lesson.method}) for ${pl.name} — ${bd.lessonLabel}.`);
+    setLesson(prev => ({ ...prev, playerId: '', note: '' }));
   };
   const doMarkPaid = async () => {
     setCoError('');
@@ -1469,7 +1527,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           playerId: rec ? rec.id : null, playerName: cleanedName, day: activeDay,
           chukkas: c, ponyLevel: ponyHire ? 'club' : 'none',
           ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
-          subsidyDeductions: bd.subsidyDeductions.filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+          subsidyDeductions: [],
           total: bd.total, status: 'due', method: '', note: '',
         };
         const nextTx = [dueTx, ...transactions];
@@ -5485,10 +5543,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
           {activeTab === 'players' && captainMode && (
             <div>
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-                <button onClick={() => setPlayersView('players')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
-                <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length})` : ''}</button>
-                <button onClick={() => setPlayersView('checkout')} style={{ flex: 1, padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'checkout' ? 'none' : '1px solid var(--line)', background: playersView === 'checkout' ? 'var(--burgundy)' : 'transparent', color: playersView === 'checkout' ? 'var(--cream)' : 'var(--muted)' }}>Checkout</button>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' }}>
+                <button onClick={() => setPlayersView('players')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
+                <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length})` : ''}</button>
+                <button onClick={() => setPlayersView('lessons')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'lessons' ? 'none' : '1px solid var(--line)', background: playersView === 'lessons' ? 'var(--burgundy)' : 'transparent', color: playersView === 'lessons' ? 'var(--cream)' : 'var(--muted)' }}>Lessons</button>
+                <button onClick={() => setPlayersView('checkout')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'checkout' ? 'none' : '1px solid var(--line)', background: playersView === 'checkout' ? 'var(--burgundy)' : 'transparent', color: playersView === 'checkout' ? 'var(--cream)' : 'var(--muted)' }}>Checkout</button>
               </div>
 
               {playersView === 'players' && (<>
@@ -5550,21 +5609,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 if (e.target.checked) cur.add(s.id); else cur.delete(s.id);
                                 setPlayerEditor({ ...playerEditor, subsidies: [...cur] });
                               }} />
-                              {s.name} <span style={{ color: 'var(--muted)' }}>(−£{fmtMoney(s.discountPerChukka)}/chukka)</span>
+                              {s.name} <span style={{ color: 'var(--muted)' }}>(−£{fmtMoney(subsidyDiscount(s))}/lesson)</span>
                             </label>
                           ))
                         )}
-                        {(() => {
-                          const base = PONY_HIRE_2026.club;
-                          const subs = (playerEditor.subsidies || []).reduce((sum, sid) => { const s = subsidies.find(x => x.id === sid && x.active !== false); return sum + (s ? (Number(s.discountPerChukka) || 0) : 0); }, 0);
-                          const net = Math.max(0, base - MILITARY_DISCOUNT_PER_CHUKKA - subs);
-                          return (
-                            <div style={{ fontSize: '12px', color: 'var(--burgundy)', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--line)' }}>
-                              Est. club chukka: <strong>£{fmtMoney(net)}</strong>
-                              <span style={{ color: 'var(--muted)' }}> (£{base} base − £{MILITARY_DISCOUNT_PER_CHUKKA} mil{subs > 0 ? ` − £${fmtMoney(subs)} subsidies` : ''})</span>
-                            </div>
-                          );
-                        })()}
+                        {(playerEditor.subsidies || []).length > 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--line)' }}>
+                            Subsidies are applied to lesson bookings (see the Lessons tab), drawing down each pot.
+                          </div>
+                        )}
                       </div>
                     )}
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
@@ -5644,8 +5697,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="1000" value={subsidyEditor.balance} onChange={e => setSubsidyEditor({ ...subsidyEditor, balance: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
                           </label>
                         )}
-                        <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Discount per chukka (£)
-                          <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="10" value={subsidyEditor.discountPerChukka} onChange={e => setSubsidyEditor({ ...subsidyEditor, discountPerChukka: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                        <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Discount per lesson (£)
+                          <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="25" value={subsidyEditor.discountPerLesson} onChange={e => setSubsidyEditor({ ...subsidyEditor, discountPerLesson: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
                         </label>
                         <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Warn when balance falls to (£)
                           <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="100" value={subsidyEditor.lowThreshold} onChange={e => setSubsidyEditor({ ...subsidyEditor, lowThreshold: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
@@ -5682,7 +5735,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: '15px', color: low ? 'var(--danger)' : 'var(--burgundy)' }}>£{fmtMoney(bal)}</span>
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>
-                                −£{fmtMoney(s.discountPerChukka)}/chukka &middot; {assigned} player{assigned === 1 ? '' : 's'} &middot; warn ≤ £{fmtMoney(s.lowThreshold)}
+                                −£{fmtMoney(subsidyDiscount(s))}/lesson &middot; {assigned} player{assigned === 1 ? '' : 's'} &middot; warn ≤ £{fmtMoney(s.lowThreshold)}
                               </div>
                               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                                 <button onClick={() => topUpSubsidy(s.id)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Top up</button>
@@ -5804,11 +5857,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               {bd.ponyHire > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>}
                               {bd.chukkaFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Chukka fee × {n}</span><span>£{fmtMoney(bd.chukkaFee * n)}</span></div>}
                               {bd.militaryDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)' }}><span>Military discount × {n}</span><span>−£{fmtMoney(bd.militaryDiscount)}</span></div>}
-                              {bd.subsidyDeductions.map(d => (
-                                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: d.capped ? 'var(--danger)' : 'var(--muted)' }}>
-                                  <span>{d.name}{d.capped ? ' (pot capped)' : ''}</span><span>−£{fmtMoney(d.amount)}</span>
-                                </div>
-                              ))}
                               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', marginTop: '6px', borderTop: '1px solid var(--line)', fontWeight: 700, fontSize: '15px', color: 'var(--burgundy)' }}><span>Total</span><span>£{fmtMoney(bd.total)}</span></div>
                             </div>
                             <select className="input-field select-field" value={checkout.method} onChange={e => setCheckout({ ...checkout, method: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
@@ -5844,13 +5892,75 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.chukkas} chukka{tx.chukkas === 1 ? '' : 's'} &middot; {tx.method}
+                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
                               {tx.subsidyDeductions && tx.subsidyDeductions.length ? ` · ${tx.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
+                  </div>
+                );
+              })()}
+
+              {playersView === 'lessons' && (() => {
+                const sortedPl = [...playerDb].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                const pl = playerDb.find(p => p.id === lesson.playerId);
+                const bd = pl ? priceLesson(pl, lesson.lessonId) : null;
+                const ok = lessonError && lessonError.indexOf('Recorded') === 0;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                      Book and take payment for a coaching session. Military players get the military rate; any subsidy pots assigned to the player are drawn down against the lesson.
+                    </div>
+                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
+                      <select className="select-field" value={lesson.playerId} onChange={e => { setLessonError(''); setLesson({ ...lesson, playerId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
+                        <option value="">— Select player —</option>
+                        {sortedPl.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}{p.military ? ' (Mil)' : ''}{(p.subsidies || []).length ? ' ★' : ''}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {playerDb.length === 0 && (
+                      <div style={{ fontSize: '12px', color: 'var(--danger)' }}>No players yet — add them under the Players tab first.</div>
+                    )}
+                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Lesson
+                      <select className="select-field" value={lesson.lessonId} onChange={e => { setLessonError(''); setLesson({ ...lesson, lessonId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
+                        {LESSON_TYPES_2026.map(l => (
+                          <option key={l.id} value={l.id}>{l.label} — £{l.civ} / £{l.mil} mil</option>
+                        ))}
+                      </select>
+                    </label>
+                    {bd && (
+                      <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                          <span>{bd.lessonLabel} ({bd.militaryRate ? 'military' : 'civilian'} rate)</span><span>£{fmtMoney(bd.base)}</span>
+                        </div>
+                        {bd.subsidyDeductions.map(d => (
+                          <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: d.capped ? 'var(--danger)' : 'var(--muted)' }}>
+                            <span>{d.name}{d.capped ? ' (pot capped)' : ''}</span><span>−£{fmtMoney(d.amount)}</span>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 0', marginTop: '4px', borderTop: '1px solid var(--line)', fontWeight: 700 }}>
+                          <span>Total</span><span>£{fmtMoney(bd.total)}</span>
+                        </div>
+                      </div>
+                    )}
+                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Method
+                      <select className="select-field" value={lesson.method} onChange={e => setLesson({ ...lesson, method: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
+                        <option value="cash">Cash</option>
+                        <option value="transfer">Bank transfer</option>
+                        <option value="card">Card</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <input className="input-field" placeholder="Note (optional)" value={lesson.note} onChange={e => setLesson({ ...lesson, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '13px' }} />
+                    {lessonError && (
+                      <div style={{ fontSize: '12px', color: ok ? 'var(--burgundy)' : 'var(--danger)', background: ok ? '#f2f6f2' : '#fbf2f2', border: `1px solid ${ok ? 'var(--line)' : 'var(--danger)'}`, borderRadius: '6px', padding: '9px 12px' }}>{lessonError}</div>
+                    )}
+                    <button onClick={doLessonPaid} disabled={!pl} style={{ background: pl ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
+                      {pl && bd ? `Mark paid £${fmtMoney(bd.total)}` : 'Mark paid'}
+                    </button>
                   </div>
                 );
               })()}
