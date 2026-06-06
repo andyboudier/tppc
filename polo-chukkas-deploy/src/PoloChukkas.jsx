@@ -587,6 +587,7 @@ export default function PoloChukkas() {
   const [availableTo, setAvailableTo] = useState('');
 const [vip, setVip] = useState(false);
 const [noConsecutive, setNoConsecutive] = useState(false);
+const [ponyHire, setPonyHire] = useState(true);  // signup: needs to hire a pony (affects price)
   const [error, setError] = useState('');
 
   // Throw-in time editor (captain mode)
@@ -1285,13 +1286,14 @@ const [noConsecutive, setNoConsecutive] = useState(false);
   const priceBooking = (player, chukkas, ponyLevel) => {
     const n = Math.max(0, parseInt(chukkas, 10) || 0);
     const mem = membershipById((player && player.membership) || 'none');
-    if (mem.chukkasIncluded || n === 0) {
-      return { included: mem.chukkasIncluded, chukkas: n, ponyLevel: ponyLevel || 'club', ponyHire: 0, chukkaFee: 0, gross: 0, militaryDiscount: 0, subsidyDeductions: [], total: 0 };
+    const wantsPony = !!ponyLevel && ponyLevel !== 'none';
+    const ponyHire = wantsPony ? (PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club) : 0;
+    const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
+    if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
+      return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, subsidyDeductions: [], total: 0 };
     }
-    const ponyHire = PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club;
-    const chukkaFee = chukkaFeeFor(player);
     const gross = (ponyHire + chukkaFee) * n;
-    const militaryDiscount = (player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n;
+    const militaryDiscount = (wantsPony && player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n; // the £5 is the pony-hire delta
     let running = Math.max(0, gross - militaryDiscount);
     const subsidyDeductions = [];
     ((player && player.subsidies) || []).forEach(sid => {
@@ -1302,7 +1304,8 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
       running -= amount;
     });
-    return { included: false, chukkas: n, ponyLevel: ponyLevel || 'club', ponyHire, chukkaFee, gross, militaryDiscount, subsidyDeductions, total: Math.max(0, running) };
+    const total = Math.max(0, running);
+    return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire, chukkaFee, gross, militaryDiscount, subsidyDeductions, total };
   };
   const addPlayerToRoster = async (dayKey, player, chukkas) => {
     const list = rosters[dayKey] || [];
@@ -1346,9 +1349,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
     if (!pl) { setCoError('Pick a player first.'); return; }
     const dayUp = (checkout.day || 'wed').toUpperCase();
     const bd = priceBooking(pl, checkout.chukkas, checkout.ponyLevel);
-    if (bd.included) {
+    if (bd.freeToRoster) {
       const added = await addPlayerToRoster(checkout.day, pl, checkout.chukkas);
-      setCoError(added ? `${pl.name} added to ${dayUp} roster — chukkas included, no charge.` : `${pl.name} is already on the ${dayUp} roster.`);
+      setCoError(added ? `${pl.name} added to ${dayUp} roster — no charge.` : `${pl.name} is already on the ${dayUp} roster.`);
       return;
     }
     await recordPayment(pl, bd, { method: checkout.method, note: checkout.note, addToRoster: true, day: checkout.day });
@@ -1410,10 +1413,11 @@ const [noConsecutive, setNoConsecutive] = useState(false);
       availableTo: availableTo || '',
  
       vip: captainMode ? vip : false,
-      noConsecutive: noConsecutive,   };
+      noConsecutive: noConsecutive,
+      ponyHire: ponyHire,   };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false);
+    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(true);
     saveSchedule(null);
   };
 
@@ -3949,7 +3953,35 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     </div>
                   </label>
 
-                  {/* VIP — captain only */}
+                  {/* Pony hire — affects price (own-pony players leave unticked) */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
+                    <input
+                      type="checkbox"
+                      checked={ponyHire}
+                      onChange={(e) => setPonyHire(e.target.checked)}
+                      style={{ width: '18px', height: '18px', accentColor: 'var(--burgundy)', cursor: 'pointer', flexShrink: 0 }}
+                    />
+                    <div>
+                      <span style={{ fontWeight: 600 }}>Hire a pony</span>
+                      <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Adds pony hire to your cost. Leave unticked if you bring your own.</span>
+                    </div>
+                  </label>
+
+                  {(() => {
+                    const c = parseInt(chukkas, 10);
+                    if (!name.trim() || !c || c < 1) return null;
+                    const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === name.trim().toLowerCase());
+                    const subject = rec || { membership: 'none', military: false, subsidies: [] };
+                    const bd = priceBooking(subject, c, ponyHire ? 'club' : 'none');
+                    return (
+                      <div style={{ fontSize: '12px', color: bd.freeToRoster ? 'var(--burgundy)' : 'var(--ink)', padding: '10px 14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', lineHeight: 1.5 }}>
+                        {bd.freeToRoster
+                          ? `No charge for ${c} chukka${c === 1 ? '' : 's'}${ponyHire ? '' : ' (own pony)'} — you'll be added to the roster.`
+                          : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable to the Captain.</>}
+                        {!rec && <span style={{ color: 'var(--muted)' }}> (estimate assumes non-member rates)</span>}
+                      </div>
+                    );
+                  })()}
                   {captainMode && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
                       <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '2px', fontFamily: "'Fraunces', serif", fontStyle: 'italic' }}>
@@ -5592,7 +5624,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                 const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel) : null;
                 const n = bd ? bd.chukkas : 0;
                 const dayLabels = { wed: 'Wed', thu: 'Thu', sat: 'Sat', sun: 'Sun' };
-                const ponyOpts = [['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
+                const ponyOpts = [['none', 'No pony hire (own pony)'], ['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
                 const methods = [['cash', 'Cash'], ['transfer', 'Bank transfer'], ['card', 'Card (manual)'], ['other', 'Other']];
                 return (
                   <div>
@@ -5606,7 +5638,19 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                     )}
 
                     <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
-                      <select className="input-field select-field" value={checkout.playerId} onChange={e => { setCoError(''); setCheckout({ ...checkout, playerId: e.target.value }); }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
+                      <select className="input-field select-field" value={checkout.playerId} onChange={e => {
+                        setCoError('');
+                        const pid = e.target.value;
+                        const player = playerDb.find(p => p.id === pid);
+                        let lvl = checkout.ponyLevel;
+                        if (player) {
+                          for (const dk of DAY_KEYS) {
+                            const entry = (rosters[dk] || []).find(r => (r.name || '').trim().toLowerCase() === (player.name || '').trim().toLowerCase());
+                            if (entry) { lvl = entry.ponyHire === false ? 'none' : 'club'; break; }
+                          }
+                        }
+                        setCheckout({ ...checkout, playerId: pid, ponyLevel: lvl });
+                      }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
                         <option value="">Select a registered player…</option>
                         {playerDb.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => (
                           <option key={p.id} value={p.id}>{p.name}{membershipById(p.membership || 'none').chukkasIncluded ? ' · member' : ''}</option>
@@ -5616,9 +5660,9 @@ const [noConsecutive, setNoConsecutive] = useState(false);
 
                     {pl && (
                       <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ fontSize: '12px', color: bd.included ? 'var(--burgundy)' : 'var(--muted)' }}>
+                        <div style={{ fontSize: '12px', color: bd.freeToRoster ? 'var(--burgundy)' : 'var(--muted)' }}>
                           {membershipById(pl.membership || 'none').label}{pl.military ? ' · military' : ''}
-                          {bd.included ? ' — chukkas included' : ' — pays per chukka'}
+                          {bd.freeToRoster ? ' — no charge' : ` — £${fmtMoney(bd.total)}`}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <select className="input-field select-field" value={checkout.day} onChange={e => setCheckout({ ...checkout, day: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
@@ -5629,20 +5673,18 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                           </select>
                         </div>
 
-                        {!bd.included && (
-                          <select className="input-field select-field" value={checkout.ponyLevel} onChange={e => setCheckout({ ...checkout, ponyLevel: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
-                            {ponyOpts.map(([k, l]) => <option key={k} value={k}>Pony hire: {l} (£{PONY_HIRE_2026[k]})</option>)}
-                          </select>
-                        )}
+                        <select className="input-field select-field" value={checkout.ponyLevel} onChange={e => setCheckout({ ...checkout, ponyLevel: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
+                          {ponyOpts.map(([k, l]) => <option key={k} value={k}>{k === 'none' ? l : `Pony hire: ${l} (£${PONY_HIRE_2026[k]})`}</option>)}
+                        </select>
 
-                        {bd.included ? (
+                        {bd.freeToRoster ? (
                           <div style={{ fontSize: '13px', color: 'var(--burgundy)', padding: '12px', background: 'var(--cream-pale)', borderRadius: '6px', border: '1px solid var(--line)' }}>
-                            Chukkas are included in this membership — no charge. They'll be added straight to the roster.
+                            No charge for this booking — they'll be added straight to the roster.
                           </div>
                         ) : (
                           <>
                             <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>
+                              {bd.ponyHire > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>}
                               {bd.chukkaFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Chukka fee × {n}</span><span>£{fmtMoney(bd.chukkaFee * n)}</span></div>}
                               {bd.militaryDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)' }}><span>Military discount × {n}</span><span>−£{fmtMoney(bd.militaryDiscount)}</span></div>}
                               {bd.subsidyDeductions.map(d => (
@@ -5660,7 +5702,7 @@ const [noConsecutive, setNoConsecutive] = useState(false);
                         )}
 
                         <button onClick={doMarkPaid} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
-                          {bd.included ? `Add to ${dayLabels[checkout.day] || checkout.day} roster` : `Mark paid £${fmtMoney(bd.total)} & add to roster`}
+                          {bd.freeToRoster ? `Add to ${dayLabels[checkout.day] || checkout.day} roster` : `Mark paid £${fmtMoney(bd.total)} & add to roster`}
                         </button>
                       </div>
                     )}
