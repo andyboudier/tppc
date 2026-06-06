@@ -1071,16 +1071,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             parsed = cleaned;
             try { await window.storage.set('fixture-details', JSON.stringify(parsed), true); } catch (e) {}
           }
-          // One-time seed: Ladies & Gentlemen's Weekend (jun-6-a) Sunday 7 June
-          // programme. Adds the Sunday day only if it isn't already there, leaving
-          // any other day already entered untouched. Safe to remove once live.
+          // One-time forced seed (v1): Ladies & Gentlemen's Weekend (jun-6-a)
+          // Sunday 7 June programme. Applies exactly once across all devices via a
+          // shared seed flag — even if a stale/placeholder Sunday day already
+          // existed — then never again, so later in-app edits stick. Other days
+          // (e.g. Saturday) are preserved.
           try {
-            const cur = (parsed['jun-6-a'] && Array.isArray(parsed['jun-6-a'].days)) ? parsed['jun-6-a'].days : [];
-            const hasSun7 = cur.some(d => d && (d.dateLabel || '').toLowerCase().includes('sunday 7'));
-            if (!hasSun7) {
+            const flagsDoc = await window.storage.get('seed-flags', true);
+            let flags = [];
+            try { flags = flagsDoc && flagsDoc.value ? JSON.parse(flagsDoc.value) : []; } catch (e) { flags = []; }
+            if (!Array.isArray(flags)) flags = [];
+            if (!flags.includes('lg-sun-7june-v1')) {
+              const cur = (parsed['jun-6-a'] && Array.isArray(parsed['jun-6-a'].days)) ? parsed['jun-6-a'].days : [];
               const otherDays = cur.filter(d => d && d.id !== 'sun' && !((d.dateLabel || '').toLowerCase().includes('sunday 7')));
               parsed = { ...parsed, 'jun-6-a': { ...(parsed['jun-6-a'] || {}), days: [...otherDays, LADIES_GENTS_SUN_7JUNE] } };
               try { await window.storage.set('fixture-details', JSON.stringify(parsed), true); } catch (e) {}
+              try { await window.storage.set('seed-flags', JSON.stringify([...flags, 'lg-sun-7june-v1']), true); } catch (e) {}
             }
           } catch (e) {}
           setFixtureDetails(parsed);
