@@ -26,7 +26,7 @@ npm install --legacy-peer-deps
 
 # Fail loudly (with a directory listing) if the SPM-referenced packages are
 # missing, so the cause is obvious in the build logs.
-for p in app splash-screen status-bar local-notifications push-notifications; do
+for p in app splash-screen status-bar local-notifications push-notifications filesystem share; do
   if [ ! -d "node_modules/@capacitor/$p" ]; then
     echo "ERROR: node_modules/@capacitor/$p missing after npm install" >&2
     ls -la node_modules/@capacitor 2>/dev/null || echo "(no node_modules/@capacitor at all)"
@@ -37,3 +37,14 @@ done
 # Build the web bundle, then sync web assets + plugin/SPM wiring into iOS.
 npm run build
 npx cap sync ios
+
+# Xcode Cloud archives with automatic Swift Package resolution DISABLED, so an
+# out-of-date Package.resolved fails the build. cap sync may have changed
+# Package.swift (e.g. adding a plugin that pulls in a new transitive package
+# such as ion-ios-filesystem), so regenerate the lockfile here — on a runner
+# that has Xcode — to match Package.swift before the archive step runs.
+APP_PROJ="$PROJECT_DIR/ios/App/App.xcodeproj"
+rm -f "$APP_PROJ/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+xcodebuild -resolvePackageDependencies -project "$APP_PROJ"
+echo "Regenerated Package.resolved:"
+cat "$APP_PROJ/project.xcworkspace/xcshareddata/swiftpm/Package.resolved" 2>/dev/null || echo "(Package.resolved not found after resolve)"
