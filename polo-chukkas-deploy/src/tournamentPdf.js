@@ -617,26 +617,12 @@ export async function generateTournamentPdf(fixture, detail) {
 
 // Deliver the finished PDF to the user. In a browser this is a normal download.
 // In the native app (Capacitor/WKWebView) jsPDF's doc.save() silently fails —
-// WKWebView ignores the <a download> click it relies on — so instead we write
-// the file and present the iOS/Android share sheet (Save to Files, AirDrop,
+// WKWebView ignores the <a download> click it relies on — so instead we hand
+// the file to the OS share sheet via the Web Share API (Save to Files, AirDrop,
 // Mail, …). Web behaviour is left exactly as before.
 async function deliverPdf(doc, filename) {
   const isNative = !!(Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
   if (isNative) {
-    // 1) Preferred: native Filesystem + Share plugins (most reliable on iOS).
-    try {
-      if (Capacitor.isPluginAvailable('Filesystem') && Capacitor.isPluginAvailable('Share')) {
-        const { Filesystem, Directory } = await import('@capacitor/filesystem');
-        const { Share } = await import('@capacitor/share');
-        const base64 = doc.output('datauristring').split(',')[1];
-        const { uri } = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
-        await Share.share({ title: filename, url: uri });
-        return;
-      }
-    } catch (e) { /* fall through to the Web Share / save attempts */ }
-
-    // 2) Fallback: Web Share API with a file (works in some WKWebViews even
-    //    without the native plugins). Returns on success or user-cancel.
     try {
       const blob = doc.output('blob');
       const file = new File([blob], filename, { type: 'application/pdf' });
@@ -644,7 +630,7 @@ async function deliverPdf(doc, filename) {
         try { await navigator.share({ files: [file], title: filename }); } catch (e) { /* user cancelled */ }
         return;
       }
-    } catch (e) { /* fall through */ }
+    } catch (e) { /* fall through to the plain download below */ }
   }
 
   // Browser (desktop or mobile web): normal download — unchanged.
