@@ -69,8 +69,19 @@ const hasResult = (match) =>
             match.scoreB !== null && match.scoreB !== undefined);
 
 // Heading text for a match: "14:45 MEN'S CLUB CHALLENGE III" (time + title).
+// pdfLevel() normalises any unicode minus/dash in the label (e.g. "−2 to 0
+// Goal") to an ASCII hyphen so the standard PDF font renders it.
 const timeLineOf = (m) =>
-  `${m.time || ''}${m.label ? ' ' + m.label.toUpperCase() : ''}`.trim();
+  pdfLevel(`${m.time || ''}${m.label ? ' ' + m.label.toUpperCase() : ''}`);
+
+// Shrink the font size until `text` fits within `maxW` (mm), so long centred
+// titles never spill past the margins. Leaves the chosen size set on `doc`.
+const fitFont = (doc, text, baseSize, maxW, minSize = 9) => {
+  let s = baseSize;
+  doc.setFontSize(s);
+  while (s > minSize && doc.getTextWidth(text) > maxW) { s -= 0.5; doc.setFontSize(s); }
+  return s;
+};
 
 // Add ordinal suffix: 30 → '30th', 1 → '1st'.
 const ordinal = (n) => {
@@ -249,6 +260,24 @@ function measureGroup(g) {
   return h;
 }
 
+// Compact header for the overflow/continuation pages of a day that has too many
+// matches to fit on one page.
+function drawContinuationHeader(doc, fixture, day) {
+  drawCrest(doc, PAGE_W / 2, 18, 16);
+  let y = 40;
+  doc.setFont('times', 'bolditalic');
+  doc.setFontSize(18);
+  doc.setTextColor(...INK);
+  doc.text(ensureLeadingThe(fixture.name), PAGE_W / 2, y, { align: 'center' });
+  y += 7;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...MUTED);
+  doc.text(`${(day.dateLabel || '').toUpperCase()} (CONTINUED)`.trim(), PAGE_W / 2, y, { align: 'center' });
+  doc.setTextColor(...INK);
+  return y + 9;
+}
+
 function drawDayPage(doc, fixture, subtitle, day) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
@@ -302,21 +331,38 @@ function drawDayPage(doc, fixture, subtitle, day) {
     else groups.push({ key, head: timeLineOf(m), matches: [m] });
   });
 
-  // Distribute the groups evenly down the remaining page height so each page
-  // fills nicely instead of bunching at the top with empty space below.
+  // Distribute the groups down the page. If they all fit, space them evenly so
+  // the page fills nicely. If they don't, flow them top-to-bottom and start a
+  // new (continuation) page whenever the next group would run off the bottom —
+  // this is what stops later matches (e.g. a 16:00 game) being lost.
   if (groups.length) {
     const startY = y;
-    // Leave a bottom margin; reserve extra room when a prizegiving line shows.
     const bottomY = day.prizegiving ? PAGE_H - 28 : PAGE_H - 22;
     const sumH = groups.reduce((acc, g) => acc + measureGroup(g), 0);
-    const leftover = (bottomY - startY) - sumH;
-    // Equal whitespace above, between, and below the match blocks.
-    const gap = leftover > 0 ? leftover / (groups.length + 1) : 6;
-    let my = startY + gap;
-    groups.forEach((g) => {
-      my = drawGroup(doc, g, my);
-      my += gap;
-    });
+
+    if ((bottomY - startY) >= sumH) {
+      const leftover = (bottomY - startY) - sumH;
+      const gap = leftover > 0 ? leftover / (groups.length + 1) : 6;
+      let my = startY + gap;
+      groups.forEach((g) => {
+        my = drawGroup(doc, g, my);
+        my += gap;
+      });
+    } else {
+      let my = startY + 4;
+      let firstOnPage = true;
+      groups.forEach((g) => {
+        const gh = measureGroup(g);
+        if (!firstOnPage && my + gh > bottomY) {
+          doc.addPage();
+          my = drawContinuationHeader(doc, fixture, day);
+          firstOnPage = true;
+        }
+        my = drawGroup(doc, g, my);
+        my += 8;
+        firstOnPage = false;
+      });
+    }
   }
 
   // Optional prizegiving label, pinned near the bottom of the page
@@ -337,12 +383,12 @@ function drawDayPage(doc, fixture, subtitle, day) {
 function drawMatch(doc, match, startY) {
   let y = startY;
 
-  // Time (+ optional label) — italic bold, underlined
+  // Time (+ optional label) — italic bold, underlined, normalised + width-fitted
   doc.setFont('times', 'bolditalic');
-  doc.setFontSize(15);
   doc.setTextColor(...INK);
-  const timeLine = `${match.time || ''}${match.label ? ' ' + match.label.toUpperCase() : ''}`.trim();
+  const timeLine = timeLineOf(match);
   if (timeLine) {
+    fitFont(doc, timeLine, 15, PAGE_W - 2 * MARGIN);
     doc.text(timeLine, PAGE_W / 2, y, { align: 'center' });
     underlineCentered(doc, timeLine, PAGE_W / 2, y);
     y += 7;
@@ -422,11 +468,11 @@ function drawGroup(doc, g, startY) {
   if (g.matches.length === 1) return drawMatch(doc, g.matches[0], startY);
   let y = startY;
 
-  // Shared time + title (once), italic bold + underlined
+  // Shared time + title (once), italic bold + underlined, width-fitted
   if (g.head) {
     doc.setFont('times', 'bolditalic');
-    doc.setFontSize(15);
     doc.setTextColor(...INK);
+    fitFont(doc, g.head, 15, PAGE_W - 2 * MARGIN);
     doc.text(g.head, PAGE_W / 2, y, { align: 'center' });
     underlineCentered(doc, g.head, PAGE_W / 2, y);
     y += 7;
