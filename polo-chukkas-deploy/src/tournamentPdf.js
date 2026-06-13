@@ -261,16 +261,17 @@ function measureGroup(g) {
   return h;
 }
 
-// Compact header for the overflow/continuation pages of a day that has too many
-// matches to fit on one page.
+// Header for the overflow/continuation pages of a day that has too many
+// matches to fit on one page. Uses the same crest size/position as the day and
+// rules pages so every page from page 2 onwards has an identical logo.
 function drawContinuationHeader(doc, fixture, day) {
-  drawCrest(doc, PAGE_W / 2, 18, 16);
-  let y = 40;
+  drawCrest(doc, PAGE_W / 2, 35, 38);
+  let y = 65;
   doc.setFont('times', 'bolditalic');
-  doc.setFontSize(18);
+  doc.setFontSize(20);
   doc.setTextColor(...INK);
   doc.text(ensureLeadingThe(fixture.name), PAGE_W / 2, y, { align: 'center' });
-  y += 7;
+  y += 8;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...MUTED);
