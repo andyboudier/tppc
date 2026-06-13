@@ -62,12 +62,44 @@ const fmtHcp = (h) => {
 // the standard PDF fonts (WinAnsi) render the tournament handicap level cleanly.
 const pdfLevel = (s) => (s || '').replace(/[\u2212\u2013\u2014]/g, '-').trim();
 
-// ── Score helper ─────────────────────────────────────────────────────────
+// ── Score helpers ────────────────────────────────────────────────────────
 // A result is shown only if at least one team's score has been entered.
-// The PDF uses the raw scoreA/scoreB exactly as the fixture view displays them.
 const hasResult = (match) =>
   match && (match.scoreA !== null && match.scoreA !== undefined ||
             match.scoreB !== null && match.scoreB !== undefined);
+
+// Chukkas in a match (defaults to 4 when unset) — drives the handicap start.
+const matchChukkas = (match) => {
+  const n = Number(match && match.chukkas);
+  return Number.isFinite(n) && n > 0 ? n : 4;
+};
+
+// Goals on handicap (head start) for a team, per HPA rules: the difference in
+// team handicaps × chukkas ÷ 6, any fraction counted as half a goal, awarded to
+// the lower-handicap team. Mirrors the app's live-scoring / fixture display.
+const pdfHeadStart = (match, teamKey) => {
+  const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
+  const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
+  if (hA === hB) return 0;
+  const units = Math.abs(hA - hB) * matchChukkas(match);
+  const goals = Math.floor(units / 6) + (units % 6 > 0 ? 0.5 : 0);
+  return teamKey === (hA < hB ? 'A' : 'B') ? goals : 0;
+};
+
+// Format a score, showing a trailing half as ½ (1.5 → "1½", 0.5 → "½").
+const fmtScore = (n) => {
+  const v = Number(n) || 0;
+  const whole = Math.floor(v);
+  if (v - whole >= 0.5) return whole === 0 ? '\u00BD' : `${whole}\u00BD`;
+  return String(whole);
+};
+
+// Handicap-adjusted score for a team (raw goals scored + head start).
+const pdfScore = (match, teamKey) =>
+  fmtScore((Number(teamKey === 'A' ? (match && match.scoreA) : (match && match.scoreB)) || 0) + pdfHeadStart(match, teamKey));
+
+// Small "N CHUKKAS" line shown under each match heading.
+const chukkaLabel = (match) => { const n = matchChukkas(match); return `${n} CHUKKA${n === 1 ? '' : 'S'}`; };
 
 // Heading text for a match: "14:45 MEN'S CLUB CHALLENGE III" (time + title).
 // pdfLevel() normalises any unicode minus/dash in the label (e.g. "−2 to 0
@@ -193,6 +225,7 @@ function measureMatch(match) {
   let h = 0;
   const timeLine = `${match.time || ''}${match.label ? ' ' + match.label.toUpperCase() : ''}`.trim();
   if (timeLine) h += 7;            // time line
+  h += 5;                          // chukka count line
   h += 5;                          // "TEAM A V TEAM B"
   if (hasResult(match)) h += 6;    // result score
   let officials = 0;
@@ -246,6 +279,7 @@ function measureGroup(g) {
   if (g.matches.length === 1) return measureMatch(g.matches[0]);
   let h = 0;
   if (g.head) h += 7;                          // shared time + title
+  h += 5;                                       // chukka count line
   h += g.matches.length * 6;                   // one pairing line per match
   h += 1;                                       // pad below pairings
   const offs = uniqueOfficials(g.matches);
@@ -396,6 +430,14 @@ function drawMatch(doc, match, startY) {
     y += 7;
   }
 
+  // Chukka count
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text(chukkaLabel(match), PAGE_W / 2, y, { align: 'center' });
+  doc.setTextColor(...INK);
+  y += 5;
+
   // "TEAM A V TEAM B"
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
@@ -404,13 +446,13 @@ function drawMatch(doc, match, startY) {
   doc.text(`${aName} V ${bName}`, PAGE_W / 2, y, { align: 'center' });
   y += 5;
 
-  // Result — only once a score is entered. Uses the SAME raw score the fixture
-  // view shows (no handicap head start), so the PDF matches the app exactly.
+  // Result — only once a score is entered. Shows the handicap-adjusted score
+  // (goals scored + handicap head start), matching the app's fixture display.
   if (hasResult(match)) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(15);
     doc.setTextColor(...BURGUNDY);
-    doc.text(`${match.scoreA ?? 0} \u2013 ${match.scoreB ?? 0}`, PAGE_W / 2, y, { align: 'center' });
+    doc.text(`${pdfScore(match, 'A')} \u2013 ${pdfScore(match, 'B')}`, PAGE_W / 2, y, { align: 'center' });
     doc.setTextColor(...INK);
     y += 6;
   }
@@ -480,7 +522,15 @@ function drawGroup(doc, g, startY) {
     y += 7;
   }
 
-  // Pairing lines: "TEAM A V TEAM B" (with score appended once played)
+  // Chukka count (one line for the whole round-robin block)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text(chukkaLabel(g.matches[0]), PAGE_W / 2, y, { align: 'center' });
+  doc.setTextColor(...INK);
+  y += 5;
+
+  // Pairing lines: "TEAM A V TEAM B" (with handicap-adjusted score once played)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...INK);
@@ -488,7 +538,7 @@ function drawGroup(doc, g, startY) {
     const a = (m.teamA?.name || 'TBC').toUpperCase();
     const b = (m.teamB?.name || 'TBC').toUpperCase();
     let line = `${a} V ${b}`;
-    if (hasResult(m)) line += `  ${m.scoreA ?? 0} \u2013 ${m.scoreB ?? 0}`;
+    if (hasResult(m)) line += `  ${pdfScore(m, 'A')} \u2013 ${pdfScore(m, 'B')}`;
     doc.text(line, PAGE_W / 2, y, { align: 'center' });
     y += 6;
   });
