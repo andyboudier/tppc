@@ -770,6 +770,41 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [liveMatchId, setLiveMatchId] = useState(null);
   const [liveDate, setLiveDate] = useState(null);
 
+  // On first open of the Live Game tab, auto-select today's date — and the
+  // tournament too if only one runs today — so the live game is right there
+  // without hunting through the dropdowns. Only fires once, and never overrides
+  // a selection that's already been made.
+  const liveAutoPickedRef = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'live' || liveAutoPickedRef.current) return;
+    if (liveDate) { liveAutoPickedRef.current = true; return; }
+    const now = new Date();
+    const dom = now.getDate();
+    const monthName = now.toLocaleString('en-GB', { month: 'long' }).toLowerCase();
+    const yr = now.getFullYear();
+    const dayRe = new RegExp('\\b' + dom + '(st|nd|rd|th)?\\b');
+    const matchesToday = (label) => {
+      if (!label) return false;
+      const l = String(label).toLowerCase();
+      if (!dayRe.test(l) || !l.includes(monthName)) return false;
+      const ym = l.match(/\b(20\d{2})\b/);
+      return !ym || Number(ym[1]) === yr;
+    };
+    const daysWithMatches = (fid) => ((fixtureDetails[fid] && fixtureDetails[fid].days) || []).filter(d => (d.matches || []).length > 0);
+    const todayLabel = Array.from(new Set(
+      Object.keys(fixtureDetails).flatMap(fid => daysWithMatches(fid).map(d => d.dateLabel).filter(Boolean))
+    )).find(matchesToday);
+    if (!todayLabel) return; // nothing scheduled today yet — retry if data loads
+    liveAutoPickedRef.current = true;
+    setLiveDate(todayLabel);
+    const fids = Object.keys(fixtureDetails).filter(fid => daysWithMatches(fid).some(d => d.dateLabel === todayLabel));
+    if (fids.length === 1) {
+      setLiveFixtureId(fids[0]);
+      const day = (fixtureDetails[fids[0]].days || []).find(d => d.dateLabel === todayLabel);
+      setLiveDayId(day ? day.id : null);
+    }
+  }, [activeTab, fixtureDetails, liveDate]);
+
   const [loaded, setLoaded] = useState(false);
   const scheduleRef = useRef(null);
 
