@@ -5062,11 +5062,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                   {match.teamA?.name || 'TBC'} V {match.teamB?.name || 'TBC'}
                                                 </div>
                                               )}
-                                                {(match.scoreA != null || match.scoreB != null) && (
-                                                  <div style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px', margin: '1px 0 3px', color: 'var(--burgundy)' }}>
-                                                    {match.scoreA ?? 0} &ndash; {match.scoreB ?? 0}
-                                                  </div>
-                                                )}
+                                                {(match.scoreA != null || match.scoreB != null) && (() => {
+                                                  const hsA = liveHeadStart(match, 'A');
+                                                  const hsB = liveHeadStart(match, 'B');
+                                                  const note = hsA > 0 ? `incl. +${fmtHalf(hsA)} on handicap to ${match.teamA?.name || 'Team A'}`
+                                                             : hsB > 0 ? `incl. +${fmtHalf(hsB)} on handicap to ${match.teamB?.name || 'Team B'}`
+                                                             : '';
+                                                  return (
+                                                    <>
+                                                      <div style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px', margin: '1px 0 2px', color: 'var(--burgundy)' }}>
+                                                        {liveDisplayScore(match, 'A')} &ndash; {liveDisplayScore(match, 'B')}
+                                                      </div>
+                                                      {note && (
+                                                        <div style={{ fontSize: '9px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '3px' }}>{note}</div>
+                                                      )}
+                                                    </>
+                                                  );
+                                                })()}
                                               {match.umpires && (
                                                 <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Umpires: {match.umpires}</div>
                                               )}
@@ -5224,9 +5236,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               {(day.matches || []).map((match, mi) => (
                                                 <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
-                                                    <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '80px', padding: '5px 7px', fontSize: '12px' }} />
-                                                    <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '48px', padding: '5px 5px', fontSize: '12px', textAlign: 'center' }} />
-                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
+                                                    <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '52px', padding: '5px 4px', fontSize: '11px', textAlign: 'center' }} />
+                                                    <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '34px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
+                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '6px 8px', fontSize: '15px', fontWeight: 600 }} />
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
                                                   <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
@@ -5261,7 +5273,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                                 }}
                                                                 onFocus={() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: true}))}
                                                                 onBlur={() => setTimeout(() => updTeam(di, mi, tk, t => ({...t, _teamSugOpen: false})), 150)}
-                                                                style={{ width: '100%', padding: '4px 6px', fontSize: '11px', boxSizing: 'border-box' }}
+                                                                style={{ width: '100%', padding: '6px 8px', fontSize: '13px', boxSizing: 'border-box' }}
                                                               />
                                                               {team._teamSugOpen && (() => {
                                                                 const q = (team.name || '').trim().toLowerCase();
@@ -5301,13 +5313,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                                 );
                                                               })()}
                                                             </div>
-                                                            <input className="input-field" placeholder="HCP" type="number" value={team.handicap !== null && team.handicap !== undefined ? team.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)}))} style={{ width: '48px', padding: '4px 5px', fontSize: '11px' }} />
+                                                            <input className="input-field" placeholder="HCP" type="number" value={team.handicap !== null && team.handicap !== undefined ? team.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)}))} style={{ width: '34px', padding: '4px 2px', fontSize: '10px', textAlign: 'center' }} />
                                                           </div>
                                                           {(team.players || []).map((pl, pi) => (
-                                                            <div key={pi} style={{ display: 'flex', gap: '3px', marginBottom: '2px' }}>
-                                                              <input className="input-field" placeholder="Name" value={pl.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, name: e.target.value} : p)}))} style={{ flex: 1, padding: '3px 5px', fontSize: '10px' }} />
-                                                              <input className="input-field" placeholder="HCP" type="number" value={pl.handicap !== null && pl.handicap !== undefined ? pl.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)} : p)}))} style={{ width: '44px', padding: '3px 5px', fontSize: '10px' }} />
-                                                              <input className="input-field" placeholder="G" type="number" step="0.5" value={pl.goals !== null && pl.goals !== undefined ? pl.goals : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, goals: e.target.value === '' ? null : parseFloat(e.target.value, 10)} : p)}))} style={{ width: '44px', padding: '3px 5px', fontSize: '10px' }} />
+                                                            <div key={pi} style={{ display: 'flex', gap: '2px', marginBottom: '2px' }}>
+                                                              <input className="input-field" placeholder="Name" value={pl.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, name: e.target.value} : p)}))} style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: '12px' }} />
+                                                              <input className="input-field" placeholder="HCP" type="number" value={pl.handicap !== null && pl.handicap !== undefined ? pl.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)} : p)}))} style={{ width: '28px', padding: '4px 1px', fontSize: '10px', textAlign: 'center' }} />
+                                                              <input className="input-field" placeholder="G" type="number" step="0.5" value={pl.goals !== null && pl.goals !== undefined ? pl.goals : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, goals: e.target.value === '' ? null : parseFloat(e.target.value, 10)} : p)}))} style={{ width: '28px', padding: '4px 1px', fontSize: '10px', textAlign: 'center' }} />
                                                               <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: t.players.filter((_,i) => i!==pi)}))} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', cursor: 'pointer', lineHeight: 1, padding: '0 1px' }}>×</button>
                                                             </div>
                                                           ))}
