@@ -1315,6 +1315,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const add = (nm, handicap, mobile) => {
       const name = (nm || '').trim();
       if (!name || name.toUpperCase() === 'TBC') return;
+      if (name.includes('/')) return; // skip combined entries like "Jo Wells/Lucy Sleeman" (two players)
       const key = name.toLowerCase();
       const cur = found.get(key) || { name, handicap: null, mobile: '' };
       if ((cur.handicap == null) && handicap != null && handicap !== '') cur.handicap = handicap;
@@ -3971,7 +3972,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
           {/* Shared quick-add list of registered players (chukkas + tournaments) */}
           <datalist id="playerdb-names">
-            {playerDb.filter(p => p.active !== false).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => <option key={p.id} value={p.name} />)}
+            {playerDb.filter(p => p.active !== false && !(p.name || '').includes('/')).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => <option key={p.id} value={p.name} />)}
           </datalist>
 
           {/* ─── DAY CHUKKAS TABS (Wed/Thu/Sat/Sun) ─── */}
@@ -5317,7 +5318,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                           </div>
                                                           {(team.players || []).map((pl, pi) => (
                                                             <div key={pi} style={{ display: 'flex', gap: '2px', marginBottom: '2px' }}>
-                                                              <input className="input-field" placeholder="Name" value={pl.name || ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, name: e.target.value} : p)}))} style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: '12px' }} />
+                                                              <input className="input-field" list="playerdb-names" placeholder="Name" value={pl.name || ''} onChange={e => { const v = e.target.value; const rec = !v.includes('/') ? playerDb.find(x => (x.name || '').trim().toLowerCase() === v.trim().toLowerCase()) : null; updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, name: v, ...(rec && rec.handicap != null ? { handicap: rec.handicap } : {})} : p)})); }} style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: '12px' }} />
                                                               <input className="input-field" placeholder="HCP" type="number" value={pl.handicap !== null && pl.handicap !== undefined ? pl.handicap : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, handicap: e.target.value === '' ? null : parseInt(e.target.value, 10)} : p)}))} style={{ width: '28px', padding: '4px 1px', fontSize: '10px', textAlign: 'center' }} />
                                                               <input className="input-field" placeholder="G" type="number" step="0.5" value={pl.goals !== null && pl.goals !== undefined ? pl.goals : ''} onChange={e => updTeam(di, mi, tk, t => ({...t, players: t.players.map((p,i) => i===pi ? {...p, goals: e.target.value === '' ? null : parseFloat(e.target.value, 10)} : p)}))} style={{ width: '28px', padding: '4px 1px', fontSize: '10px', textAlign: 'center' }} />
                                                               <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: t.players.filter((_,i) => i!==pi)}))} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', cursor: 'pointer', lineHeight: 1, padding: '0 1px' }}>×</button>
