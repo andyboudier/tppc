@@ -160,6 +160,21 @@ const buildDateSubtitle = (fixture) => {
 
 const ensureLeadingThe = (s) => /^the\b/i.test(s) ? s : 'The ' + s;
 
+// One date for a single day, e.g. "17th June 2026" — taken from the day's
+// dateLabel (weekday stripped) with the year from the fixture.
+const daySingleDate = (day, fixture) => {
+  const label = ((day && day.dateLabel) || '').trim();
+  const year = (buildDateSubtitle(fixture).match(/\b(20\d\d)\b/) || [])[1] || '2026';
+  const num = label.match(/\b(\d{1,2})\b/);
+  const mon = label.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i);
+  if (num && mon) {
+    const m = mon[1].charAt(0).toUpperCase() + mon[1].slice(1).toLowerCase();
+    return `${ordinal(Number(num[1]))} ${m} ${year}`;
+  }
+  const s = label.replace(/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b[\s,]*/i, '');
+  return year && !s.includes(year) ? `${s} ${year}`.trim() : s;
+};
+
 const sanitizeFilename = (s) =>
   s.replace(/[^a-zA-Z0-9 &.-]/g, '').replace(/\s+/g, '_').slice(0, 80);
 
@@ -192,7 +207,7 @@ function underlineCentered(doc, text, cx, baselineY, gap = 0.8) {
 
 function drawCoverPage(doc, fixture, subtitle) {
   // Crest large, near upper third
-  drawCrest(doc, PAGE_W / 2, 95, 80);
+  drawCrest(doc, PAGE_W / 2, 95, 90);
 
   // Title stacked: "The" / "<name>" — italic, ink colour, large
   doc.setFont('Jost', 'bolditalic');
@@ -206,10 +221,10 @@ function drawCoverPage(doc, fixture, subtitle) {
   const first = words[0]; // 'The'
   const restWords = words.slice(1);
 
-  doc.setFontSize(42);
-  let y = 195;
+  doc.setFontSize(48);
+  let y = 190;
   doc.text(first, PAGE_W / 2, y, { align: 'center' });
-  y += 22;
+  y += 24;
 
   // Greedy line-break the remaining words
   const maxLineWidthMm = PAGE_W - 2 * MARGIN;
@@ -228,13 +243,13 @@ function drawCoverPage(doc, fixture, subtitle) {
 
   lines.forEach((line) => {
     doc.text(line, PAGE_W / 2, y, { align: 'center' });
-    y += 20;
+    y += 22;
   });
 
   // Tournament handicap level (e.g. "−4 to 0 Goal")
   if (fixture.level && fixture.level.trim()) {
     doc.setFont('Jost', 'italic');
-    doc.setFontSize(18);
+    doc.setFontSize(22);
     doc.setTextColor(...BURGUNDY);
     doc.text(pdfLevel(fixture.level), PAGE_W / 2, y + 1, { align: 'center' });
   }
@@ -330,7 +345,7 @@ function drawContinuationHeader(doc, fixture, day) {
   doc.setFont('Jost', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...MUTED);
-  doc.text(`${(day.dateLabel || '').toUpperCase()} (CONTINUED)`.trim(), PAGE_W / 2, y, { align: 'center' });
+  doc.text(`${daySingleDate(day, fixture)} (CONTINUED)`.trim().toUpperCase(), PAGE_W / 2, y, { align: 'center' });
   doc.setTextColor(...INK);
   return y + 9;
 }
@@ -341,40 +356,40 @@ function drawDayPage(doc, fixture, subtitle, day) {
 
   let y = 65;
 
-  // Tournament title (italic), then date subtitle
+  // Header: tournament name, level, the single date for this day, then ground —
+  // each on its own line.
   doc.setFont('Jost', 'bolditalic');
-  doc.setFontSize(26);
+  fitFont(doc, ensureLeadingThe(fixture.name), 26, PAGE_W - 2 * MARGIN);
   doc.setTextColor(...INK);
   doc.text(ensureLeadingThe(fixture.name), PAGE_W / 2, y, { align: 'center' });
-  y += 9;
+  y += 10;
 
-  doc.setFontSize(16);
-  doc.text(subtitle, PAGE_W / 2, y, { align: 'center' });
-  y += 8;
-
-  // Tournament handicap level
+  // Level (e.g. "Open Military")
   if (fixture.level && fixture.level.trim()) {
     doc.setFont('Jost', 'italic');
-    doc.setFontSize(13);
+    doc.setFontSize(15);
     doc.setTextColor(...BURGUNDY);
     doc.text(pdfLevel(fixture.level), PAGE_W / 2, y, { align: 'center' });
-    y += 7;
-  } else {
-    y += 6;
+    y += 8;
   }
 
-  // Day label (e.g. "SATURDAY 30TH MAY")
-  doc.setFont('Jost', 'bold');
-  doc.setFontSize(17);
-  doc.text((day.dateLabel || '').toUpperCase(), PAGE_W / 2, y, { align: 'center' });
-  y += 7;
-
-  // Ground
-  if (day.ground) {
-    doc.setFont('Jost', 'normal');
-    doc.setFontSize(14);
-    doc.text(day.ground.toUpperCase(), PAGE_W / 2, y, { align: 'center' });
+  // Single date for this day (e.g. "17th June 2026")
+  const oneDate = daySingleDate(day, fixture);
+  if (oneDate) {
+    doc.setFont('Jost', 'italic');
+    doc.setFontSize(15);
+    doc.setTextColor(...INK);
+    doc.text(oneDate, PAGE_W / 2, y, { align: 'center' });
     y += 8;
+  }
+
+  // Ground (e.g. "TATTOO GROUND")
+  if (day.ground) {
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(...INK);
+    doc.text(day.ground.toUpperCase(), PAGE_W / 2, y, { align: 'center' });
+    y += 9;
   }
 
   // Group consecutive matches that share the SAME time and title into one block
