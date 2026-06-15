@@ -373,14 +373,14 @@ function drawDayPage(doc, fixture, subtitle, day) {
     y += 8;
   }
 
-  // Single date for this day (e.g. "17th June 2026")
+  // Single date for this day (e.g. "17th June 2026") — bold + larger
   const oneDate = daySingleDate(day, fixture);
   if (oneDate) {
-    doc.setFont('Jost', 'italic');
-    doc.setFontSize(15);
+    doc.setFont('Jost', 'bolditalic');
+    doc.setFontSize(20);
     doc.setTextColor(...INK);
     doc.text(oneDate, PAGE_W / 2, y, { align: 'center' });
-    y += 8;
+    y += 10;
   }
 
   // Ground (e.g. "TATTOO GROUND")
