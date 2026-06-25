@@ -52,6 +52,17 @@ const FIXTURES_2026 = [
 
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// Parse a day label like "Saturday 30th May" (year 2026 implied; explicit year honoured)
+// into a sortable timestamp so date dropdowns can be ordered chronologically.
+const dayLabelTime = (label) => {
+  if (!label) return -Infinity;
+  const l = String(label).toLowerCase();
+  const dayM = l.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+  const day = dayM ? parseInt(dayM[1], 10) : 1;
+  const mi = ALL_MONTHS.findIndex(m => l.includes(m.toLowerCase()));
+  const yrM = l.match(/\b(20\d{2})\b/);
+  return new Date(yrM ? parseInt(yrM[1], 10) : 2026, mi >= 0 ? mi : 0, day).getTime();
+};
 const HANDICAP_OPTIONS = [-2, -1, 0, 1, 2, 3, 4];
 // Team (aggregate) handicaps run higher than individual player handicaps — up to 12-goal.
 const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -5647,7 +5658,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
                         <select value={liveDate || ''} onChange={e => { setLiveDate(e.target.value || null); setLiveFixtureId(null); setLiveDayId(null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select date…</option>
-                          {Array.from(new Set(Object.keys(fixtureDetails).flatMap(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).map(d => d.dateLabel).filter(Boolean)))).map(dl => <option key={dl} value={dl}>{dl}</option>)}
+                          {Array.from(new Set(Object.keys(fixtureDetails).flatMap(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).map(d => d.dateLabel).filter(Boolean)))).sort((a, b) => dayLabelTime(b) - dayLabelTime(a)).map(dl => <option key={dl} value={dl}>{dl}</option>)}
                         </select>
                         <select value={liveFixtureId || ''} disabled={!liveDate} onChange={e => { const fid = e.target.value || null; setLiveFixtureId(fid); const fx = fid ? fixtureDetails[fid] : null; const day = fx ? (fx.days || []).find(d => d.dateLabel === liveDate) : null; setLiveDayId(day ? day.id : null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '180px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select tournament…</option>
