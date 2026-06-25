@@ -1,4 +1,5 @@
 #!/bin/sh
+# build trigger: 2026-06-25 — nudge a fresh Xcode Cloud build (no functional change)
 # Xcode Cloud post-clone: install JS deps so the Capacitor Swift packages
 # (referenced by CapApp-SPM/Package.swift at ../../../node_modules/@capacitor/*)
 # exist before Xcode resolves Swift Package dependencies.
