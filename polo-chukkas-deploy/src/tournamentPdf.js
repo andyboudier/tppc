@@ -439,26 +439,25 @@ function drawDayPage(doc, fixture, subtitle, day) {
     return my + PRIZE_H;
   };
 
-  // Distribute the timeline down the page. If it all fits, space evenly so the
-  // page fills nicely. If not, flow top-to-bottom and start a continuation page
-  // whenever the next item would run off the bottom (stops later items being lost).
-  if (items.length) {
-    const startY = y;
+  // Lay out one session (a run of items) down a page: if it fits, space evenly so
+  // the page fills nicely; if not, flow top-to-bottom onto continuation pages so
+  // later items are never lost.
+  const flowSegment = (segItems, startY) => {
+    if (!segItems.length) return;
     const bottomY = PAGE_H - 22;
-    const sumH = items.reduce((acc, it) => acc + measureItem(it), 0);
-
+    const sumH = segItems.reduce((acc, it) => acc + measureItem(it), 0);
     if ((bottomY - startY) >= sumH) {
       const leftover = (bottomY - startY) - sumH;
-      const gap = leftover > 0 ? leftover / (items.length + 1) : 6;
+      const gap = leftover > 0 ? leftover / (segItems.length + 1) : 6;
       let my = startY + gap;
-      items.forEach((it) => {
+      segItems.forEach((it) => {
         my = drawItem(doc, it, my);
         my += gap;
       });
     } else {
       let my = startY + 4;
       let firstOnPage = true;
-      items.forEach((it) => {
+      segItems.forEach((it) => {
         const ih = measureItem(it);
         if (!firstOnPage && my + ih > bottomY) {
           doc.addPage();
@@ -469,6 +468,28 @@ function drawDayPage(doc, fixture, subtitle, day) {
         my += 8;
         firstOnPage = false;
       });
+    }
+  };
+
+  if (items.length) {
+    const pgCount = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0);
+    if (pgCount >= 2) {
+      // More than one prizegiving: split the day into sessions, each ending at a
+      // prizegiving, and start every session after the first on a fresh page.
+      const segments = [];
+      let cur = [];
+      items.forEach((it, idx) => {
+        cur.push(it);
+        if (it.kind === 'prize' && idx < items.length - 1) { segments.push(cur); cur = []; }
+      });
+      if (cur.length) segments.push(cur);
+      segments.forEach((seg, si) => {
+        let sy = y;
+        if (si > 0) { doc.addPage(); sy = drawContinuationHeader(doc, fixture, day); }
+        flowSegment(seg, sy);
+      });
+    } else {
+      flowSegment(items, y);
     }
   }
 }
