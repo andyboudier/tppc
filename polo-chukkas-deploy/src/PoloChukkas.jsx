@@ -5063,7 +5063,33 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                           <div style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink)', marginBottom: '2px' }}>{day.dateLabel}</div>
                                           {day.ground && <div style={{ fontSize: '12px', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--muted)' }}>{day.ground}</div>}
                                         </div>
-                                        {(day.matches || []).map((match, mi) => (
+                                        {(() => {
+                                          const tmin = (raw) => {
+                                            if (!raw || typeof raw !== 'string') return 1e9;
+                                            const m = raw.trim().toLowerCase().match(/(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/);
+                                            if (!m) return 1e9;
+                                            let h = parseInt(m[1], 10); const mn = m[2] ? parseInt(m[2], 10) : 0; const ap = m[3];
+                                            if (ap === 'pm' && h < 12) h += 12;
+                                            if (ap === 'am' && h === 12) h = 0;
+                                            return h * 60 + mn;
+                                          };
+                                          const sched = [];
+                                          (day.matches || []).forEach((match, mi) => sched.push({ kind: 'match', t: tmin(match.time), match, mi }));
+                                          [day.prizegiving, day.prizegiving2].forEach((pg, pi) => { if (pg) sched.push({ kind: 'prize', t: tmin(typeof pg === 'string' ? pg : ''), val: pg, pi }); });
+                                          sched.forEach((it, i) => { it._i = i; });
+                                          sched.sort((a, b) => a.t !== b.t ? a.t - b.t : a._i - b._i);
+                                          return sched.map((it) => {
+                                            if (it.kind === 'prize') {
+                                              return (
+                                                <div key={'pg' + it.pi} style={{ textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
+                                                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '14px', textDecoration: 'underline', letterSpacing: '1px', color: 'var(--ink)', textTransform: 'uppercase' }}>
+                                                    {typeof it.val === 'string' && it.val.trim() ? `${it.val} · Prizegiving` : 'Prizegiving'}
+                                                  </div>
+                                                </div>
+                                              );
+                                            }
+                                            const match = it.match, mi = it.mi;
+                                            return (
                                           <div key={mi} style={{ marginBottom: '14px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
                                             <div style={{ textAlign: 'center', marginBottom: '8px' }}>
                                               <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: '17px', textDecoration: 'underline', color: 'var(--ink)' }}>
@@ -5121,14 +5147,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               <div style={{ fontSize: '10px', color: 'var(--muted)', textAlign: 'center', marginTop: '8px', fontStyle: 'italic', lineHeight: 1.5 }}>{match.notes}</div>
                                             )}
                                           </div>
-                                        ))}
-                                        {day.prizegiving && (
-                                          <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
-                                            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '14px', textDecoration: 'underline', letterSpacing: '1px', color: 'var(--ink)', textTransform: 'uppercase' }}>
-                                              {typeof day.prizegiving === 'string' && day.prizegiving.trim() ? `${day.prizegiving} · Prizegiving` : 'Prizegiving'}
-                                            </div>
-                                          </div>
-                                        )}
+                                              );
+                                            });
+                                        })()}
                                         {captainMode && det && (
                                           <button
                                             onClick={async () => {
@@ -5243,6 +5264,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                 </label>
                                                 {!!day.prizegiving && (
                                                   <input className="input-field" placeholder="Time e.g. 14:00 (optional)" value={typeof day.prizegiving === 'string' ? day.prizegiving : ''} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
+                                                )}
+                                              </div>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
+                                                  <input type="checkbox" checked={!!day.prizegiving2} onChange={e => updDay(di, d => ({...d, prizegiving2: e.target.checked ? (typeof d.prizegiving2 === 'string' && d.prizegiving2.trim() ? d.prizegiving2 : true) : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
+                                                  2nd prizegiving
+                                                </label>
+                                                {!!day.prizegiving2 && (
+                                                  <input className="input-field" placeholder="Time e.g. 15:00 (optional)" value={typeof day.prizegiving2 === 'string' ? day.prizegiving2 : ''} onChange={e => updDay(di, d => ({...d, prizegiving2: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
                                                 )}
                                               </div>
                                               {(day.matches || []).map((match, mi) => (
