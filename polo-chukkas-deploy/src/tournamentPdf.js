@@ -350,6 +350,17 @@ function drawContinuationHeader(doc, fixture, day) {
   return y + 9;
 }
 
+// Parse a prizegiving time label ("15:00", "3pm", "3.30pm") to minutes, for ordering.
+function pgTime(raw) {
+  if (!raw || typeof raw !== 'string') return 1e9;
+  const m = raw.trim().toLowerCase().match(/(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/);
+  if (!m) return 1e9;
+  let h = parseInt(m[1], 10); const mn = m[2] ? parseInt(m[2], 10) : 0; const ap = m[3];
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  return h * 60 + mn;
+}
+
 function drawDayPage(doc, fixture, subtitle, day) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
@@ -409,7 +420,8 @@ function drawDayPage(doc, fixture, subtitle, day) {
   // this is what stops later matches (e.g. a 16:00 game) being lost.
   if (groups.length) {
     const startY = y;
-    const bottomY = day.prizegiving ? PAGE_H - 28 : PAGE_H - 22;
+    const pgN = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0);
+    const bottomY = PAGE_H - 22 - (pgN > 0 ? 6 + (pgN - 1) * 7 : 0);
     const sumH = groups.reduce((acc, g) => acc + measureGroup(g), 0);
 
     if ((bottomY - startY) >= sumH) {
@@ -439,16 +451,25 @@ function drawDayPage(doc, fixture, subtitle, day) {
 
   // Optional prizegiving label, pinned near the bottom of the page
 
-  if (day.prizegiving) {
+  // Prizegiving label(s), pinned near the bottom of the page, earliest time first.
+  const pgList = [day.prizegiving, day.prizegiving2]
+    .filter(Boolean)
+    .map((pg) => ({ pg, t: pgTime(pg) }))
+    .sort((a, b) => a.t - b.t);
+  if (pgList.length) {
     doc.setFont('Jost', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(...INK);
-    const label = (typeof day.prizegiving === 'string' && day.prizegiving.trim())
-      ? `${day.prizegiving.trim()} · PRIZEGIVING`
-      : 'PRIZEGIVING';
-    const py = PAGE_H - 16;
-    doc.text(label, PAGE_W / 2, py, { align: 'center' });
-    underlineCentered(doc, label, PAGE_W / 2, py);
+    const lineGap = 7;
+    let py = PAGE_H - 16 - (pgList.length - 1) * lineGap;
+    pgList.forEach(({ pg }) => {
+      const label = (typeof pg === 'string' && pg.trim())
+        ? `${pg.trim()} · PRIZEGIVING`
+        : 'PRIZEGIVING';
+      doc.text(label, PAGE_W / 2, py, { align: 'center' });
+      underlineCentered(doc, label, PAGE_W / 2, py);
+      py += lineGap;
+    });
   }
 }
 
