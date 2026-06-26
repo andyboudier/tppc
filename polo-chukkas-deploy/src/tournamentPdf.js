@@ -414,62 +414,62 @@ function drawDayPage(doc, fixture, subtitle, day) {
     else groups.push({ key, head: timeLineOf(m), matches: [m] });
   });
 
-  // Distribute the groups down the page. If they all fit, space them evenly so
-  // the page fills nicely. If they don't, flow them top-to-bottom and start a
-  // new (continuation) page whenever the next group would run off the bottom —
-  // this is what stops later matches (e.g. a 16:00 game) being lost.
-  if (groups.length) {
+  // Merge match groups and prizegivings into one timeline, ordered by time of day,
+  // so the programme reads top-to-bottom in time order (e.g. game, prizegiving,
+  // games, prizegiving) — matching the on-screen Fixtures view.
+  const items = [];
+  groups.forEach((g, i) => items.push({ kind: 'group', t: pgTime(g.matches[0] && g.matches[0].time), ord: i, g }));
+  [day.prizegiving, day.prizegiving2].forEach((pg, i) => {
+    if (pg) items.push({ kind: 'prize', t: pgTime(typeof pg === 'string' ? pg : ''), ord: 1000 + i, pg });
+  });
+  items.sort((a, b) => a.t !== b.t ? a.t - b.t : a.ord - b.ord);
+
+  const PRIZE_H = 9;
+  const measureItem = (it) => it.kind === 'prize' ? PRIZE_H : measureGroup(it.g);
+  const drawItem = (d, it, my) => {
+    if (it.kind !== 'prize') return drawGroup(d, it.g, my);
+    d.setFont('Jost', 'bold');
+    d.setFontSize(13);
+    d.setTextColor(...INK);
+    const label = (typeof it.pg === 'string' && it.pg.trim())
+      ? `${it.pg.trim()} · PRIZEGIVING`
+      : 'PRIZEGIVING';
+    d.text(label, PAGE_W / 2, my + 5, { align: 'center' });
+    underlineCentered(d, label, PAGE_W / 2, my + 5);
+    return my + PRIZE_H;
+  };
+
+  // Distribute the timeline down the page. If it all fits, space evenly so the
+  // page fills nicely. If not, flow top-to-bottom and start a continuation page
+  // whenever the next item would run off the bottom (stops later items being lost).
+  if (items.length) {
     const startY = y;
-    const pgN = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0);
-    const bottomY = PAGE_H - 22 - (pgN > 0 ? 6 + (pgN - 1) * 7 : 0);
-    const sumH = groups.reduce((acc, g) => acc + measureGroup(g), 0);
+    const bottomY = PAGE_H - 22;
+    const sumH = items.reduce((acc, it) => acc + measureItem(it), 0);
 
     if ((bottomY - startY) >= sumH) {
       const leftover = (bottomY - startY) - sumH;
-      const gap = leftover > 0 ? leftover / (groups.length + 1) : 6;
+      const gap = leftover > 0 ? leftover / (items.length + 1) : 6;
       let my = startY + gap;
-      groups.forEach((g) => {
-        my = drawGroup(doc, g, my);
+      items.forEach((it) => {
+        my = drawItem(doc, it, my);
         my += gap;
       });
     } else {
       let my = startY + 4;
       let firstOnPage = true;
-      groups.forEach((g) => {
-        const gh = measureGroup(g);
-        if (!firstOnPage && my + gh > bottomY) {
+      items.forEach((it) => {
+        const ih = measureItem(it);
+        if (!firstOnPage && my + ih > bottomY) {
           doc.addPage();
           my = drawContinuationHeader(doc, fixture, day);
           firstOnPage = true;
         }
-        my = drawGroup(doc, g, my);
+        my = drawItem(doc, it, my);
         my += 8;
         firstOnPage = false;
       });
     }
-  }
-
-  // Optional prizegiving label, pinned near the bottom of the page
-
-  // Prizegiving label(s), pinned near the bottom of the page, earliest time first.
-  const pgList = [day.prizegiving, day.prizegiving2]
-    .filter(Boolean)
-    .map((pg) => ({ pg, t: pgTime(pg) }))
-    .sort((a, b) => a.t - b.t);
-  if (pgList.length) {
-    doc.setFont('Jost', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(...INK);
-    const lineGap = 7;
-    let py = PAGE_H - 16 - (pgList.length - 1) * lineGap;
-    pgList.forEach(({ pg }) => {
-      const label = (typeof pg === 'string' && pg.trim())
-        ? `${pg.trim()} · PRIZEGIVING`
-        : 'PRIZEGIVING';
-      doc.text(label, PAGE_W / 2, py, { align: 'center' });
-      underlineCentered(doc, label, PAGE_W / 2, py);
-      py += lineGap;
-    });
   }
 }
 
