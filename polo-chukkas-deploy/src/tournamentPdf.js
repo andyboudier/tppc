@@ -257,11 +257,11 @@ function drawCoverPage(doc, fixture, subtitle) {
 
 // Vertical height (mm) a match block consumes. Mirrors the y-advances in
 // drawMatch exactly, so drawDayPage can space matches evenly down the page.
-function measureMatch(match) {
+function measureMatch(match, hideChukkas) {
   let h = 0;
   const timeLine = `${match.time || ''}${match.label ? ' ' + match.label.toUpperCase() : ''}`.trim();
   if (timeLine) h += 7;            // time line
-  h += 5;                          // chukka count line
+  if (!hideChukkas) h += 5;        // chukka count line
   h += 5;                          // "TEAM A V TEAM B"
   if (hasResult(match)) h += 6;    // result score
   let officials = 0;
@@ -311,11 +311,11 @@ function uniqueTeams(matches) {
 // Height (mm) of a group: a lone match is just measureMatch; a multi-match
 // group prints one heading, the pairing lines, shared officials, then each
 // distinct team's roster two-per-row. Mirrors drawGroup exactly.
-function measureGroup(g) {
-  if (g.matches.length === 1) return measureMatch(g.matches[0]);
+function measureGroup(g, hideChukkas) {
+  if (g.matches.length === 1) return measureMatch(g.matches[0], hideChukkas);
   let h = 0;
   if (g.head) h += 7;                          // shared time + title
-  h += 5;                                       // chukka count line
+  if (!hideChukkas) h += 5;                     // chukka count line
   h += g.matches.length * 6;                   // one pairing line per match
   h += 1;                                       // pad below pairings
   const offs = uniqueOfficials(g.matches);
@@ -469,7 +469,84 @@ function drawChukkaTable(doc, schedule, startY, ground) {
   return y;
 }
 
-function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
+// Results summary page(s): every game across the given days with the winning
+// team's name highlighted, and no chukka information. Flows onto extra pages if
+// there are a lot of games. Scores are the handicap-adjusted finals (matching the
+// fixtures view); unplayed games show "v" with no winner.
+function drawResultsSummaryPage(doc, fixture, days) {
+  const bottomY = PAGE_H - 22;
+  const header = (continued) => {
+    drawCrest(doc, PAGE_W / 2, 35, 38);
+    let yy = 65;
+    doc.setFont('Jost', 'bolditalic');
+    doc.setFontSize(20);
+    doc.setTextColor(...INK);
+    doc.text(ensureLeadingThe(fixture.name), PAGE_W / 2, yy, { align: 'center' });
+    yy += 9;
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(...BURGUNDY);
+    doc.text(continued ? 'RESULTS (CONTINUED)' : 'RESULTS', PAGE_W / 2, yy, { align: 'center' });
+    doc.setTextColor(...INK);
+    return yy + 11;
+  };
+  let y = header(false);
+  const need = (h) => { if (y + h > bottomY) { doc.addPage(); y = header(true); } };
+
+  (days || []).forEach((day) => {
+    const games = day.matches || [];
+    if (!games.length) return;
+
+    // Day heading
+    need(13);
+    doc.setFont('Jost', 'bolditalic');
+    doc.setFontSize(14);
+    doc.setTextColor(...INK);
+    const dlabel = daySingleDate(day, fixture) || day.dateLabel || '';
+    doc.text(dlabel, PAGE_W / 2, y, { align: 'center' });
+    underlineCentered(doc, dlabel, PAGE_W / 2, y);
+    y += 9;
+
+    games.forEach((m) => {
+      need(13);
+      const aName = (m.teamA?.name || 'TBC').toUpperCase();
+      const bName = (m.teamB?.name || 'TBC').toUpperCase();
+      const played = hasResult(m);
+      const sa = played ? pdfScore(m, 'A') : null;
+      const sb = played ? pdfScore(m, 'B') : null;
+      const aWin = played && Number(sa) > Number(sb);
+      const bWin = played && Number(sb) > Number(sa);
+
+      // Competition + time caption
+      const cap = `${m.time ? m.time + '  ' : ''}${(m.label || '').toUpperCase()}`.trim();
+      if (cap) {
+        doc.setFont('Jost', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(...MUTED);
+        doc.text(cap, PAGE_W / 2, y, { align: 'center' });
+        y += 4.6;
+      }
+
+      // Teams + score — winner's name in burgundy, score centred
+      const cx = PAGE_W / 2;
+      const scoreText = played ? `${sa} \u2013 ${sb}` : 'v';
+      doc.setFont('Jost', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(...INK);
+      const scoreW = doc.getTextWidth(scoreText);
+      doc.text(scoreText, cx, y, { align: 'center' });
+      doc.setTextColor(...(aWin ? BURGUNDY : INK));
+      doc.text(aName, cx - scoreW / 2 - 4, y, { align: 'right' });
+      doc.setTextColor(...(bWin ? BURGUNDY : INK));
+      doc.text(bName, cx + scoreW / 2 + 4, y, { align: 'left' });
+      doc.setTextColor(...INK);
+      y += 8;
+    });
+    y += 3;
+  });
+}
+
+function drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
 
@@ -533,7 +610,7 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
     if (pg) items.push({ kind: 'prize', t: pgTime(typeof pg === 'string' ? pg : ''), ord: 1000 + i, pg });
   });
   // Chukka draw scheduled on this day (matched by weekday) → slot it by throw-in time.
-  const ckEntry = chukkaByDow && chukkaByDow[dowOfLabel(day.dateLabel)];
+  const ckEntry = !hideChukkas && chukkaByDow && chukkaByDow[dowOfLabel(day.dateLabel)];
   if (ckEntry && ckEntry.schedule && (ckEntry.schedule.chukkas || []).length) {
     const ckSch = ckEntry.schedule;
     const ckT = typeof ckEntry.throwInMin === 'number'
@@ -547,10 +624,10 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
   const measureItem = (it) =>
     it.kind === 'prize' ? PRIZE_H
     : it.kind === 'chukka' ? measureChukkaTable(it.schedule)
-    : measureGroup(it.g);
+    : measureGroup(it.g, hideChukkas);
   const drawItem = (d, it, my) => {
     if (it.kind === 'chukka') return drawChukkaTable(d, it.schedule, my, day.ground);
-    if (it.kind !== 'prize') return drawGroup(d, it.g, my);
+    if (it.kind !== 'prize') return drawGroup(d, it.g, my, hideChukkas);
     d.setFont('Jost', 'bold');
     d.setFontSize(13);
     d.setTextColor(...INK);
@@ -622,7 +699,7 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
   }
 }
 
-function drawMatch(doc, match, startY) {
+function drawMatch(doc, match, startY, hideChukkas) {
   let y = startY;
 
   // Time (+ optional label) — italic bold, underlined, normalised + width-fitted
@@ -637,12 +714,14 @@ function drawMatch(doc, match, startY) {
   }
 
   // Chukka count
-  doc.setFont('Jost', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(...MUTED);
-  doc.text(chukkaLabel(match), PAGE_W / 2, y, { align: 'center' });
-  doc.setTextColor(...INK);
-  y += 5;
+  if (!hideChukkas) {
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(chukkaLabel(match), PAGE_W / 2, y, { align: 'center' });
+    doc.setTextColor(...INK);
+    y += 5;
+  }
 
   // "TEAM A V TEAM B"
   doc.setFont('Jost', 'bold');
@@ -714,8 +793,8 @@ function drawMatch(doc, match, startY) {
 // group (same time + title) prints the heading once, then the pairing lines,
 // shared officials, and each distinct team's roster two-per-row (a lone team
 // is centred) — matching the printed round-robin layout.
-function drawGroup(doc, g, startY) {
-  if (g.matches.length === 1) return drawMatch(doc, g.matches[0], startY);
+function drawGroup(doc, g, startY, hideChukkas) {
+  if (g.matches.length === 1) return drawMatch(doc, g.matches[0], startY, hideChukkas);
   let y = startY;
 
   // Shared time + title (once), italic bold + underlined, width-fitted
@@ -729,12 +808,14 @@ function drawGroup(doc, g, startY) {
   }
 
   // Chukka count (one line for the whole round-robin block)
-  doc.setFont('Jost', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(...MUTED);
-  doc.text(chukkaLabel(g.matches[0]), PAGE_W / 2, y, { align: 'center' });
-  doc.setTextColor(...INK);
-  y += 5;
+  if (!hideChukkas) {
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(chukkaLabel(g.matches[0]), PAGE_W / 2, y, { align: 'center' });
+    doc.setTextColor(...INK);
+    y += 5;
+  }
 
   // Pairing lines: "TEAM A V TEAM B" (with handicap-adjusted score once played)
   doc.setFont('Jost', 'bold');
@@ -856,14 +937,21 @@ export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}, o
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   await registerJostFonts(doc);
   const subtitle = opts.subtitle || buildDateSubtitle(fixture);
+  const hideChukkas = !!opts.hideChukkas;
 
   // Cover
   drawCoverPage(doc, fixture, subtitle);
 
+  // Optional results summary (all games, winners highlighted, no chukkas) — page 2.
+  if (opts.resultsSummary) {
+    doc.addPage();
+    drawResultsSummaryPage(doc, fixture, days);
+  }
+
   // One page per day
   days.forEach((day) => {
     doc.addPage();
-    drawDayPage(doc, fixture, subtitle, day, chukkaByDow);
+    drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas);
   });
 
   // Rules page

@@ -5281,7 +5281,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                 </button>
                                               ))}
                                               <button onClick={async () => {
-                                                try { await generateTournamentPdf(fx, det, chukkaByDow); }
+                                                try { await generateTournamentPdf(fx, det, {}, { resultsSummary: true, hideChukkas: true }); }
                                                 catch (err) { fail(err); }
                                               }} style={solidBtn}>
                                                 ↓ Summary — all days with scores
