@@ -2752,6 +2752,47 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     saveFixtures(next);
     setFixtureEditor(null);
   };
+  // Consolidate one fixture into another: combine every day + match (matching days
+  // are merged, not replaced), keep any entered scores, then drop the source. The
+  // pre-merge details are snapshotted to backups first so it can be undone.
+  const mergeFixtureInto = (sourceId, targetId) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const src = fixtures.find(f => f.id === sourceId);
+    const tgt = fixtures.find(f => f.id === targetId);
+    if (!src || !tgt) return;
+    if (!window.confirm(`Merge all days and matches from “${src.name}” into “${tgt.name}”, then remove “${src.name}”?\n\nAll data is kept — days with the same date are combined, and any scores are preserved.`)) return;
+    writeBackup(fixtureDetails);
+    const tgtDetail = fixtureDetails[targetId] || { days: [] };
+    const srcDetail = fixtureDetails[sourceId] || { days: [] };
+    const tmin = (t) => { const m = (t || '').match(/(\d{1,2})(?:[:.](\d{2}))?/); return m ? (parseInt(m[1], 10) * 60 + (m[2] ? parseInt(m[2], 10) : 0)) : 99999; };
+    const hasScore = (m) => !!(m && (m.scoreA != null || m.scoreB != null));
+    const mKey = (m) => `${(m.time || '').trim()}|${(m.label || '').trim().toLowerCase()}|${(m.teamA?.name || '').trim().toLowerCase()}|${(m.teamB?.name || '').trim().toLowerCase()}`;
+    const MTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    const dayOrder = (d) => { const lbl = (d.dateLabel || '').toLowerCase(); const dn = parseInt((lbl.match(/\d+/) || ['99'])[0], 10); const mi = MTHS.findIndex(m => lbl.includes(m)); return (mi < 0 ? 99 : mi) * 100 + (isNaN(dn) ? 99 : dn); };
+    const byLabel = new Map();
+    (tgtDetail.days || []).forEach(d => byLabel.set(d.dateLabel, { ...d, matches: [...(d.matches || [])] }));
+    (srcDetail.days || []).forEach(sd => {
+      const ex = byLabel.get(sd.dateLabel);
+      if (!ex) { byLabel.set(sd.dateLabel, { ...sd, matches: [...(sd.matches || [])] }); return; }
+      if (!ex.ground && sd.ground) ex.ground = sd.ground;
+      if (!ex.prizegiving && sd.prizegiving) ex.prizegiving = sd.prizegiving;
+      if (!ex.prizegiving2 && sd.prizegiving2) ex.prizegiving2 = sd.prizegiving2;
+      const seen = new Map(ex.matches.map(m => [mKey(m), m]));
+      (sd.matches || []).forEach(sm => {
+        const k = mKey(sm); const tm = seen.get(k);
+        if (!tm) { ex.matches.push(sm); seen.set(k, sm); }
+        else if (!hasScore(tm) && hasScore(sm)) { const i = ex.matches.indexOf(tm); if (i >= 0) ex.matches[i] = sm; seen.set(k, sm); }
+      });
+      ex.matches.sort((a, b) => tmin(a.time) - tmin(b.time));
+    });
+    const mergedDays = Array.from(byLabel.values()).sort((a, b) => dayOrder(a) - dayOrder(b));
+    const nextDetails = { ...fixtureDetails, [targetId]: { ...tgtDetail, days: mergedDays } };
+    delete nextDetails[sourceId];
+    saveFixtureDetails(nextDetails);
+    saveFixtures(fixtures.filter(f => f.id !== sourceId));
+    setFixtureEditor(null);
+    alert(`Merged “${src.name}” into “${tgt.name}”. Open “${tgt.name}” to check the combined days.`);
+  };
   const deleteFixture = (id) => {
     if (!window.confirm('Delete this fixture from the list? Any match details and team sign-ups stay stored, but the fixture will no longer be shown.')) return;
     saveFixtures(fixtures.filter(f => f.id !== id));
@@ -2784,6 +2825,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <button className="btn-primary" onClick={saveFixtureEditor} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>{fixtureEditor.id ? 'Save fixture' : 'Add fixture'}</button>
             <button onClick={() => { setFixtureEditor(null); setFError(''); }} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '13px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
           </div>
+          {fixtureEditor.id && fixtures.some(f => f.id !== fixtureEditor.id) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.4 }}>Consolidate — merge all of this fixture's days &amp; matches into another fixture (keeping scores), then remove this one.</span>
+              <select className="input-field select-field" value="" onChange={e => { const tid = e.target.value; if (tid) mergeFixtureInto(fixtureEditor.id, tid); }} style={{ padding: '10px 8px', fontSize: '13px' }}>
+                <option value="">Merge into…</option>
+                {fixtures.filter(f => f.id !== fixtureEditor.id).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+          )}
           {fixtureEditor.id && (
             <button onClick={() => deleteFixture(fixtureEditor.id)} style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Delete fixture</button>
           )}
@@ -5150,23 +5200,39 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               );
                                             });
                                         })()}
-                                        {captainMode && det && (
-                                          <button
-                                            onClick={async () => {
-                                              try {
-                                                const chukkaByDow = {};
-                                                Object.values(DAY_CONFIG).forEach(cfg => {
-                                                  const sch = schedules[cfg.key];
-                                                  if (sch && sch.chukkas && sch.chukkas.length) chukkaByDow[cfg.dow] = { schedule: sch, throwInMin: throwInMins[cfg.key] };
-                                                });
-                                                await generateTournamentPdf(fx, det, chukkaByDow);
-                                              }
-                                              catch (err) { alert('Could not generate PDF: ' + (err?.message || err)); }
-                                            }}
-                                            style={{ marginTop: '12px', width: '100%', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
-                                            ↓ Download programme PDF
-                                          </button>
-                                        )}
+                                        {captainMode && det && (() => {
+                                          const chukkaByDow = {};
+                                          Object.values(DAY_CONFIG).forEach(cfg => {
+                                            const sch = schedules[cfg.key];
+                                            if (sch && sch.chukkas && sch.chukkas.length) chukkaByDow[cfg.dow] = { schedule: sch, throwInMin: throwInMins[cfg.key] };
+                                          });
+                                          const fail = (err) => alert('Could not generate PDF: ' + (err?.message || err));
+                                          const solidBtn = { width: '100%', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' };
+                                          const outlineBtn = { ...solidBtn, background: 'transparent', color: 'var(--burgundy)', border: '1px solid var(--burgundy)' };
+                                          const days = det.days || [];
+                                          return (
+                                            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                              {days.map((day, dayIdx) => (
+                                                <button key={dayIdx} onClick={async () => {
+                                                  try {
+                                                    // Single-day running-order programme: scores stripped so it prints clean.
+                                                    const cleanDay = JSON.parse(JSON.stringify(day));
+                                                    (cleanDay.matches || []).forEach(m => { m.scoreA = null; m.scoreB = null; });
+                                                    await generateTournamentPdf(fx, det, chukkaByDow, { days: [cleanDay], subtitle: day.dateLabel || '', filenameDate: day.dateLabel || '' });
+                                                  } catch (err) { fail(err); }
+                                                }} style={outlineBtn}>
+                                                  ↓ Day {dayIdx + 1} programme{day.dateLabel ? ` · ${day.dateLabel}` : ''}
+                                                </button>
+                                              ))}
+                                              <button onClick={async () => {
+                                                try { await generateTournamentPdf(fx, det, chukkaByDow); }
+                                                catch (err) { fail(err); }
+                                              }} style={solidBtn}>
+                                                ↓ Summary — all days with scores
+                                              </button>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     ))}
                                     {captainMode && !isEditingThis && (

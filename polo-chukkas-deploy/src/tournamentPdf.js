@@ -845,20 +845,23 @@ function drawRulesPage(doc) {
 
 // ── Public entry point ───────────────────────────────────────────────────
 
-export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}) {
-  if (!detail || !Array.isArray(detail.days) || detail.days.length === 0) {
+export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}, opts = {}) {
+  // opts: { days, subtitle, filenameDate } — lets callers print a single day or a
+  // custom subset (per-day programmes) while the default prints the whole event.
+  const days = opts.days || (detail && detail.days);
+  if (!days || !Array.isArray(days) || days.length === 0) {
     throw new Error('No match details to print. Add days and matches in captain mode first.');
   }
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   await registerJostFonts(doc);
-  const subtitle = buildDateSubtitle(fixture);
+  const subtitle = opts.subtitle || buildDateSubtitle(fixture);
 
   // Cover
   drawCoverPage(doc, fixture, subtitle);
 
   // One page per day
-  detail.days.forEach((day) => {
+  days.forEach((day) => {
     doc.addPage();
     drawDayPage(doc, fixture, subtitle, day, chukkaByDow);
   });
@@ -869,7 +872,7 @@ export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}) {
 
   // Filename: "The_9th_Lancer_Trophy_30th_&_31st_May.pdf"
   const titlePart = sanitizeFilename(ensureLeadingThe(fixture.name));
-  const datePart  = sanitizeFilename(subtitle.replace(/ 2026$/, ''));
+  const datePart  = sanitizeFilename((opts.filenameDate || subtitle).replace(/ 2026$/, ''));
   await deliverPdf(doc, `${titlePart}_${datePart}.pdf`);
 }
 
