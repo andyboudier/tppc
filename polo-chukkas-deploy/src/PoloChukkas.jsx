@@ -2490,9 +2490,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const backupSummary = (data) => {
     const ids = Object.keys(data || {});
-    let matches = 0;
-    ids.forEach(id => (data[id]?.days || []).forEach(d => { matches += (d.matches || []).length; }));
-    return `${ids.length} fixture${ids.length === 1 ? '' : 's'}, ${matches} match${matches === 1 ? '' : 'es'}`;
+    let matches = 0, scored = 0;
+    ids.forEach(id => (data[id]?.days || []).forEach(d => (d.matches || []).forEach(m => { matches++; if (m && (m.scoreA != null || m.scoreB != null)) scored++; })));
+    return `${ids.length} fixture${ids.length === 1 ? '' : 's'}, ${matches} match${matches === 1 ? '' : 'es'}${scored ? `, ${scored} scored` : ''}`;
   };
 
   const restoreBackup = async (snap) => {
@@ -2502,6 +2502,53 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     await saveFixtureDetails(snap.data);
     setShowBackups(false);
     window.alert('Match details restored.');
+  };
+
+  // Surgical recovery: pull just the SCORES out of the backup history and drop them
+  // back into the matching current matches. Matches are paired by date + time + the
+  // two team names (ignoring which fixture they sit in), so scores come back even if
+  // they were entered under a now-removed/renamed fixture. Only fills matches that
+  // currently have no score — nothing already entered is overwritten, and the rest of
+  // the fixture (teams, days, structure) is left exactly as it is.
+  const recoverScoresFromBackups = async () => {
+    try {
+      const raw = await window.storage.get('fixture-details-backups', true);
+      const list = raw?.value ? JSON.parse(raw.value) : [];
+      if (!list.length) { window.alert('No backups have been saved yet, so there are no scores to recover.'); return; }
+      const snaps = [...list].reverse(); // newest first
+      const hasScore = (m) => !!(m && (m.scoreA != null || m.scoreB != null));
+      const keyOf = (dateLabel, m) => `${(dateLabel || '').trim().toLowerCase()}|${(m.time || '').trim()}|${(m.teamA?.name || '').trim().toLowerCase()}|${(m.teamB?.name || '').trim().toLowerCase()}`;
+      const scoreByKey = new Map();
+      snaps.forEach(snap => {
+        Object.values(snap.data || {}).forEach(detail => {
+          (detail?.days || []).forEach(day => {
+            (day.matches || []).forEach(m => {
+              if (!hasScore(m)) return;
+              const k = keyOf(day.dateLabel, m);
+              if (!scoreByKey.has(k)) scoreByKey.set(k, { scoreA: m.scoreA ?? null, scoreB: m.scoreB ?? null });
+            });
+          });
+        });
+      });
+      if (!scoreByKey.size) { window.alert('No scores were found in any of the saved backups.'); return; }
+      const next = JSON.parse(JSON.stringify(fixtureDetails));
+      let applied = 0; const lines = [];
+      Object.values(next).forEach(detail => {
+        (detail?.days || []).forEach(day => {
+          (day.matches || []).forEach(m => {
+            if (hasScore(m)) return; // never overwrite a score that is already there
+            const s = scoreByKey.get(keyOf(day.dateLabel, m));
+            if (!s) return;
+            m.scoreA = s.scoreA; m.scoreB = s.scoreB; applied++;
+            lines.push(`${day.dateLabel} ${m.time} — ${m.teamA?.name || '?'} v ${m.teamB?.name || '?'}: ${s.scoreA ?? '–'}–${s.scoreB ?? '–'}`);
+          });
+        });
+      });
+      if (!applied) { window.alert('Found scores in your backups, but every current match already has a score, so nothing needed restoring.'); return; }
+      await writeBackup(fixtureDetails); // snapshot current state first, so this is reversible
+      await saveFixtureDetails(next);
+      window.alert(`Restored ${applied} score${applied === 1 ? '' : 's'} from backups:\n\n${lines.slice(0, 14).join('\n')}${lines.length > 14 ? `\n…and ${lines.length - 14} more` : ''}`);
+    } catch (e) { window.alert('Could not recover scores: ' + (e?.message || e)); }
   };
 
   // --- Live scoring helpers (persist via saveFixtureDetails) ---
@@ -4987,6 +5034,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
               {captainMode && (
                 <div style={{ maxWidth: '480px', margin: '0 auto 16px', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 12px' }}>
+                  <button
+                    onClick={recoverScoresFromBackups}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--burgundy)', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', padding: '4px' }}>
+                    ↺ Recover match scores from backups
+                  </button>
+                  <div style={{ fontSize: '10px', color: 'var(--muted)', textAlign: 'center', lineHeight: 1.4, margin: '0 0 6px' }}>
+                    Puts any missing match scores back from the saved history, matched by date, time &amp; teams. Anything that already has a score is left alone.
+                  </div>
+                  <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
                   <button
                     onClick={() => { const n = !showBackups; setShowBackups(n); if (n) loadBackups(); }}
                     style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--burgundy)', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', padding: '4px' }}>
