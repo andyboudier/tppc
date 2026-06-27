@@ -518,7 +518,9 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
     const t = (m.time || '').trim();
     const key = t ? `${t}__${(m.label || '').trim().toUpperCase()}` : null;
     const last = groups[groups.length - 1];
-    if (key && last && last.key === key) last.matches.push(m);
+    // A match flagged to start on a new page always begins its own block, so the
+    // forced break lands before it even if it shares a time + title with the prior.
+    if (key && last && last.key === key && !m.pageBreakBefore) last.matches.push(m);
     else groups.push({ key, head: timeLineOf(m), matches: [m] });
   });
 
@@ -594,24 +596,29 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
 
   if (items.length) {
     const pgCount = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0);
-    if (pgCount >= 2) {
-      // More than one prizegiving: split the day into sessions, each ending at a
-      // prizegiving, and start every session after the first on a fresh page.
-      const segments = [];
-      let cur = [];
-      items.forEach((it, idx) => {
-        cur.push(it);
-        if (it.kind === 'prize' && idx < items.length - 1) { segments.push(cur); cur = []; }
-      });
-      if (cur.length) segments.push(cur);
-      segments.forEach((seg, si) => {
-        let sy = y;
-        if (si > 0) { doc.addPage(); sy = drawContinuationHeader(doc, fixture, day); }
-        flowSegment(seg, sy);
-      });
-    } else {
-      flowSegment(items, y);
-    }
+    const splitAfterPrize = pgCount >= 2;
+    // A match can be flagged (via the editor tick box) to start on a fresh page.
+    const breaksBefore = (it) =>
+      it.kind === 'group' && it.g.matches[0] && it.g.matches[0].pageBreakBefore;
+    // Build sessions: a new page begins before any flagged match, and — when the
+    // day has more than one prizegiving — after each prizegiving. With no flags
+    // and at most one prizegiving this stays a single session (prior behaviour).
+    const segments = [];
+    let cur = [];
+    items.forEach((it, idx) => {
+      const newPage = idx > 0 && (
+        breaksBefore(it) ||
+        (splitAfterPrize && items[idx - 1].kind === 'prize')
+      );
+      if (newPage && cur.length) { segments.push(cur); cur = []; }
+      cur.push(it);
+    });
+    if (cur.length) segments.push(cur);
+    segments.forEach((seg, si) => {
+      let sy = y;
+      if (si > 0) { doc.addPage(); sy = drawContinuationHeader(doc, fixture, day); }
+      flowSegment(seg, sy);
+    });
   }
 }
 
