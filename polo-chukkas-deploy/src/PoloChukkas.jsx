@@ -2452,23 +2452,39 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // ── Automatic backups of match details / scores ─────────────────────────
   // Every change is snapshotted so an accidental delete can be undone, even
-  // without Point-in-Time Recovery. Snapshots are kept in a single shared
-  // Firestore record ('fixture-details-backups') as a capped, timestamped list.
-  const MAX_BACKUPS = 20;
+  // without Point-in-Time Recovery. Snapshots live in a single shared Firestore
+  // record ('fixture-details-backups'). The list is gzip-compressed before
+  // storing (the snapshots are highly repetitive, so this shrinks ~10–80x),
+  // which lets us keep many of them inside Firestore's 1MB-per-document limit.
+  const MAX_BACKUPS = 100;
+
+  // gzip helpers — compress the backup list with the platform CompressionStream
+  // (supported on modern iOS/Safari/Chrome). Stored value is base64 with a 'gz:'
+  // marker; when unsupported we fall back to plain JSON. Both forms read back, so
+  // existing uncompressed backups still load.
+  const gzSupported = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+  const bytesToB64 = (bytes) => { let bin = ''; const ch = 0x8000; for (let i = 0; i < bytes.length; i += ch) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + ch)); return btoa(bin); };
+  const b64ToBytes = (b64) => { const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; };
+  const gzipToB64 = async (str) => { const cs = new CompressionStream('gzip'); const buf = await new Response(new Blob([str]).stream().pipeThrough(cs)).arrayBuffer(); return bytesToB64(new Uint8Array(buf)); };
+  const gunzipFromB64 = async (b64) => { const ds = new DecompressionStream('gzip'); const buf = await new Response(new Blob([b64ToBytes(b64)]).stream().pipeThrough(ds)).arrayBuffer(); return new TextDecoder().decode(buf); };
+  const packBackups = async (list) => { const json = JSON.stringify(list); if (!gzSupported) return json; try { return 'gz:' + await gzipToB64(json); } catch (e) { return json; } };
+  const unpackBackups = async (value) => { if (!value) return []; if (typeof value === 'string' && value.startsWith('gz:')) return JSON.parse(await gunzipFromB64(value.slice(3))); return JSON.parse(value); };
 
   const writeBackup = async (data) => {
     try {
       const dataStr = JSON.stringify(data || {});
       // Skip empty or unchanged snapshots
-      if (dataStr === '{}' ) return;
+      if (dataStr === '{}') return;
       const existing = await window.storage.get('fixture-details-backups', true);
-      let list = existing?.value ? JSON.parse(existing.value) : [];
+      let list = existing?.value ? await unpackBackups(existing.value) : [];
       if (list.length && JSON.stringify(list[list.length - 1].data) === dataStr) return;
       list.push({ ts: Date.now(), data });
       while (list.length > MAX_BACKUPS) list.shift();
-      // Stay comfortably under Firestore's 1MB document limit
-      while (list.length > 1 && JSON.stringify(list).length > 800000) list.shift();
-      await window.storage.set('fixture-details-backups', JSON.stringify(list), true);
+      // Stay under Firestore's 1MB document limit — measured on the *stored*
+      // (compressed) size, dropping the oldest until it fits.
+      let packed = await packBackups(list);
+      while (list.length > 1 && packed.length > 950000) { list.shift(); packed = await packBackups(list); }
+      await window.storage.set('fixture-details-backups', packed, true);
     } catch (e) { /* never let a backup failure break a save */ }
   };
 
@@ -2483,7 +2499,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const loadBackups = async () => {
     try {
       const b = await window.storage.get('fixture-details-backups', true);
-      const list = b?.value ? JSON.parse(b.value) : [];
+      const list = b?.value ? await unpackBackups(b.value) : [];
       setBackups([...list].reverse()); // newest first
     } catch (e) { setBackups([]); }
   };
@@ -2513,7 +2529,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const recoverScoresFromBackups = async () => {
     try {
       const raw = await window.storage.get('fixture-details-backups', true);
-      const list = raw?.value ? JSON.parse(raw.value) : [];
+      const list = raw?.value ? await unpackBackups(raw.value) : [];
       if (!list.length) { window.alert('No backups have been saved yet, so there are no scores to recover.'); return; }
       const snaps = [...list].reverse(); // newest first
       const hasScore = (m) => !!(m && (m.scoreA != null || m.scoreB != null));
