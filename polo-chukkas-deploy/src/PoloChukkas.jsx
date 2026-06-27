@@ -5153,7 +5153,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                         {captainMode && det && (
                                           <button
                                             onClick={async () => {
-                                              try { await generateTournamentPdf(fx, det); }
+                                              try {
+                                                const chukkaByDow = {};
+                                                Object.values(DAY_CONFIG).forEach(cfg => {
+                                                  const sch = schedules[cfg.key];
+                                                  if (sch && sch.chukkas && sch.chukkas.length) chukkaByDow[cfg.dow] = { schedule: sch, throwInMin: throwInMins[cfg.key] };
+                                                });
+                                                await generateTournamentPdf(fx, det, chukkaByDow);
+                                              }
                                               catch (err) { alert('Could not generate PDF: ' + (err?.message || err)); }
                                             }}
                                             style={{ marginTop: '12px', width: '100%', background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>

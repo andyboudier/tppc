@@ -361,7 +361,115 @@ function pgTime(raw) {
   return h * 60 + mn;
 }
 
-function drawDayPage(doc, fixture, subtitle, day) {
+// Day-of-week (0=Sun … 6=Sat) from a label like "Saturday 30th May".
+const DOW_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+function dowOfLabel(label) {
+  if (!label) return -1;
+  return DOW_NAMES.indexOf(String(label).trim().toLowerCase().split(/\s+/)[0]);
+}
+
+// Chukka draw grid colours (mirror the on-screen Table view).
+const CK_B_BG = [221, 230, 240], CK_B_TX = [30, 53, 82];   // Blue team
+const CK_W_BG = [245, 236, 217], CK_W_TX = [107, 31, 42];  // White team
+const CK_LINE = [212, 200, 168];
+const CK_ALT  = [249, 245, 236];
+const fmtHcpCk = (h) => (h > 0 ? `+${h}` : `${h || 0}`);
+
+// Distinct players in a schedule (rows of the grid), ordered by handicap desc,
+// with a count of how many chukkas each is in. Derived from the chukka teams.
+function chukkaPlayers(schedule) {
+  const m = new Map();
+  (schedule.chukkas || []).forEach((ck) => {
+    [...(ck.teamA || []), ...(ck.teamB || [])].forEach((p) => {
+      if (!m.has(p.id)) m.set(p.id, { id: p.id, name: p.name, handicap: p.handicap || 0, count: 0 });
+      m.get(p.id).count += 1;
+    });
+  });
+  return [...m.values()].sort((a, b) => b.handicap - a.handicap);
+}
+
+function measureChukkaTable(schedule) {
+  const rows = chukkaPlayers(schedule).length;
+  return 13 /* heading + ground */ + 7 /* grid header */ + rows * 5.2 + 5.5 /* footer */;
+}
+
+// Draw the chukka draw grid (players x chukka-times, B = Blue, W = White) as a
+// full-width block, slotted into the day's timeline at its throw-in time.
+function drawChukkaTable(doc, schedule, startY, ground) {
+  const chukkas = schedule.chukkas || [];
+  const players = chukkaPlayers(schedule);
+  let y = startY;
+
+  // Heading line — "11:00 CHUKKAS" — same look as a match time heading.
+  const head = `${chukkas[0] && chukkas[0].time ? chukkas[0].time + ' ' : ''}CHUKKAS`;
+  doc.setFont('Jost', 'bolditalic');
+  doc.setTextColor(...INK);
+  fitFont(doc, head, 15, PAGE_W - 2 * MARGIN);
+  doc.text(head, PAGE_W / 2, y, { align: 'center' });
+  underlineCentered(doc, head, PAGE_W / 2, y);
+  y += 6;
+
+  // Where + how many.
+  doc.setFont('Jost', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  const sub = `${ground ? ground.toUpperCase() + ' \u00b7 ' : ''}${chukkas.length} CHUKKA${chukkas.length === 1 ? '' : 'S'}`;
+  doc.text(sub, PAGE_W / 2, y, { align: 'center' });
+  doc.setTextColor(...INK);
+  y += 6;
+
+  // Geometry.
+  const x0 = MARGIN, totalW = PAGE_W - 2 * MARGIN;
+  const nameW = 38, hcpW = 10, cW = 10;
+  const ckW = Math.max(7, (totalW - nameW - hcpW - cW) / Math.max(1, chukkas.length));
+  const cx = [x0, x0 + nameW, x0 + nameW + hcpW, x0 + nameW + hcpW + cW];
+  const ckX = (i) => cx[3] + i * ckW;
+  const gridHeadH = 7, rowH = 5.2, footH = 5.5;
+
+  const cell = (x, w, h, text, fill, txt, align = 'center', bold = true, size = 8) => {
+    if (fill) { doc.setFillColor(...fill); doc.rect(x, y, w, h, 'F'); }
+    doc.setLineWidth(0.1); doc.setDrawColor(...CK_LINE); doc.rect(x, y, w, h, 'S');
+    if (text !== '' && text != null) {
+      doc.setFont('Jost', bold ? 'bold' : 'normal');
+      doc.setFontSize(size);
+      doc.setTextColor(...(txt || INK));
+      const tx = align === 'left' ? x + 1.6 : x + w / 2;
+      doc.text(String(text), tx, y + h / 2 + size * 0.12, { align });
+    }
+  };
+
+  // Header row.
+  cell(cx[0], nameW, gridHeadH, 'NAME', BURGUNDY, CREAM, 'left');
+  cell(cx[1], hcpW, gridHeadH, 'HCP', BURGUNDY, CREAM);
+  cell(cx[2], cW, gridHeadH, 'C', BURGUNDY, CREAM);
+  chukkas.forEach((ck, i) => cell(ckX(i), ckW, gridHeadH, ck.time, BURGUNDY, CREAM, 'center', true, ckW < 12 ? 6.5 : 8));
+  y += gridHeadH;
+
+  // Player rows.
+  players.forEach((p, ri) => {
+    const altBg = ri % 2 === 1 ? CK_ALT : [255, 255, 255];
+    cell(cx[0], nameW, rowH, p.name, altBg, INK, 'left', false, 7.5);
+    cell(cx[1], hcpW, rowH, fmtHcpCk(p.handicap), [255, 255, 255], INK, 'center', false, 7.5);
+    cell(cx[2], cW, rowH, String(p.count), [255, 255, 255], INK, 'center', false, 7.5);
+    chukkas.forEach((ck, i) => {
+      const inA = (ck.teamA || []).some((q) => q.id === p.id);
+      const inB = (ck.teamB || []).some((q) => q.id === p.id);
+      if (inA) cell(ckX(i), ckW, rowH, 'B', CK_B_BG, CK_B_TX, 'center', true, 8);
+      else if (inB) cell(ckX(i), ckW, rowH, 'W', CK_W_BG, CK_W_TX, 'center', true, 8);
+      else cell(ckX(i), ckW, rowH, '', [255, 255, 255]);
+    });
+    y += rowH;
+  });
+
+  // Footer — player counts per chukka.
+  cell(cx[0], nameW + hcpW + cW, footH, 'PLAYERS', [255, 255, 255], MUTED, 'right', true, 7);
+  chukkas.forEach((ck, i) => cell(ckX(i), ckW, footH, `${(ck.teamA || []).length}v${(ck.teamB || []).length}`, [255, 255, 255], INK, 'center', true, ckW < 12 ? 6.5 : 7.5));
+  y += footH;
+
+  return y;
+}
+
+function drawDayPage(doc, fixture, subtitle, day, chukkaByDow) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
 
@@ -422,11 +530,24 @@ function drawDayPage(doc, fixture, subtitle, day) {
   [day.prizegiving, day.prizegiving2].forEach((pg, i) => {
     if (pg) items.push({ kind: 'prize', t: pgTime(typeof pg === 'string' ? pg : ''), ord: 1000 + i, pg });
   });
+  // Chukka draw scheduled on this day (matched by weekday) → slot it by throw-in time.
+  const ckEntry = chukkaByDow && chukkaByDow[dowOfLabel(day.dateLabel)];
+  if (ckEntry && ckEntry.schedule && (ckEntry.schedule.chukkas || []).length) {
+    const ckSch = ckEntry.schedule;
+    const ckT = typeof ckEntry.throwInMin === 'number'
+      ? ckEntry.throwInMin
+      : pgTime(ckSch.chukkas[0] && ckSch.chukkas[0].time);
+    items.push({ kind: 'chukka', t: ckT, ord: 500, schedule: ckSch });
+  }
   items.sort((a, b) => a.t !== b.t ? a.t - b.t : a.ord - b.ord);
 
   const PRIZE_H = 9;
-  const measureItem = (it) => it.kind === 'prize' ? PRIZE_H : measureGroup(it.g);
+  const measureItem = (it) =>
+    it.kind === 'prize' ? PRIZE_H
+    : it.kind === 'chukka' ? measureChukkaTable(it.schedule)
+    : measureGroup(it.g);
   const drawItem = (d, it, my) => {
+    if (it.kind === 'chukka') return drawChukkaTable(d, it.schedule, my, day.ground);
     if (it.kind !== 'prize') return drawGroup(d, it.g, my);
     d.setFont('Jost', 'bold');
     d.setFontSize(13);
@@ -717,7 +838,7 @@ function drawRulesPage(doc) {
 
 // ── Public entry point ───────────────────────────────────────────────────
 
-export async function generateTournamentPdf(fixture, detail) {
+export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}) {
   if (!detail || !Array.isArray(detail.days) || detail.days.length === 0) {
     throw new Error('No match details to print. Add days and matches in captain mode first.');
   }
@@ -732,7 +853,7 @@ export async function generateTournamentPdf(fixture, detail) {
   // One page per day
   detail.days.forEach((day) => {
     doc.addPage();
-    drawDayPage(doc, fixture, subtitle, day);
+    drawDayPage(doc, fixture, subtitle, day, chukkaByDow);
   });
 
   // Rules page
