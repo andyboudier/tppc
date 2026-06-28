@@ -756,7 +756,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // we must not persist the built-in seed — doing so would resurrect deleted
   // fixtures (and wipe ad hoc ones) for everyone.
   const fixturesLoadedRef = useRef(false);
-  const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
+  const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level, trophyKeeper }
   const [editingDetailsId, setEditingDetailsId] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
@@ -2792,8 +2792,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try { await window.storage.set('fixtures', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
   };
-  const openAddFixture = () => { setFError(''); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '' }); };
-  const openEditFixture = (fx) => { setFError(''); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '' }); };
+  const openAddFixture = () => { setFError(''); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '', trophyKeeper: '' }); };
+  const openEditFixture = (fx) => { setFError(''); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '', trophyKeeper: fx.trophyKeeper || '' }); };
   const setEd = (field, value) => setFixtureEditor(prev => prev ? { ...prev, [field]: value } : prev);
   const saveFixtureEditor = () => {
     const ed = fixtureEditor;
@@ -2801,7 +2801,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!ed.name.trim()) { setFError('Please enter a fixture name.'); return; }
     if (!ed.date.trim()) { setFError('Please enter a date, e.g. “Sat 30 & Sun 31 May”.'); return; }
     setFError('');
-    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim() };
+    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), trophyKeeper: (ed.trophyKeeper || '').trim() };
     let next;
     if (ed.id) {
       next = fixtures.map(f => f.id === ed.id ? { ...f, ...clean } : f);
@@ -2880,6 +2880,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <input className="input-field" type="text" placeholder="Date e.g. Sat 30 & Sun 31 May" value={fixtureEditor.date} onChange={e => setEd('date', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '14px' }} />
           </div>
           <input className="input-field" type="text" placeholder="Handicap level e.g. −4 to 0 Goal (optional)" value={fixtureEditor.level} onChange={e => setEd('level', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
+          <input className="input-field" type="text" placeholder="Trophy looked after by (optional)" value={fixtureEditor.trophyKeeper || ''} onChange={e => setEd('trophyKeeper', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
           <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
             Put the weekday + day in the date (e.g. “Sat 30 & Sun 31 May”) so team sign-ups and the programme pick up the right days. The handicap level prints on the programme PDF.
           </div>
@@ -5164,6 +5165,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
                           {isExpanded && (
                             <div className="fixture-body reveal">
+                              {fx.trophyKeeper && fixtureEditor?.id !== fx.id && (
+                                <div style={{ fontSize: '12px', color: 'var(--muted)', paddingTop: '12px', lineHeight: 1.4 }}>
+                                  Trophy looked after by <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{fx.trophyKeeper}</span>
+                                </div>
+                              )}
                               {captainMode && (fixtureEditor?.id === fx.id ? (
                                 <div style={{ paddingTop: '12px' }}>{renderFixtureEditor()}</div>
                               ) : (
