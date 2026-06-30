@@ -631,6 +631,33 @@ const chukkas = chukkaPlayers.map((inChukka, c) => {
   };
 });
 
+// Balance pass: keeping everyone on one shirt colour all evening can, by chukka
+// 7 or 8, leave a side lopsided (all the strong players ended up on one colour).
+// For any chukka whose two team handicaps differ by more than MAX_OK_TEAM_DIFF,
+// swap the single pair that most reduces the gap, repeating until it's within
+// tolerance or no swap helps. Well-balanced chukkas are left untouched so people
+// keep their usual colour there; in a lopsided chukka two players simply switch
+// bibs for that one chukka so the game is fair.
+const MAX_OK_TEAM_DIFF = 2;
+chukkas.forEach(ck => {
+  let guard = ck.playerCount * ck.playerCount + 4;
+  while (Math.abs(ck.sumA - ck.sumB) > MAX_OK_TEAM_DIFF && guard-- > 0) {
+    let best = null, bestAbs = Math.abs(ck.sumA - ck.sumB);
+    for (const a of ck.teamA) {
+      for (const b of ck.teamB) {
+        const newSumA = ck.sumA - a.handicap + b.handicap;
+        const newSumB = ck.sumB - b.handicap + a.handicap;
+        const newAbs = Math.abs(newSumA - newSumB);
+        if (newAbs < bestAbs) { bestAbs = newAbs; best = { a, b, newSumA, newSumB }; }
+      }
+    }
+    if (!best) break;
+    ck.teamA = ck.teamA.filter(p => p.id !== best.a.id); ck.teamA.push(best.b);
+    ck.teamB = ck.teamB.filter(p => p.id !== best.b.id); ck.teamB.push(best.a);
+    ck.sumA = best.newSumA; ck.sumB = best.newSumB;
+  }
+});
+
 return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, reduced };
 }
 
