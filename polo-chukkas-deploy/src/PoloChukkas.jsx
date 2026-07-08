@@ -2379,8 +2379,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const colWidths = [nameW, hcpW, chukkasW, ...Array(N).fill(chukkaW)];
     let lineX = tx;
     for (let i = 0; i <= colWidths.length; i++) {
+      // Row 1 (the date) is a single merged cell across the first three columns,
+      // so don't run the internal NAME|HCP and HCP|C separators through it.
+      const insideDateMerge = (i === 1 || i === 2);
+      const top = padding + titleH + (insideDateMerge ? headerRowH : 0);
       ctx.beginPath();
-      ctx.moveTo(Math.round(lineX) + 0.5, padding + titleH);
+      ctx.moveTo(Math.round(lineX) + 0.5, top);
       ctx.lineTo(Math.round(lineX) + 0.5, padding + titleH + tableH);
       ctx.stroke();
       if (i < colWidths.length) lineX += colWidths[i];
