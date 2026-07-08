@@ -690,6 +690,9 @@ export default function PoloChukkas() {
     sat: DAY_CONFIG.sat.defaultStartMin,
     sun: DAY_CONFIG.sun.defaultStartMin,
   });
+  // Which ground each day's chukkas are played on — captain-selectable from
+  // GROUND_OPTIONS, persisted per day, shown on the chukka table and exports.
+  const [grounds, setGrounds] = useState({ wed: '', thu: '', sat: '', sun: '' });
 
   // Form state (shared across days — the form belongs to whichever day is active)
   const [name, setName] = useState('');
@@ -725,6 +728,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const players = rosters[activeDay];
   const schedule = schedules[activeDay];
   const throwInMin = throwInMins[activeDay];
+  const ground = grounds[activeDay];
 
   // Setters that update only the active day's slice
   const setPlayers = (next) => setRosters(prev => ({
@@ -1121,6 +1125,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         sat: DAY_CONFIG.sat.defaultStartMin,
         sun: DAY_CONFIG.sun.defaultStartMin,
       };
+      const nextGrounds = { wed: '', thu: '', sat: '', sun: '' };
       for (const dk of DAY_KEYS) {
         try {
           const r = await window.storage.get(storageKey('roster', dk), true);
@@ -1137,10 +1142,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             if (parsed !== null) nextThrowIns[dk] = parsed;
           }
         } catch (e) {}
+        try {
+          const g = await window.storage.get(storageKey('ground', dk), true);
+          if (g?.value) nextGrounds[dk] = g.value;
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
       setThrowInMins(nextThrowIns);
+      setGrounds(nextGrounds);
 
       try {
         const f = await window.storage.get('fixture-interest', true);
@@ -2015,7 +2025,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
     let text = `*Tedworth Park Polo Club*\n`;
     text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
-    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0, throwInMin)} throw-in\n\n`;
+    text += `🐎 ${schedule.numChukkas} chukkas, ${chukkaTime(0, throwInMin)} throw-in\n`;
+    if (ground) text += `📍 ${ground}\n`;
+    text += `\n`;
 
     schedule.chukkas.forEach(ck => {
       const diff = Math.abs(ck.sumA - ck.sumB);
@@ -2073,6 +2085,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
     let text = `*Tedworth Park Polo Club*\n`;
     text += `_${activeDayConfig.fullLabel} Chukkas — ${dateStr}_\n`;
+    if (ground) text += `📍 ${ground}\n`;
     text += `🐎 Chukkas: ${times}\n\n`;
     text += '```\n';
     text += header + '\n';
@@ -2184,7 +2197,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
     // Row 1: Date (merged cols 0–2) + time headers
     html += `<tr>`;
-    html += `<td colspan="3" ${headerDate}>${dateStr}</td>`;
+    html += `<td colspan="3" ${headerDate}>${dateStr}${ground ? ' · ' + ground : ''}</td>`;
     schedule.chukkas.forEach(ck => {
       html += `<td ${headerTime}>${ck.time}</td>`;
     });
@@ -2273,7 +2286,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     ctx.fillText('Tedworth Park Polo Club', W / 2, padding + 16);
     ctx.fillStyle = '#6b5e4e';
     ctx.font = 'italic 13px Georgia, "Times New Roman", serif';
-    ctx.fillText(`${activeDayConfig.fullLabel} Chukkas · ${dateStr}`, W / 2, padding + 40);
+    ctx.fillText(`${activeDayConfig.fullLabel} Chukkas · ${dateStr}${ground ? ' · ' + ground : ''}`, W / 2, padding + 40);
 
     // Table position
     const tx = (W - tableW) / 2;
@@ -4148,8 +4161,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <div className="label-eyebrow">
                   {activeDayConfig.note
-                    ? <>{activeDayConfig.note} · {fmtTime(throwInMin)}</>
-                    : <>{activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}</>
+                    ? <>{activeDayConfig.note} · {fmtTime(throwInMin)}{ground ? <> · {ground}</> : null}</>
+                    : <>{activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}{ground ? <> · {ground}</> : null}</>
                   }
                   {captainMode && !throwInEditing && (
                     <button
@@ -4207,6 +4220,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     >cancel</button>
                   </div>
                 ) : null}
+                {captainMode && (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', margin: '8px 0 0' }}>
+                    <span style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--muted)' }}>Ground</span>
+                    <select
+                      value={ground}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setGrounds(prev => ({ ...prev, [activeDay]: val }));
+                        try { await window.storage.set(storageKey('ground', activeDay), val, true); } catch (err) {}
+                      }}
+                      style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '13px', fontFamily: 'inherit', background: '#fff', color: 'var(--ink)' }}
+                    >
+                      <option value="">— not set —</option>
+                      {GROUND_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                )}
                 <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
                 {activeDayConfig.note && (
                   <div className="display-italic" style={{ fontSize: '14px', color: 'var(--burgundy)', marginTop: '4px' }}>
@@ -4763,6 +4793,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       {chukkaTime(0, throwInMin)} — {chukkaTime(schedule.numChukkas - 1, throwInMin)}
                       {' · '}
                       {schedule.totalSlots} player-slots
+                      {ground ? <>{' · '}{ground}</> : null}
                     </div>
                   </div>
 
