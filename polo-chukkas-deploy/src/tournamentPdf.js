@@ -49,7 +49,7 @@ const MARGIN = 18;
 // ── Standard club content (matches the example PDF) ──────────────────────
 // If captains want different committee names or rules per tournament,
 // these can later be moved into fixtureDetails.
-const COMMITTEE = 'ROSIE ROSS, DAVID EADIE & HELEN GREDINGTON';
+const COMMITTEE = 'ROSIE ROSS, DAVID EADIE, HELEN GREDINGTON & SIMON LEDGER';
 
 const RULES = [
   'ALL PLAYERS MUST HAVE A VALID HPA MEMBERSHIP BEFORE PLAYING IN ANY MATCH OR TOURNAMENT',
