@@ -144,7 +144,8 @@ const cleanSquad = (players) => (players || [])
   .filter(p => p && (p.name || '').trim())
   .map(p => ({ name: p.name, handicap: p.handicap ?? null }));
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
-const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday Instructional default
+const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday (Ladies Only) default
+const CHUKKA_START_MIN_FRI = 17 * 60 + 30;  // 17:30 — Friday Instructional default
 const CHUKKA_START_MIN_SAT = 11 * 60;        // 11:00 — Saturday default
 const CHUKKA_START_MIN_SUN = 11 * 60;        // 11:00 — Sunday default
 const CHUKKA_INTERVAL_MIN = 15;
@@ -153,14 +154,38 @@ const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move pl
 
 // Day configuration. Each day key gets its own roster, schedule, week stamp,
 // and configurable throw-in time stored independently in Firestore.
+// Each chukka day. Optional gates:
+//   maxHandicap — nobody above this handicap may sign up (Friday: beginners only)
+//   maxChukkas  — cap on chukkas bookable per player (Friday: a 1-hour, 2-chukka session)
+//   blurb       — one-line description shown on the day menu
 const DAY_CONFIG = {
-  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas' },
-  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Instructional', note: 'Instructional Chukkas · Ladies Only' },
-  sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas' },
-  sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas' },
+  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps' },
+  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only' },
+  fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
+        instructional: true, maxHandicap: 0, maxChukkas: 2, sessionMins: 60 },
+  sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas', blurb: 'Open to all handicaps' },
+  sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
-const DAY_KEYS = ['wed', 'thu', 'sat', 'sun'];
+const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
 const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down'];
+
+// ── Club shop (preview) ──────────────────────────────────────────────────
+// Captain-only for now. Checkout is stubbed until Stripe is wired up: each
+// product carries an optional stripePriceId to hand to Stripe Checkout later.
+// Images live in /public/shop/. Prices are in whole pence to avoid float drift.
+const SHOP_PRODUCTS = [
+  {
+    id: 'casa-zappala-mallet',
+    name: 'Casa Zappala Polo Mallet',
+    pricePence: 14000,
+    image: '/shop/casa-zappala-mallet.jpg',
+    blurb: 'Handmade bamboo cane with a tipa head. Choose your length at checkout.',
+    options: { label: 'Length', values: ['51"', '52"', '53"'] },
+    stripePriceId: '',   // e.g. 'price_123…' once created in Stripe
+    inStock: true,
+  },
+];
+const fmtPence = (p) => `£${(p / 100).toFixed(2)}`;
 
 const GRENADIER_TROPHY_DETAILS = {
   days: [
@@ -677,22 +702,22 @@ return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, 
 }
 
 export default function PoloChukkas() {
-  // Tabs: 'wed' | 'thu' | 'sat' | 'sun' (chukka days) | 'fixtures'
-  const [activeTab, setActiveTab] = useState('wed');
+  // Top-level tabs: 'chukkas' | 'fixtures' | 'live' | 'shop' | 'players' | 'teams'.
+  // The chukka days now live on their own menu inside the 'chukkas' tab.
+  const [activeTab, setActiveTab] = useState('chukkas');
+  // Which chukka day is being viewed/booked within the Chukkas tab.
+  const [activeDay, setActiveDay] = useState('wed');
+  // Shop: selected variant per product (e.g. mallet length). Pre-Stripe placeholder.
+  const [shopOptions, setShopOptions] = useState({});
 
   // Per-day chukkas state — rosters, schedules, throw-in times all keyed by day.
-  // Default throw-ins come from DAY_CONFIG; captain can override them per day.
-  const [rosters, setRosters] = useState({ wed: [], thu: [], sat: [], sun: [] });
-  const [schedules, setSchedules] = useState({ wed: null, thu: null, sat: null, sun: null });
-  const [throwInMins, setThrowInMins] = useState({
-    wed: DAY_CONFIG.wed.defaultStartMin,
-    thu: DAY_CONFIG.thu.defaultStartMin,
-    sat: DAY_CONFIG.sat.defaultStartMin,
-    sun: DAY_CONFIG.sun.defaultStartMin,
-  });
+  // Built from DAY_KEYS so adding a day can't miss an initialiser.
+  const [rosters, setRosters] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, []])));
+  const [schedules, setSchedules] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, null])));
+  const [throwInMins, setThrowInMins] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, DAY_CONFIG[k].defaultStartMin])));
   // Which ground each day's chukkas are played on — captain-selectable from
   // GROUND_OPTIONS, persisted per day, shown on the chukka table and exports.
-  const [grounds, setGrounds] = useState({ wed: '', thu: '', sat: '', sun: '' });
+  const [grounds, setGrounds] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
 
   // Form state (shared across days — the form belongs to whichever day is active)
   const [name, setName] = useState('');
@@ -718,9 +743,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [throwInEditing, setThrowInEditing] = useState(false);
   const [throwInInput, setThrowInInput] = useState('');
 
-  // Active day — used to index into the day-keyed state. Defaults to 'wed' when
-  // on the fixtures tab so derived values are always defined.
-  const activeDay = DAY_KEYS.includes(activeTab) ? activeTab : 'wed';
   const activeDayConfig = DAY_CONFIG[activeDay];
 
   // Convenience accessors so the existing component code can keep using
@@ -729,6 +751,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const schedule = schedules[activeDay];
   const throwInMin = throwInMins[activeDay];
   const ground = grounds[activeDay];
+
+  // Handicap gate (Friday instructional = beginners only). Returns a reason
+  // string when the handicap is too high for the day, otherwise ''.
+  const handicapBlockReason = (h, dayKey = activeDay) => {
+    const cfg = DAY_CONFIG[dayKey];
+    if (cfg.maxHandicap == null || h === '' || h == null) return '';
+    const n = typeof h === 'number' ? h : parseInt(h, 10);
+    if (isNaN(n) || n <= cfg.maxHandicap) return '';
+    return `${cfg.fullLabel} sessions are for beginners only — handicap ${fmtH(cfg.maxHandicap)} and below. Please book onto Wednesday, Saturday or Sunday chukkas instead.`;
+  };
+  // Max chukkas bookable on a day (Friday: 2, in a one-hour session)
+  const maxChukkasFor = (dayKey = activeDay) => DAY_CONFIG[dayKey].maxChukkas || 8;
 
   // Setters that update only the active day's slice
   const setPlayers = (next) => setRosters(prev => ({
@@ -1048,7 +1082,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const lockCaptainMode = () => {
     setCaptainMode(false);
-    setActiveTab(prev => (prev === 'players' ? 'wed' : prev));
+    // Bounce off any captain-only tab back to the chukka booking pages
+    setActiveTab(prev => (['players', 'teams', 'shop'].includes(prev) ? 'chukkas' : prev));
     try { sessionStorage.removeItem('tppc-captain'); } catch (e) {}
   };
 
@@ -1117,15 +1152,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       }
 
       // Load per-day rosters, schedules and throw-in times
-      const nextRosters = { wed: [], thu: [], sat: [], sun: [] };
-      const nextSchedules = { wed: null, thu: null, sat: null, sun: null };
-      const nextThrowIns = {
-        wed: DAY_CONFIG.wed.defaultStartMin,
-        thu: DAY_CONFIG.thu.defaultStartMin,
-        sat: DAY_CONFIG.sat.defaultStartMin,
-        sun: DAY_CONFIG.sun.defaultStartMin,
-      };
-      const nextGrounds = { wed: '', thu: '', sat: '', sun: '' };
+      const nextRosters = Object.fromEntries(DAY_KEYS.map(k => [k, []]));
+      const nextSchedules = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
+      const nextThrowIns = Object.fromEntries(DAY_KEYS.map(k => [k, DAY_CONFIG[k].defaultStartMin]));
+      const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       for (const dk of DAY_KEYS) {
         try {
           const r = await window.storage.get(storageKey('roster', dk), true);
@@ -1734,7 +1764,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!chukkas) return setError('How many chukkas?');
     const h = parseInt(handicap, 10);
     const c = parseInt(chukkas, 10);
-    if (isNaN(c) || c < 1 || c > 8) return setError('Chukkas must be between 1 and 8.');
+    // Beginners-only days (Friday instructional). Captain can override.
+    if (!captainMode) {
+      const blocked = handicapBlockReason(h);
+      if (blocked) return setError(blocked);
+    }
+    const maxC = maxChukkasFor();
+    if (isNaN(c) || c < 1 || c > maxC) return setError(`Chukkas must be between 1 and ${maxC}.`);
     // Sanity check: if both bounds are set, availableTo must not be earlier than availableFrom.
     if (availableFrom && availableTo) {
       const fromMin = parseTime(availableFrom);
@@ -3074,6 +3110,68 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           color: var(--cream);
           border-bottom-color: var(--gold);
         }
+        /* Day menu inside the Chukkas tab */
+        .day-menu {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 8px;
+          margin-bottom: 24px;
+        }
+        .day-menu-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 3px;
+          padding: 12px 14px;
+          background: #fff;
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          cursor: pointer;
+          text-align: left;
+          transition: all 0.2s;
+          font-family: 'Outfit', sans-serif;
+        }
+        .day-menu-btn:hover { border-color: var(--burgundy); }
+        .day-menu-btn.active {
+          background: var(--burgundy);
+          border-color: var(--burgundy);
+        }
+        .day-menu-day {
+          font-family: 'Fraunces', serif;
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--ink);
+        }
+        .day-menu-btn.active .day-menu-day { color: var(--cream); }
+        .day-menu-blurb {
+          font-size: 10px;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          color: var(--muted);
+          line-height: 1.3;
+        }
+        .day-menu-btn.active .day-menu-blurb { color: rgba(244, 236, 216, 0.75); }
+        /* Club shop */
+        .shop-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 16px;
+        }
+        .shop-card {
+          background: #fff;
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+        .shop-img-wrap {
+          width: 100%;
+          aspect-ratio: 3 / 4;
+          background: var(--cream-pale);
+          overflow: hidden;
+        }
+        .shop-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
         .card {
           background: white;
@@ -4122,17 +4220,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
         {/* Tabs */}
         <nav className="tabs">
-          <button className={`tab-btn ${activeTab === 'wed' ? 'active' : ''}`} onClick={() => setActiveTab('wed')}>
-            Wed
-          </button>
-          <button className={`tab-btn ${activeTab === 'thu' ? 'active' : ''}`} onClick={() => setActiveTab('thu')}>
-            Thu ♀
-          </button>
-          <button className={`tab-btn ${activeTab === 'sat' ? 'active' : ''}`} onClick={() => setActiveTab('sat')}>
-            Sat
-          </button>
-          <button className={`tab-btn ${activeTab === 'sun' ? 'active' : ''}`} onClick={() => setActiveTab('sun')}>
-            Sun
+          <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
+            Chukkas
           </button>
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
             Fixtures
@@ -4140,6 +4229,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           <button className={`tab-btn ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>
             Live Game
           </button>
+          {captainMode && (
+            <button className={`tab-btn ${activeTab === 'shop' ? 'active' : ''}`} onClick={() => setActiveTab('shop')}>
+              Shop
+            </button>
+          )}
           {captainMode && (
             <button className={`tab-btn ${activeTab === 'players' ? 'active' : ''}`} onClick={() => setActiveTab('players')}>
               Players
@@ -4159,13 +4253,32 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             {playerDb.filter(p => p.active !== false && !(p.name || '').includes('/')).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => <option key={p.id} value={p.name} />)}
           </datalist>
 
-          {/* ─── DAY CHUKKAS TABS (Wed/Thu/Sat/Sun) ─── */}
-          {DAY_KEYS.includes(activeTab) && (
+          {/* ─── CHUKKAS TAB — day menu + the selected day's booking page ─── */}
+          {activeTab === 'chukkas' && (
             <div className="reveal">
+              {/* Day menu: pick which chukka day to view/book */}
+              <div className="day-menu">
+                {DAY_KEYS.map(dk => {
+                  const cfg = DAY_CONFIG[dk];
+                  return (
+                    <button
+                      key={dk}
+                      type="button"
+                      className={`day-menu-btn ${activeDay === dk ? 'active' : ''}`}
+                      onClick={() => setActiveDay(dk)}
+                      aria-pressed={activeDay === dk}
+                    >
+                      <span className="day-menu-day">{cfg.fullLabel}</span>
+                      <span className="day-menu-blurb">{cfg.blurb}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <div className="label-eyebrow">
                   {activeDayConfig.note
-                    ? <>{activeDayConfig.note} · {fmtTime(throwInMin)}{ground ? <> · {ground}</> : null}</>
+                    ? <>{activeDayConfig.fullLabel} · {activeDayConfig.note} · {fmtTime(throwInMin)}{ground ? <> · {ground}</> : null}</>
                     : <>{activeDayConfig.fullLabel}s · {fmtTime(throwInMin)}{ground ? <> · {ground}</> : null}</>
                   }
                   {captainMode && !throwInEditing && (
@@ -4407,13 +4520,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <input
                         className="input-field"
                         type="number"
-                        placeholder="e.g. 3"
+                        placeholder={maxChukkasFor() <= 2 ? `1–${maxChukkasFor()}` : 'e.g. 3'}
                         min="1"
-                        max="8"
+                        max={String(maxChukkasFor())}
                         value={chukkas}
                         onChange={(e) => setChukkas(e.target.value)}
                         inputMode="numeric"
                       />
+                      {activeDayConfig.maxChukkas && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                          {activeDayConfig.sessionMins ? `${activeDayConfig.sessionMins}-minute session · ` : ''}max {activeDayConfig.maxChukkas} chukkas
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -4537,16 +4655,42 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     </div>
                   )}
 
-                  <button
-                    className="btn-primary"
-                    onClick={handleAdd}
-                    disabled={!captainMode && isBookingClosed()}
-                    style={!captainMode && isBookingClosed() ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
-                  >
-                    {(!captainMode && isBookingClosed()) ? 'Bookings closed · email captain' : 'Add to Roster'}
-                  </button>
+                  {(() => {
+                    const hcpReason = captainMode ? '' : handicapBlockReason(handicap);
+                    const closed = !captainMode && isBookingClosed();
+                    const disabled = closed || !!hcpReason;
+                    return (
+                      <>
+                        {/* Beginners-only notice — shown when the selected handicap is too high for this day */}
+                        {hcpReason && (
+                          <div
+                            role="alert"
+                            style={{
+                              background: '#fef0ee', border: '1px solid #d27a6f', borderLeft: '4px solid var(--burgundy)',
+                              borderRadius: '4px', padding: '12px 14px', fontSize: '13px', lineHeight: 1.55,
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: 'var(--burgundy)', marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>
+                              Beginners only
+                            </div>
+                            {hcpReason}
+                          </div>
+                        )}
+                        <button
+                          className="btn-primary"
+                          onClick={handleAdd}
+                          disabled={disabled}
+                          style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                        >
+                          {closed ? 'Bookings closed · email captain'
+                            : hcpReason ? 'Beginners only · handicap 0 and below'
+                            : 'Add to Roster'}
+                        </button>
+                      </>
+                    );
+                  })()}
                   <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center', marginTop: '4px', lineHeight: 1.45 }}>
-                    By signing up, you agree to your name, handicap and (if given) mobile number being used to organise the Wednesday chukkas.{' '}
+                    By signing up, you agree to your name, handicap and (if given) mobile number being used to organise the {activeDayConfig.fullLabel} chukkas.{' '}
                     <button
                       type="button"
                       onClick={() => setPrivacyOpen(true)}
@@ -6023,6 +6167,61 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             </div>
           )}
 
+          {/* ─── SHOP (captain only, preview — Stripe to follow) ─── */}
+          {activeTab === 'shop' && captainMode && (
+            <div className="reveal">
+              <div style={{ textAlign: 'center', marginBottom: '18px' }}>
+                <div className="label-eyebrow">Club Shop · Preview</div>
+                <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Shop</h2>
+              </div>
+
+              <div style={{ background: 'var(--cream-pale)', borderLeft: '3px solid var(--gold)', borderRadius: '4px', padding: '12px 14px', fontSize: '12px', lineHeight: 1.55, color: 'var(--muted)', marginBottom: '20px' }}>
+                Work in progress — only you can see this. Members won't see a Shop tab until it's switched on.
+                Checkout is not connected yet; the buttons below are placeholders for Stripe.
+              </div>
+
+              <div className="shop-grid">
+                {SHOP_PRODUCTS.map(p => (
+                  <div key={p.id} className="shop-card">
+                    <div className="shop-img-wrap">
+                      <img src={p.image} alt={p.name} className="shop-img" loading="lazy" />
+                    </div>
+                    <div style={{ padding: '14px' }}>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: '17px', fontWeight: 600, color: 'var(--ink)', lineHeight: 1.25 }}>{p.name}</div>
+                      <div style={{ fontSize: '16px', color: 'var(--burgundy)', fontWeight: 600, margin: '6px 0 8px' }}>{fmtPence(p.pricePence)}</div>
+                      {p.blurb && <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5, marginBottom: '10px' }}>{p.blurb}</div>}
+                      {p.options && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <label style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--muted)', display: 'block', marginBottom: '4px' }}>{p.options.label}</label>
+                          <select
+                            className="input-field select-field"
+                            value={shopOptions[p.id] ?? p.options.values[0]}
+                            onChange={(e) => setShopOptions(prev => ({ ...prev, [p.id]: e.target.value }))}
+                            style={{ padding: '8px 10px', fontSize: '13px' }}
+                          >
+                            {p.options.values.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <button
+                        className="btn-primary"
+                        disabled
+                        title="Stripe checkout is not connected yet"
+                        style={{ opacity: 0.5, cursor: 'not-allowed', width: '100%', padding: '11px', fontSize: '12px' }}
+                      >
+                        {p.inStock ? 'Buy · Stripe coming soon' : 'Out of stock'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5, marginTop: '18px', textAlign: 'center' }}>
+                To add a product, drop a photo into <code>/public/shop/</code> and add an entry to <code>SHOP_PRODUCTS</code>.
+              </div>
+            </div>
+          )}
+
           {activeTab === 'players' && captainMode && (
             <div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' }}>
@@ -6236,7 +6435,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 const pl = playerDb.find(p => p.id === checkout.playerId) || null;
                 const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel) : null;
                 const n = bd ? bd.chukkas : 0;
-                const dayLabels = { wed: 'Wed', thu: 'Thu', sat: 'Sat', sun: 'Sun' };
+                const dayLabels = { wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
                 const ponyOpts = [['none', 'No pony hire (own pony)'], ['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
                 const methods = [['cash', 'Cash'], ['transfer', 'Bank transfer'], ['card', 'Card (manual)'], ['other', 'Other']];
                 return (
@@ -6253,7 +6452,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     {(() => {
                       const due = transactions.filter(t => t.status === 'due');
                       if (due.length === 0) return null;
-                      const dayNames = { wed: 'Wednesday', thu: 'Thursday', sat: 'Saturday', sun: 'Sunday' };
+                      const dayNames = { wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
                       const methodOpts = [['cash', 'Cash'], ['transfer', 'Transfer'], ['card', 'Card'], ['other', 'Other']];
                       return (
                         <div style={{ marginBottom: '22px' }}>
