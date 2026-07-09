@@ -606,7 +606,7 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas) {
   // games, prizegiving) — matching the on-screen Fixtures view.
   const items = [];
   groups.forEach((g, i) => items.push({ kind: 'group', t: pgTime(g.matches[0] && g.matches[0].time), ord: i, g }));
-  [day.prizegiving, day.prizegiving2].forEach((pg, i) => {
+  [day.prizegiving, day.prizegiving2, day.prizegiving3].forEach((pg, i) => {
     if (pg) items.push({ kind: 'prize', t: pgTime(typeof pg === 'string' ? pg : ''), ord: 1000 + i, pg });
   });
   // Chukka draw scheduled on this day (matched by weekday) → slot it by throw-in time.
@@ -672,7 +672,7 @@ function drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas) {
   };
 
   if (items.length) {
-    const pgCount = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0);
+    const pgCount = (day.prizegiving ? 1 : 0) + (day.prizegiving2 ? 1 : 0) + (day.prizegiving3 ? 1 : 0);
     const splitAfterPrize = pgCount >= 2;
     // A match can be flagged (via the editor tick box) to start on a fresh page.
     const breaksBefore = (it) =>

@@ -143,6 +143,10 @@ const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || M
 const cleanSquad = (players) => (players || [])
   .filter(p => p && (p.name || '').trim())
   .map(p => ({ name: p.name, handicap: p.handicap ?? null }));
+// Players listed per team in a tournament match. Four on the field, but a fifth
+// can be named (substitute / shared mount). The PDF sizes itself off the actual
+// player count, so nothing else needs to change.
+const MAX_MATCH_PLAYERS = 5;
 const CHUKKA_START_MIN_WED = 17 * 60 + 30;  // 17:30 — Wednesday default
 const CHUKKA_START_MIN_THU = 10 * 60;        // 10:00 — Thursday (Ladies Only) default
 const CHUKKA_START_MIN_FRI = 17 * 60 + 30;  // 17:30 — Friday Instructional default
@@ -2953,6 +2957,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (!ex.ground && sd.ground) ex.ground = sd.ground;
       if (!ex.prizegiving && sd.prizegiving) ex.prizegiving = sd.prizegiving;
       if (!ex.prizegiving2 && sd.prizegiving2) ex.prizegiving2 = sd.prizegiving2;
+      if (!ex.prizegiving3 && sd.prizegiving3) ex.prizegiving3 = sd.prizegiving3;
       const seen = new Map(ex.matches.map(m => [mKey(m), m]));
       (sd.matches || []).forEach(sm => {
         const k = mKey(sm); const tm = seen.get(k);
@@ -5451,7 +5456,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                           };
                                           const sched = [];
                                           (day.matches || []).forEach((match, mi) => sched.push({ kind: 'match', t: tmin(match.time), match, mi }));
-                                          [day.prizegiving, day.prizegiving2].forEach((pg, pi) => { if (pg) sched.push({ kind: 'prize', t: tmin(typeof pg === 'string' ? pg : ''), val: pg, pi }); });
+                                          [day.prizegiving, day.prizegiving2, day.prizegiving3].forEach((pg, pi) => { if (pg) sched.push({ kind: 'prize', t: tmin(typeof pg === 'string' ? pg : ''), val: pg, pi }); });
                                           sched.forEach((it, i) => { it._i = i; });
                                           sched.sort((a, b) => a.t !== b.t ? a.t - b.t : a._i - b._i);
                                           return sched.map((it) => {
@@ -5660,24 +5665,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                 </select>
                                                 <button onClick={() => { const days = draft.days.filter((_,i) => i!==di); setDraft({...draft, days}); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '18px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 4px' }}>×</button>
                                               </div>
-                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
-                                                  <input type="checkbox" checked={!!day.prizegiving} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.checked ? (typeof d.prizegiving === 'string' && d.prizegiving.trim() ? d.prizegiving : true) : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
-                                                  Prizegiving
-                                                </label>
-                                                {!!day.prizegiving && (
-                                                  <input className="input-field" placeholder="Time e.g. 14:00 (optional)" value={typeof day.prizegiving === 'string' ? day.prizegiving : ''} onChange={e => updDay(di, d => ({...d, prizegiving: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
-                                                )}
-                                              </div>
-                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
-                                                  <input type="checkbox" checked={!!day.prizegiving2} onChange={e => updDay(di, d => ({...d, prizegiving2: e.target.checked ? (typeof d.prizegiving2 === 'string' && d.prizegiving2.trim() ? d.prizegiving2 : true) : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
-                                                  2nd prizegiving
-                                                </label>
-                                                {!!day.prizegiving2 && (
-                                                  <input className="input-field" placeholder="Time e.g. 15:00 (optional)" value={typeof day.prizegiving2 === 'string' ? day.prizegiving2 : ''} onChange={e => updDay(di, d => ({...d, prizegiving2: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
-                                                )}
-                                              </div>
+                                              {[
+                                                { field: 'prizegiving',  label: 'Prizegiving',     ph: 'Time e.g. 14:00 (optional)' },
+                                                { field: 'prizegiving2', label: '2nd prizegiving', ph: 'Time e.g. 15:00 (optional)' },
+                                                { field: 'prizegiving3', label: '3rd prizegiving', ph: 'Time e.g. 16:00 (optional)' },
+                                              ].map(({ field, label, ph }) => (
+                                                <div key={field} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
+                                                    <input type="checkbox" checked={!!day[field]} onChange={e => updDay(di, d => ({...d, [field]: e.target.checked ? (typeof d[field] === 'string' && d[field].trim() ? d[field] : true) : false}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)' }} />
+                                                    {label}
+                                                  </label>
+                                                  {!!day[field] && (
+                                                    <input className="input-field" placeholder={ph} value={typeof day[field] === 'string' ? day[field] : ''} onChange={e => updDay(di, d => ({...d, [field]: e.target.value}))} style={{ flex: 1, minWidth: '140px', padding: '5px 8px', fontSize: '12px' }} />
+                                                  )}
+                                                </div>
+                                              ))}
                                               {(day.matches || []).map((match, mi) => (
                                                 <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
                                                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: 'var(--muted)', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' }}>
@@ -5772,7 +5774,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                               <button onClick={() => updTeam(di, mi, tk, t => ({...t, players: t.players.filter((_,i) => i!==pi)}))} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', cursor: 'pointer', lineHeight: 1, padding: '0 1px' }}>×</button>
                                                             </div>
                                                           ))}
-                                                          {(team.players||[]).length < 4 && (<button onClick={() => updTeam(di, mi, tk, t => ((t.players||[]).length >= 4 ? t : {...t, players: [...(t.players||[]), {name:'', handicap: null}]}))} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.3px', padding: '1px 0' }}>+ player</button>)}
+                                                          {(team.players||[]).length < MAX_MATCH_PLAYERS && (<button onClick={() => updTeam(di, mi, tk, t => ((t.players||[]).length >= MAX_MATCH_PLAYERS ? t : {...t, players: [...(t.players||[]), {name:'', handicap: null}]}))} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.3px', padding: '1px 0' }}>+ player</button>)}
                                                         </div>
                                                       );
                                                     })}
