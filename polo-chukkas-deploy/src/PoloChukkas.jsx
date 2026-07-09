@@ -157,12 +157,14 @@ const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move pl
 // Each chukka day. Optional gates:
 //   maxHandicap — nobody above this handicap may sign up (Friday: beginners only)
 //   maxChukkas  — cap on chukkas bookable per player (Friday: a 1-hour, 2-chukka session)
+//   fixedChukkas— every player plays exactly this many; the chukkas field is locked
+//   instructional — hides options that don't apply to a fixed teaching session
 //   blurb       — one-line description shown on the day menu
 const DAY_CONFIG = {
   wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps' },
   thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only' },
   fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
-        instructional: true, maxHandicap: 0, maxChukkas: 2, sessionMins: 60 },
+        instructional: true, maxHandicap: 0, maxChukkas: 2, fixedChukkas: 2, sessionMins: 60 },
   sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas', blurb: 'Open to all handicaps' },
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
@@ -763,6 +765,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
   // Max chukkas bookable on a day (Friday: 2, in a one-hour session)
   const maxChukkasFor = (dayKey = activeDay) => DAY_CONFIG[dayKey].maxChukkas || 8;
+  // Days where everyone plays a set number of chukkas (Friday instructional: 2).
+  const fixedChukkasFor = (dayKey = activeDay) => DAY_CONFIG[dayKey].fixedChukkas || null;
+
+  // Keep the booking form in step with the selected day: on a fixed-length
+  // session the chukkas box is locked to that number, and options that don't
+  // apply to a short teaching session are cleared.
+  useEffect(() => {
+    const fixed = fixedChukkasFor(activeDay);
+    setChukkas(fixed ? String(fixed) : '');
+    if (DAY_CONFIG[activeDay].instructional) setNoConsecutive(false);
+  }, [activeDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Setters that update only the active day's slice
   const setPlayers = (next) => setRosters(prev => ({
@@ -1761,9 +1774,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     }
     if (!name.trim()) return setError('Please enter a name.');
     if (handicap === '') return setError('Please select a handicap.');
-    if (!chukkas) return setError('How many chukkas?');
+    const dayCfg = DAY_CONFIG[activeDay];
+    const fixedC = fixedChukkasFor();
+    if (!fixedC && !chukkas) return setError('How many chukkas?');
     const h = parseInt(handicap, 10);
-    const c = parseInt(chukkas, 10);
+    // On a fixed-length session everyone plays the same number of chukkas,
+    // whatever the (disabled) field says.
+    const c = fixedC ? fixedC : parseInt(chukkas, 10);
     // Beginners-only days (Friday instructional). Captain can override.
     if (!captainMode) {
       const blocked = handicapBlockReason(h);
@@ -1798,7 +1815,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       availableTo: availableTo || '',
  
       vip: captainMode ? vip : false,
-      noConsecutive: noConsecutive,
+      noConsecutive: dayCfg.instructional ? false : noConsecutive,
       ponyHire: ponyHire,   };
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
@@ -1826,7 +1843,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         setBookingMsg('Added to the roster — no charge.');
       }
     }
-    setName(''); setMobile(''); setHandicap(''); setChukkas(''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
+    setName(''); setMobile(''); setHandicap(''); setChukkas(fixedC ? String(fixedC) : ''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
     saveSchedule(null);
   };
 
@@ -4523,13 +4540,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         placeholder={maxChukkasFor() <= 2 ? `1–${maxChukkasFor()}` : 'e.g. 3'}
                         min="1"
                         max={String(maxChukkasFor())}
-                        value={chukkas}
+                        value={fixedChukkasFor() ? String(fixedChukkasFor()) : chukkas}
                         onChange={(e) => setChukkas(e.target.value)}
                         inputMode="numeric"
+                        disabled={!!fixedChukkasFor()}
+                        readOnly={!!fixedChukkasFor()}
+                        aria-describedby="chukkas-note"
+                        style={fixedChukkasFor() ? { opacity: 0.6, cursor: 'not-allowed', background: 'var(--cream-pale)' } : undefined}
                       />
-                      {activeDayConfig.maxChukkas && (
-                        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.4 }}>
-                          {activeDayConfig.sessionMins ? `${activeDayConfig.sessionMins}-minute session · ` : ''}max {activeDayConfig.maxChukkas} chukkas
+                      {(fixedChukkasFor() || activeDayConfig.maxChukkas) && (
+                        <div id="chukkas-note" style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                          {activeDayConfig.sessionMins ? `${activeDayConfig.sessionMins}-minute session · ` : ''}
+                          {fixedChukkasFor()
+                            ? `everyone plays ${fixedChukkasFor()} chukkas`
+                            : `max ${activeDayConfig.maxChukkas} chukkas`}
                         </div>
                       )}
                     </div>
@@ -4580,7 +4604,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     </div>
                   </div>
 
-                  {/* No consecutive — any player can set this for themselves */}
+                  {/* No consecutive — any player can set this for themselves.
+                      Not offered on a fixed-length instructional session. */}
+                  {!activeDayConfig.instructional && (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
                     <input
                       type="checkbox"
@@ -4593,6 +4619,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Always leaves a gap of at least one chukka between plays</span>
                     </div>
                   </label>
+                  )}
 
                   {/* Pony hire — affects price (own-pony players leave unticked) */}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--ink)', padding: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
