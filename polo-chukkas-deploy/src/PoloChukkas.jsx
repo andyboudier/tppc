@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateTournamentPdf } from './tournamentPdf';
+import { generateTournamentPdf, DEFAULT_COMMITTEE } from './tournamentPdf';
 
 // 2026 Tedworth Park Polo Club grass fixtures
 const FIXTURES_2026 = [
@@ -715,6 +715,10 @@ export default function PoloChukkas() {
   const [activeDay, setActiveDay] = useState('wed');
   // Shop: selected variant per product (e.g. mallet length). Pre-Stripe placeholder.
   const [shopOptions, setShopOptions] = useState({});
+  // Tournament committee printed on the programme rules page. Captain-editable
+  // in Fixtures, shared across devices. Empty = fall back to the built-in list.
+  const [committee, setCommittee] = useState('');
+  const [committeeDraft, setCommitteeDraft] = useState(null); // local buffer while typing
 
   // Per-day chukkas state — rosters, schedules, throw-in times all keyed by day.
   // Built from DAY_KEYS so adding a day can't miss an initialiser.
@@ -1280,6 +1284,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       try {
         const w = await window.storage.get('wa-link', true);
         if (w?.value) setWaLink(w.value);
+      } catch (e) {}
+      try {
+        const cm = await window.storage.get('committee', true);
+        if (cm?.value) setCommittee(cm.value);
       } catch (e) {}
       try {
         const m = await window.storage.get('members', true);
@@ -2074,6 +2082,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setWaLink(cleaned);
     try { await window.storage.set('wa-link', cleaned, true); } catch (e) {}
     setWaEditing(false);
+  };
+
+  // Tournament committee names printed on the programme rules page.
+  // Blank clears the override and falls back to the built-in list.
+  const saveCommittee = async (value) => {
+    const cleaned = (value || '').trim();
+    setCommittee(cleaned);
+    try {
+      if (cleaned) await window.storage.set('committee', cleaned, true);
+      else await window.storage.delete('committee', true);
+    } catch (e) {}
   };
 
   const generateTeamSheet = () => {
@@ -5303,6 +5322,29 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               </div>
 
               {captainMode && (
+                <div style={{ maxWidth: '480px', margin: '0 auto 16px', border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px' }}>
+                  <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '6px' }}>Tournament committee</div>
+                  <input
+                    className="input-field"
+                    type="text"
+                    placeholder={DEFAULT_COMMITTEE}
+                    value={committeeDraft ?? committee}
+                    onChange={e => setCommitteeDraft(e.target.value)}
+                    onBlur={() => {
+                      if (committeeDraft === null) return;
+                      if (committeeDraft.trim() !== committee) saveCommittee(committeeDraft);
+                      setCommitteeDraft(null);
+                    }}
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                  />
+                  <div style={{ fontSize: '10px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '6px' }}>
+                    Printed on the rules page of every programme PDF. Separate names with commas, e.g.
+                    {' '}<em>Rosie Ross, David Eadie, Helen Gredington &amp; Simon Ledger</em>. Leave blank to use the default list.
+                  </div>
+                </div>
+              )}
+
+              {captainMode && (
                 <div style={{ maxWidth: '480px', margin: '0 auto 16px', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 12px' }}>
                   <button
                     onClick={recoverScoresFromBackups}
@@ -5549,14 +5591,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     // Single-day running-order programme: scores stripped so it prints clean.
                                                     const cleanDay = JSON.parse(JSON.stringify(day));
                                                     (cleanDay.matches || []).forEach(m => { m.scoreA = null; m.scoreB = null; });
-                                                    await generateTournamentPdf(fx, det, chukkaByDow, { days: [cleanDay], subtitle: day.dateLabel || '', filenameDate: day.dateLabel || '' });
+                                                    await generateTournamentPdf(fx, det, chukkaByDow, { days: [cleanDay], subtitle: day.dateLabel || '', filenameDate: day.dateLabel || '', committee });
                                                   } catch (err) { fail(err); }
                                                 }} style={outlineBtn}>
                                                   ↓ Day {dayIdx + 1} programme{day.dateLabel ? ` · ${day.dateLabel}` : ''}
                                                 </button>
                                               ))}
                                               <button onClick={async () => {
-                                                try { await generateTournamentPdf(fx, det, {}, { resultsSummary: true, hideChukkas: true }); }
+                                                try { await generateTournamentPdf(fx, det, {}, { resultsSummary: true, hideChukkas: true, committee }); }
                                                 catch (err) { fail(err); }
                                               }} style={solidBtn}>
                                                 ↓ Summary — all days with scores

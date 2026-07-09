@@ -49,7 +49,7 @@ const MARGIN = 18;
 // ── Standard club content (matches the example PDF) ──────────────────────
 // If captains want different committee names or rules per tournament,
 // these can later be moved into fixtureDetails.
-const COMMITTEE = 'ROSIE ROSS, DAVID EADIE, HELEN GREDINGTON & SIMON LEDGER';
+export const DEFAULT_COMMITTEE = 'ROSIE ROSS, DAVID EADIE, HELEN GREDINGTON & SIMON LEDGER';
 
 const RULES = [
   'ALL PLAYERS MUST HAVE A VALID HPA MEMBERSHIP BEFORE PLAYING IN ANY MATCH OR TOURNAMENT',
@@ -875,7 +875,7 @@ function drawGroup(doc, g, startY, hideChukkas) {
   return y;
 }
 
-function drawRulesPage(doc) {
+function drawRulesPage(doc, committee) {
   drawCrest(doc, PAGE_W / 2, 35, 38);
 
   let y = 70;
@@ -890,8 +890,11 @@ function drawRulesPage(doc) {
 
   doc.setFont('Jost', 'normal');
   doc.setFontSize(11);
-  doc.text(COMMITTEE, PAGE_W / 2, y, { align: 'center' });
-  y += 16;
+  // Captain-editable. Wrap onto extra centred lines if the list is long.
+  const names = (committee && String(committee).trim()) ? String(committee).trim().toUpperCase() : DEFAULT_COMMITTEE;
+  const lines = doc.splitTextToSize(names, PAGE_W - MARGIN * 2);
+  lines.forEach((ln, i) => doc.text(ln, PAGE_W / 2, y + i * 5.5, { align: 'center' }));
+  y += (lines.length - 1) * 5.5 + 16;
 
   // Section header: Tournament Rules
   doc.setFont('Jost', 'bold');
@@ -956,7 +959,7 @@ export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}, o
 
   // Rules page
   doc.addPage();
-  drawRulesPage(doc);
+  drawRulesPage(doc, opts.committee);
 
   // Filename: "The_9th_Lancer_Trophy_30th_&_31st_May.pdf"
   const titlePart = sanitizeFilename(ensureLeadingThe(fixture.name));
