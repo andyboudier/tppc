@@ -193,6 +193,24 @@ const SHOP_PRODUCTS = [
 ];
 const fmtPence = (p) => `£${(p / 100).toFixed(2)}`;
 
+// ── Remember where the user last was ─────────────────────────────────────
+// A refresh — including an app/WebView reload mid-match — would otherwise drop
+// the user back on the home tab and lose their live-score selection. We stash
+// the current tab + live-match selection in localStorage and restore it on
+// load, but only if it's recent, so the app still opens fresh the next day.
+const VIEW_STATE_KEY = 'tppc-view';
+const VIEW_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams'];
+const readViewState = () => {
+  try {
+    const raw = localStorage.getItem(VIEW_STATE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || typeof s.ts !== 'number' || Date.now() - s.ts > VIEW_STATE_MAX_AGE_MS) return null;
+    return s;
+  } catch (e) { return null; }
+};
+
 const GRENADIER_TROPHY_DETAILS = {
   days: [
     {
@@ -708,11 +726,24 @@ return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, 
 }
 
 export default function PoloChukkas() {
+  // Restore where the user last was so a refresh doesn't bounce them home.
+  // Read once on mount (null if absent or older than the max age).
+  const [restoredView] = useState(readViewState);
+
   // Top-level tabs: 'chukkas' | 'fixtures' | 'live' | 'shop' | 'players' | 'teams'.
   // The chukka days now live on their own menu inside the 'chukkas' tab.
-  const [activeTab, setActiveTab] = useState('chukkas');
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = restoredView && restoredView.activeTab;
+    if (!tab) return 'chukkas';
+    // Don't restore a captain-only tab unless the captain flag is present.
+    let isCaptain = false;
+    try { isCaptain = sessionStorage.getItem('tppc-captain') === '1'; } catch (e) {}
+    if (CAPTAIN_ONLY_TABS.includes(tab) && !isCaptain) return 'chukkas';
+    return tab;
+  });
   // Which chukka day is being viewed/booked within the Chukkas tab.
-  const [activeDay, setActiveDay] = useState('wed');
+  const [activeDay, setActiveDay] = useState(() =>
+    (restoredView && DAY_KEYS.includes(restoredView.activeDay)) ? restoredView.activeDay : 'wed');
   // Shop: selected variant per product (e.g. mallet length). Pre-Stripe placeholder.
   const [shopOptions, setShopOptions] = useState({});
   // Tournament committee printed on the programme rules page. Captain-editable
@@ -873,15 +904,27 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [editingAvailId, setEditingAvailId] = useState(null); // player id whose avail window is being edited
   const [scheduleView, setScheduleView] = useState('cards'); // 'cards' | 'table'
   const [confirmModal, setConfirmModal] = useState(null);   // { title, message, confirmLabel, onConfirm } | null
-  const [captainMode, setCaptainMode] = useState(false);
+  const [captainMode, setCaptainMode] = useState(() => {
+    try { return sessionStorage.getItem('tppc-captain') === '1'; } catch (e) { return false; }
+  });
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [privacyOpen, setPrivacyOpen] = useState(false);
-  const [liveFixtureId, setLiveFixtureId] = useState(null);
-  const [liveDayId, setLiveDayId] = useState(null);
-  const [liveMatchId, setLiveMatchId] = useState(null);
-  const [liveDate, setLiveDate] = useState(null);
+  const [liveFixtureId, setLiveFixtureId] = useState(() => (restoredView && restoredView.liveFixtureId) || null);
+  const [liveDayId, setLiveDayId] = useState(() => (restoredView && restoredView.liveDayId) || null);
+  const [liveMatchId, setLiveMatchId] = useState(() => (restoredView && restoredView.liveMatchId) || null);
+  const [liveDate, setLiveDate] = useState(() => (restoredView && restoredView.liveDate) || null);
+
+  // Persist the current tab + live-score selection so a refresh returns here
+  // instead of the home screen. Stored with a timestamp (see readViewState).
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
+        activeTab, activeDay, liveDate, liveFixtureId, liveDayId, liveMatchId, ts: Date.now(),
+      }));
+    } catch (e) {}
+  }, [activeTab, activeDay, liveDate, liveFixtureId, liveDayId, liveMatchId]);
 
   // On first open of the Live Game tab, auto-select today's date — and the
   // tournament too if only one runs today — so the live game is right there
