@@ -98,16 +98,32 @@ const matchChukkas = (match) => {
 // Goals on handicap (head start) for a team, per HPA rules: the difference in
 // team handicaps × chukkas ÷ 6, any fraction counted as half a goal, awarded to
 // the lower-handicap team. Mirrors the app's live-scoring / fixture display.
-// A team's handicap is the sum of its players' handicaps, but only ever the four
-// highest are counted — a listed 5th player (substitute / shared mount) never
-// inflates it. Falls back to the stored team.handicap when no player handicaps
-// are given (so a team with only a typed team total still works).
+// A team's handicap is the sum of its players' handicaps, but only ever four are
+// counted — a listed 5th player (substitute) never inflates it.
+//   1. If shirt numbers are given, they exactly identify who's on the field
+//      (standard polo positions 1–4): the four lowest-numbered players count,
+//      so an unnumbered or higher-numbered substitute is excluded regardless of
+//      handicap.
+//   2. Otherwise, fall back to the four highest handicaps (drop the lowest).
+// Falls back to the stored team.handicap when no player handicaps are given.
 export const teamHandicap = (team) => {
-  const hs = ((team && team.players) || [])
-    .map(p => Number(p && p.handicap))
-    .filter(n => Number.isFinite(n))
-    .sort((a, b) => b - a)   // highest first
-    .slice(0, 4);            // only ever four handicaps count
+  const players = (team && team.players) || [];
+  const hcp = (p) => {
+    const raw = p && p.handicap;
+    if (raw == null || raw === '') return null; // Number(null) is 0 — treat blank as unset
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
+  const numbered = players
+    .map(p => ({ p, no: parseInt(p && p.shirtNo, 10) }))
+    .filter(x => Number.isFinite(x.no) && x.no >= 1);
+  let counted;
+  if (numbered.length >= 4) {
+    counted = numbered.sort((a, b) => a.no - b.no).slice(0, 4).map(x => x.p); // shirts 1–4
+  } else {
+    counted = [...players].sort((a, b) => (hcp(b) ?? -Infinity) - (hcp(a) ?? -Infinity)).slice(0, 4);
+  }
+  const hs = counted.map(hcp).filter(n => n != null);
   if (hs.length) return hs.reduce((s, n) => s + n, 0);
   const stored = Number(team && team.handicap);
   return Number.isFinite(stored) ? stored : null;
