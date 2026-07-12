@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateTournamentPdf, DEFAULT_COMMITTEE } from './tournamentPdf';
+import { generateTournamentPdf, DEFAULT_COMMITTEE, teamHandicap } from './tournamentPdf';
 
 // 2026 Tedworth Park Polo Club grass fixtures
 const FIXTURES_2026 = [
@@ -2827,8 +2827,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return Number.isFinite(n) && n > 0 ? n : 4; // matches default to 4 chukkas
   };
   const liveHeadStart = (match, teamKey) => {
-    const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
-    const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
+    const hA = teamHandicap(match && match.teamA) || 0;
+    const hB = teamHandicap(match && match.teamB) || 0;
     if (hA === hB) return 0;
     const units = Math.abs(hA - hB) * matchChukkas(match); // goal diff * chukkas
     const whole = Math.floor(units / 6);
@@ -6243,8 +6243,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         const colB = teamColour(curMatch.liveColorB) || teamColour('white');
                         const nameA = (curMatch.teamA && curMatch.teamA.name) || 'Team A';
                         const nameB = (curMatch.teamB && curMatch.teamB.name) || 'Team B';
-                        const hA = curMatch.teamA && Number.isFinite(Number(curMatch.teamA.handicap)) ? Number(curMatch.teamA.handicap) : null;
-                        const hB = curMatch.teamB && Number.isFinite(Number(curMatch.teamB.handicap)) ? Number(curMatch.teamB.handicap) : null;
+                        const hA = teamHandicap(curMatch.teamA);
+                        const hB = teamHandicap(curMatch.teamB);
                         const fmtHcp = (h) => h == null ? null : (h > 0 ? '+' + h : h < 0 ? '−' + Math.abs(h) : '0');
                         const nCk = matchChukkas(curMatch);
                         const ended = curMatch.liveChukka === 'ended';

@@ -98,9 +98,24 @@ const matchChukkas = (match) => {
 // Goals on handicap (head start) for a team, per HPA rules: the difference in
 // team handicaps × chukkas ÷ 6, any fraction counted as half a goal, awarded to
 // the lower-handicap team. Mirrors the app's live-scoring / fixture display.
+// A team's handicap is the sum of its players' handicaps, but only ever the four
+// highest are counted — a listed 5th player (substitute / shared mount) never
+// inflates it. Falls back to the stored team.handicap when no player handicaps
+// are given (so a team with only a typed team total still works).
+export const teamHandicap = (team) => {
+  const hs = ((team && team.players) || [])
+    .map(p => Number(p && p.handicap))
+    .filter(n => Number.isFinite(n))
+    .sort((a, b) => b - a)   // highest first
+    .slice(0, 4);            // only ever four handicaps count
+  if (hs.length) return hs.reduce((s, n) => s + n, 0);
+  const stored = Number(team && team.handicap);
+  return Number.isFinite(stored) ? stored : null;
+};
+
 const pdfHeadStart = (match, teamKey) => {
-  const hA = Number(match && match.teamA && match.teamA.handicap) || 0;
-  const hB = Number(match && match.teamB && match.teamB.handicap) || 0;
+  const hA = teamHandicap(match && match.teamA) || 0;
+  const hB = teamHandicap(match && match.teamB) || 0;
   if (hA === hB) return 0;
   const units = Math.abs(hA - hB) * matchChukkas(match);
   const goals = Math.floor(units / 6) + (units % 6 > 0 ? 0.5 : 0);
@@ -766,8 +781,8 @@ function drawMatch(doc, match, startY, hideChukkas) {
   // Team headers (name + handicap, bold)
   doc.setFont('Jost', 'bold');
   doc.setFontSize(11);
-  const headerA = `${aName}${fmtHcp(match.teamA?.handicap)}`;
-  const headerB = `${bName}${fmtHcp(match.teamB?.handicap)}`;
+  const headerA = `${aName}${fmtHcp(teamHandicap(match.teamA))}`;
+  const headerB = `${bName}${fmtHcp(teamHandicap(match.teamB))}`;
   doc.text(headerA, colAx, y, { align: 'center' });
   doc.text(headerB, colBx, y, { align: 'center' });
   y += 5;
@@ -855,8 +870,8 @@ function drawGroup(doc, g, startY, hideChukkas) {
 
     doc.setFont('Jost', 'bold');
     doc.setFontSize(11);
-    doc.text(`${a.name.toUpperCase()}${fmtHcp(a.handicap)}`, ax, y, { align: 'center' });
-    if (b) doc.text(`${b.name.toUpperCase()}${fmtHcp(b.handicap)}`, colBx, y, { align: 'center' });
+    doc.text(`${a.name.toUpperCase()}${fmtHcp(teamHandicap(a))}`, ax, y, { align: 'center' });
+    if (b) doc.text(`${b.name.toUpperCase()}${fmtHcp(teamHandicap(b))}`, colBx, y, { align: 'center' });
     y += 5;
 
     doc.setFont('Jost', 'normal');
