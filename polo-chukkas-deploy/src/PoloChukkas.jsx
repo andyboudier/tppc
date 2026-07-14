@@ -779,6 +779,9 @@ export default function PoloChukkas() {
   // Which ground each day's chukkas are played on — captain-selectable from
   // GROUND_OPTIONS, persisted per day, shown on the chukka table and exports.
   const [grounds, setGrounds] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
+  // Captain can manually close sign-ups for a day (e.g. when it's full), on top
+  // of the automatic time-based cutoff. Persisted per day and synced.
+  const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
 
   // Form state (shared across days — the form belongs to whichever day is active)
   const [name, setName] = useState('');
@@ -1027,6 +1030,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
 
   const isBookingClosed = (dayKey = activeDay) => {
+    if (manualClosed[dayKey]) return true; // captain closed it manually (e.g. full)
     if (dayKey === 'wed') {
       const now = new Date();
       const dow = now.getDay(); // 0 Sun · 1 Mon · 2 Tue · 3 Wed · 4 Thu …
@@ -1042,6 +1046,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // Human-readable explanation shown in the booking-closed banner and handleAdd error.
   const bookingClosedReason = (dayKey = activeDay) => {
+    if (manualClosed[dayKey]) {
+      return 'Sign-ups for this session are closed — it\u2019s full. Please contact the captain if you\u2019d still like to play.';
+    }
     if (dayKey === 'wed') {
       const dow = new Date().getDay();
       if (dow === 3) {
@@ -1244,6 +1251,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextSchedules = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
       const nextThrowIns = Object.fromEntries(DAY_KEYS.map(k => [k, DAY_CONFIG[k].defaultStartMin]));
       const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
+      const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       for (const dk of DAY_KEYS) {
         try {
           const r = await window.storage.get(storageKey('roster', dk), true);
@@ -1264,11 +1272,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           const g = await window.storage.get(storageKey('ground', dk), true);
           if (g?.value) nextGrounds[dk] = g.value;
         } catch (e) {}
+        try {
+          const bc = await window.storage.get(storageKey('booking-closed', dk), true);
+          if (bc?.value) nextClosed[dk] = bc.value === '1';
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
       setThrowInMins(nextThrowIns);
       setGrounds(nextGrounds);
+      setManualClosed(nextClosed);
 
       try {
         const f = await window.storage.get('fixture-interest', true);
@@ -4479,6 +4492,31 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <option value="">— not set —</option>
                       {GROUND_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
+                  </div>
+                )}
+                {captainMode && (
+                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <button
+                      onClick={async () => {
+                        const val = !manualClosed[activeDay];
+                        setManualClosed(prev => ({ ...prev, [activeDay]: val }));
+                        try {
+                          if (val) await window.storage.set(storageKey('booking-closed', activeDay), '1', true);
+                          else await window.storage.delete(storageKey('booking-closed', activeDay), true);
+                        } catch (err) {}
+                      }}
+                      style={{
+                        padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.3px',
+                        border: manualClosed[activeDay] ? 'none' : '1px solid var(--burgundy)',
+                        background: manualClosed[activeDay] ? 'var(--burgundy)' : '#fff',
+                        color: manualClosed[activeDay] ? '#fff' : 'var(--burgundy)',
+                      }}
+                    >
+                      {manualClosed[activeDay] ? '↺ Re-open sign-ups' : '✕ Close sign-ups (full)'}
+                    </button>
+                    <span style={{ fontSize: '11px', color: manualClosed[activeDay] ? 'var(--burgundy)' : 'var(--muted)' }}>
+                      {players.length} signed up{manualClosed[activeDay] ? ' · sign-ups closed' : ''}
+                    </span>
                   </div>
                 )}
                 <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
