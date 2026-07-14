@@ -1966,6 +1966,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     });
   };
 
+  // Clear just the generated draw for the active day, keeping everyone on the roster.
+  const clearDraw = () => {
+    setConfirmModal({
+      title: 'Clear the draw?',
+      message: `This removes the generated ${activeDayConfig.fullLabel} draw but keeps everyone signed up, so you can redraw. This can't be undone.`,
+      confirmLabel: 'Clear draw',
+      onConfirm: () => saveSchedule(null),
+    });
+  };
+
   const loadExample = async (key) => {
     const ex = EXAMPLES[key];
     if (!ex) return;
@@ -5382,6 +5392,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       </div>
                       <button className="btn-secondary" onClick={generate} style={{ width: '100%' }}>
                         Redraw schedule
+                      </button>
+                      <button onClick={clearDraw} style={{ width: '100%', marginTop: '8px', background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', padding: '6px' }}>
+                        Clear draw
                       </button>
                     </div>
                   )}
