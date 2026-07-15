@@ -782,6 +782,9 @@ export default function PoloChukkas() {
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
   const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
+  // The draw stays hidden from members until the captain publishes it, so they
+  // only see it when it's ready. Persisted per day and synced.
+  const [drawPublished, setDrawPublished] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
 
   // Form state (shared across days — the form belongs to whichever day is active)
   const [name, setName] = useState('');
@@ -1252,6 +1255,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextThrowIns = Object.fromEntries(DAY_KEYS.map(k => [k, DAY_CONFIG[k].defaultStartMin]));
       const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
+      const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       for (const dk of DAY_KEYS) {
         try {
           const r = await window.storage.get(storageKey('roster', dk), true);
@@ -1276,12 +1280,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           const bc = await window.storage.get(storageKey('booking-closed', dk), true);
           if (bc?.value) nextClosed[dk] = bc.value === '1';
         } catch (e) {}
+        try {
+          const dp = await window.storage.get(storageKey('draw-published', dk), true);
+          if (dp?.value) nextPublished[dk] = dp.value === '1';
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
       setThrowInMins(nextThrowIns);
       setGrounds(nextGrounds);
       setManualClosed(nextClosed);
+      setDrawPublished(nextPublished);
 
       try {
         const f = await window.storage.get('fixture-interest', true);
@@ -1420,8 +1429,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // Save schedule to Firestore so it syncs across devices.
   // Pass null to clear (e.g. when roster changes invalidate the draw).
+  // Any change to the draw un-publishes it: a redraw must be published again, so
+  // members never see a half-finished or superseded draw.
   const saveSchedule = async (nextSchedule, dayKey = activeDay) => {
     setSchedules(prev => ({ ...prev, [dayKey]: nextSchedule }));
+    setDrawPublished(prev => (prev[dayKey] ? { ...prev, [dayKey]: false } : prev));
+    try { await window.storage.delete(storageKey('draw-published', dayKey), true); } catch (e) {}
     try {
       if (nextSchedule === null) {
         await window.storage.delete(storageKey('schedule', dayKey), true);
@@ -1431,6 +1444,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     } catch (e) {
       setError('Schedule saved locally only — check your connection.');
     }
+  };
+
+  // Publish / unpublish the active day's draw to members.
+  const setPublished = async (val, dayKey = activeDay) => {
+    setDrawPublished(prev => ({ ...prev, [dayKey]: val }));
+    try {
+      if (val) await window.storage.set(storageKey('draw-published', dayKey), '1', true);
+      else await window.storage.delete(storageKey('draw-published', dayKey), true);
+    } catch (e) {}
   };
 
   // Update the directory with this player's details (for next time's autofill)
@@ -2023,6 +2045,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const updated = players.map(p => p.id === id ? { ...p, noConsecutive: !p.noConsecutive } : p);
     saveRoster(updated);
     saveSchedule(null);
+  };
+
+  // Toggle pony hire for a player (captain only). Unlike VIP/no-consecutive this
+  // doesn't affect the draw — only what they're charged — so the schedule stands.
+  const togglePonyHire = (id) => {
+    const updated = players.map(p => p.id === id ? { ...p, ponyHire: !p.ponyHire } : p);
+    saveRoster(updated);
   };
 
     const adjustChukkas = (id, delta) => {
@@ -4961,6 +4990,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               {availLabel && <span className="pref-tag">{availLabel}</span>}
                               {p.vip && <span style={{ fontSize: '10px', background: 'var(--gold)', color: 'var(--burgundy-deep)', padding: '1px 6px', borderRadius: '8px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>VIP</span>}
                               {p.noConsecutive && <span style={{ fontSize: '10px', background: 'var(--cream-warm)', color: 'var(--muted)', padding: '1px 6px', borderRadius: '8px', border: '1px solid var(--line)', letterSpacing: '0.3px' }}>no consec.</span>}
+                              {p.ponyHire && !captainMode && <span style={{ fontSize: '10px', background: 'var(--burgundy)', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>🐴 Pony hire</span>}
+                              {captainMode && (
+                                <>
+                                  <button
+                                    type="button"
+                                    title={p.ponyHire ? 'Hiring a pony — tap to remove' : 'Own pony — tap to add pony hire'}
+                                    onClick={() => togglePonyHire(p.id)}
+                                    style={{
+                                      background: p.ponyHire ? 'var(--burgundy)' : 'transparent',
+                                      border: '1px solid ' + (p.ponyHire ? 'var(--burgundy)' : 'var(--line)'),
+                                      color: p.ponyHire ? '#fff' : 'var(--muted)',
+                                      borderRadius: '10px', padding: '1px 7px',
+                                      fontSize: '10px', fontWeight: 700,
+                                      letterSpacing: '0.5px', textTransform: 'uppercase',
+                                      cursor: 'pointer', flexShrink: 0,
+                                    }}
+                                  >{p.ponyHire ? '🐴 Pony hire' : '🐴 Own pony'}</button>
+                                </>
+                              )}
                               {captainMode && (
                                 <>
                                   <button
@@ -5110,8 +5158,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 </section>
               )}
 
+              {/* Draw not yet published — members see a placeholder instead */}
+              {schedule && !captainMode && !drawPublished[activeDay] && (
+                <div style={{ textAlign: 'center', padding: '28px 20px', marginTop: '36px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px' }}>
+                  <div className="display" style={{ fontSize: '18px', color: 'var(--ink)', marginBottom: '6px' }}>The draw isn’t out yet</div>
+                  <div style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    You’re signed up. The {activeDayConfig.fullLabel} draw will appear here once the captain has published it.
+                  </div>
+                </div>
+              )}
+
               {/* Schedule */}
-              {schedule && (
+              {schedule && (captainMode || drawPublished[activeDay]) && (
                 <section ref={scheduleRef} className="reveal" style={{ marginTop: '36px' }}>
                   <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                     <h2 className="display" style={{ margin: '4px 0', fontSize: '26px' }}>{activeDayConfig.fullLabel} Chukkas</h2>
@@ -5390,7 +5448,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           🖼 Export PNG
                         </button>
                       </div>
-                      <button className="btn-secondary" onClick={generate} style={{ width: '100%' }}>
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}>
+                        <button
+                          onClick={() => setPublished(!drawPublished[activeDay])}
+                          className={drawPublished[activeDay] ? 'btn-secondary' : 'btn-primary'}
+                          style={{ width: '100%' }}
+                        >
+                          {drawPublished[activeDay] ? '🙈 Unpublish draw' : '📣 Publish draw to players'}
+                        </button>
+                        <div style={{ fontSize: '11px', color: drawPublished[activeDay] ? 'var(--burgundy)' : 'var(--muted)', textAlign: 'center', marginTop: '6px', lineHeight: 1.45 }}>
+                          {drawPublished[activeDay]
+                            ? 'Players can see this draw.'
+                            : 'Only you can see this draw. Publish it when you’re ready — redrawing hides it again.'}
+                        </div>
+                      </div>
+                      <button className="btn-secondary" onClick={generate} style={{ width: '100%', marginTop: '12px' }}>
                         Redraw schedule
                       </button>
                       <button onClick={clearDraw} style={{ width: '100%', marginTop: '8px', background: 'none', border: 'none', color: 'var(--danger)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', padding: '6px' }}>
