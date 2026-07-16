@@ -5856,6 +5856,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                       const updDay = (di, updater) => { const days = draft.days.map((d,i) => i===di ? updater(d) : d); setDraft({...draft, days}); };
                                       const updMatch = (di, mi, updater) => { updDay(di, d => ({...d, matches: d.matches.map((m,i) => i===mi ? updater(m) : m)})); };
                                       const updTeam = (di, mi, tk, updater) => { updMatch(di, mi, m => ({...m, [tk]: updater(m[tk] || {})})); };
+                                      // Nudge a match up/down the day's running order.
+                                      const moveMatch = (di, mi, dir) => updDay(di, d => {
+                                        const ms = [...(d.matches || [])];
+                                        const j = mi + dir;
+                                        if (j < 0 || j >= ms.length) return d;
+                                        [ms[mi], ms[j]] = [ms[j], ms[mi]];
+                                        return { ...d, matches: ms };
+                                      });
                               // Combined team lookup: persisted teamsDb + teams in current draft days
                               const allTeams = (() => {
                                 const map = { ...teamsDb };
@@ -5955,6 +5963,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                   )}
                                                 </div>
                                               ))}
+                                              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '11px', color: 'var(--ink)', cursor: 'pointer', userSelect: 'none', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px 10px', margin: '2px 0 8px' }}>
+                                                <input type="checkbox" checked={!!day.teamSheet} onChange={e => updDay(di, d => ({...d, teamSheet: e.target.checked}))} style={{ width: '16px', height: '16px', accentColor: 'var(--burgundy)', flexShrink: 0, marginTop: '1px' }} />
+                                                <span>
+                                                  <span style={{ fontWeight: 600 }}>Draw still TBC — print this day as a team sheet</span>
+                                                  <span style={{ color: 'var(--muted)', display: 'block', lineHeight: 1.45, marginTop: '2px' }}>
+                                                    Teams &amp; players grouped into divisions (from the Div box on each match), no times or running order. Any prizegiving is printed at the end.
+                                                  </span>
+                                                </span>
+                                              </label>
                                               {(day.matches || []).map((match, mi) => (
                                                 <div key={mi} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', padding: '8px', marginBottom: '6px' }}>
                                                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: 'var(--muted)', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' }}>
@@ -5970,6 +5987,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '34px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" placeholder="Div" title="Division, e.g. I, II, III — groups this match's teams on the 'Team sheets by division' PDF. Order in the list doesn't matter." value={match.division || ''} onChange={e => updMatch(di, mi, m => ({...m, division: e.target.value}))} style={{ width: '38px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '6px 8px', fontSize: '15px', fontWeight: 600 }} />
+                                                    <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, gap: '1px' }}>
+                                                      <button onClick={() => moveMatch(di, mi, -1)} disabled={mi === 0} title="Move up" style={{ background: 'none', border: 'none', color: mi === 0 ? 'var(--line)' : 'var(--burgundy)', fontSize: '10px', cursor: mi === 0 ? 'default' : 'pointer', lineHeight: 1, padding: '1px 3px' }}>▲</button>
+                                                      <button onClick={() => moveMatch(di, mi, 1)} disabled={mi === (day.matches || []).length - 1} title="Move down" style={{ background: 'none', border: 'none', color: mi === (day.matches || []).length - 1 ? 'var(--line)' : 'var(--burgundy)', fontSize: '10px', cursor: mi === (day.matches || []).length - 1 ? 'default' : 'pointer', lineHeight: 1, padding: '1px 3px' }}>▼</button>
+                                                    </div>
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
                                                   <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />

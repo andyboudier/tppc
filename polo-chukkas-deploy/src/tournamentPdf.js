@@ -643,8 +643,13 @@ const divisionHeading = (label) => {
 };
 
 function drawDivisionsPage(doc, fixture, day) {
-  const divisions = teamsByDivision(day.matches);
-  if (!divisions.length) return;
+  let divisions = teamsByDivision(day.matches);
+  // A team sheet with no divisions set is simply one unheaded list of the teams.
+  if (!divisions.length) {
+    const teams = uniqueTeams(day.matches || []);
+    if (!teams.length) return;
+    divisions = [{ label: '', teams }];
+  }
   const bottomY = PAGE_H - 22;
 
   const header = (continued) => {
@@ -684,7 +689,7 @@ function drawDivisionsPage(doc, fixture, day) {
 
   const measureDiv = (d) => {
     const cols = colsForTeams(d.teams.length);
-    let h = 9;
+    let h = divisionHeading(d.label) ? 9 : 0;
     for (let i = 0; i < d.teams.length; i += cols) {
       const row = d.teams.slice(i, i + cols);
       h += 5 + Math.max(...row.map(t => (t.players || []).length), 0) * 4.6 + 6;
@@ -698,13 +703,15 @@ function drawDivisionsPage(doc, fixture, day) {
   divisions.forEach((d) => {
     if (y + measureDiv(d) > bottomY) { doc.addPage(); y = header(true); }
 
-    doc.setFont('Jost', 'bolditalic');
-    doc.setFontSize(14);
-    doc.setTextColor(...INK);
     const dl = divisionHeading(d.label);
-    doc.text(dl, PAGE_W / 2, y, { align: 'center' });
-    underlineCentered(doc, dl, PAGE_W / 2, y);
-    y += 9;
+    if (dl) {
+      doc.setFont('Jost', 'bolditalic');
+      doc.setFontSize(14);
+      doc.setTextColor(...INK);
+      doc.text(dl, PAGE_W / 2, y, { align: 'center' });
+      underlineCentered(doc, dl, PAGE_W / 2, y);
+      y += 9;
+    }
 
     const cols = colsForTeams(d.teams.length);
     const colW = (PAGE_W - 2 * MARGIN) / cols;
@@ -746,6 +753,21 @@ function drawDivisionsPage(doc, fixture, day) {
     y += 4;
   });
 
+  // Prizegivings last — the draw may be TBC but the presentation time isn't.
+  [day.prizegiving, day.prizegiving2, day.prizegiving3]
+    .filter(Boolean)
+    .sort((a, b) => pgTime(typeof a === 'string' ? a : '') - pgTime(typeof b === 'string' ? b : ''))
+    .forEach((pg) => {
+      if (y + 12 > bottomY) { doc.addPage(); y = header(true); }
+      doc.setFont('Jost', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(...INK);
+      const label = (typeof pg === 'string' && pg.trim()) ? `${pg.trim()} \u00B7 PRIZEGIVING` : 'PRIZEGIVING';
+      doc.text(label, PAGE_W / 2, y + 5, { align: 'center' });
+      underlineCentered(doc, label, PAGE_W / 2, y + 5);
+      y += 14;
+    });
+
   // Officials for the day, deduped (e.g. "UMPIRES: ROSIE ROSS & ROSIE LAWRANCE")
   const offs = uniqueOfficials(day.matches || []);
   if (offs.length) {
@@ -759,6 +781,9 @@ function drawDivisionsPage(doc, fixture, day) {
 }
 
 function drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas) {
+  // A day whose draw isn't out yet prints as a team sheet instead of a running
+  // order: teams and line-ups grouped into divisions, no times, prizegiving last.
+  if (day.teamSheet) return drawDivisionsPage(doc, fixture, day);
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
 
