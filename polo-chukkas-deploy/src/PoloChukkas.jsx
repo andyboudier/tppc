@@ -5806,6 +5806,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                   ↓ Day {dayIdx + 1} programme{day.dateLabel ? ` · ${day.dateLabel}` : ''}
                                                 </button>
                                               ))}
+                                              {days.length > 1 && (
+                                                <button onClick={async () => {
+                                                  try {
+                                                    // Whole event in one document — same clean running order as the
+                                                    // per-day programmes, every day back to back.
+                                                    const cleanDays = days.map(day => {
+                                                      const c = JSON.parse(JSON.stringify(day));
+                                                      (c.matches || []).forEach(m => { m.scoreA = null; m.scoreB = null; });
+                                                      return c;
+                                                    });
+                                                    await generateTournamentPdf(fx, det, chukkaByDow, { days: cleanDays, committee });
+                                                  } catch (err) { fail(err); }
+                                                }} style={outlineBtn}>
+                                                  ↓ Full programme — all {days.length} days
+                                                </button>
+                                              )}
                                               <button onClick={async () => {
                                                 try { await generateTournamentPdf(fx, det, {}, { resultsSummary: true, hideChukkas: true, committee }); }
                                                 catch (err) { fail(err); }
