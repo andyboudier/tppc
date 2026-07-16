@@ -5939,7 +5939,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                   </label>
                                                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: 'var(--muted)', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' }}>
                                                     <input type="checkbox" checked={!!match.teamListOnly} onChange={e => updMatch(di, mi, m => ({...m, teamListOnly: e.target.checked}))} style={{ width: '14px', height: '14px', accentColor: 'var(--burgundy)' }} />
-                                                    Team list only — hide the “A v B” lines (whole block at this time)
+                                                    Team list only — hide the “A v B” lines. Label becomes the heading, e.g. “Division 1”
                                                   </label>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '52px', padding: '5px 4px', fontSize: '11px', textAlign: 'center' }} />
