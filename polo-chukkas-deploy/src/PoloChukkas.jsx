@@ -5937,6 +5937,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     <input type="checkbox" checked={!!match.pageBreakBefore} onChange={e => updMatch(di, mi, m => ({...m, pageBreakBefore: e.target.checked}))} style={{ width: '14px', height: '14px', accentColor: 'var(--burgundy)' }} />
                                                     Start this match on a new page in the PDF
                                                   </label>
+                                                  <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: 'var(--muted)', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                                                    <input type="checkbox" checked={!!match.teamListOnly} onChange={e => updMatch(di, mi, m => ({...m, teamListOnly: e.target.checked}))} style={{ width: '14px', height: '14px', accentColor: 'var(--burgundy)' }} />
+                                                    Team list only — hide the “A v B” lines (whole block at this time)
+                                                  </label>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '52px', padding: '5px 4px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '34px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />

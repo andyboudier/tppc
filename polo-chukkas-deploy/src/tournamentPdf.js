@@ -159,6 +159,12 @@ const chukkaLabel = (match) => { const n = matchChukkas(match); return `${n} CHU
 const timeLineOf = (m) =>
   pdfLevel(`${m.time || ''}${m.label ? ' ' + m.label.toUpperCase() : ''}`);
 
+// Heading for a match / block. A "team list only" block drops the time — which
+// is typically a placeholder like "TBC" that only exists to keep the matches
+// grouped together — and keeps just the label, if one is given.
+const headOf = (m) =>
+  m.teamListOnly ? pdfLevel(m.label ? m.label.toUpperCase() : '') : timeLineOf(m);
+
 // Shrink the font size until `text` fits within `maxW` (mm), so long centred
 // titles never spill past the margins. Leaves the chosen size set on `doc`.
 const fitFont = (doc, text, baseSize, maxW, minSize = 9) => {
@@ -290,10 +296,9 @@ function drawCoverPage(doc, fixture, subtitle) {
 // drawMatch exactly, so drawDayPage can space matches evenly down the page.
 function measureMatch(match, hideChukkas) {
   let h = 0;
-  const timeLine = `${match.time || ''}${match.label ? ' ' + match.label.toUpperCase() : ''}`.trim();
-  if (timeLine) h += 7;            // time line
-  if (!hideChukkas) h += 5;        // chukka count line
-  h += 5;                          // "TEAM A V TEAM B"
+  if (headOf(match)) h += 7;                               // time / label line
+  if (!hideChukkas && !match.teamListOnly) h += 5;          // chukka count line
+  if (!match.teamListOnly) h += 5;                          // "TEAM A V TEAM B"
   if (hasResult(match)) h += 6;    // result score
   let officials = 0;
   if (match.umpires) officials++;
@@ -344,11 +349,15 @@ function uniqueTeams(matches) {
 // distinct team's roster two-per-row. Mirrors drawGroup exactly.
 function measureGroup(g, hideChukkas) {
   if (g.matches.length === 1) return measureMatch(g.matches[0], hideChukkas);
+  const teamListOnly = g.matches.some(m => m.teamListOnly);
   let h = 0;
-  if (g.head) h += 7;                          // shared time + title
-  if (!hideChukkas) h += 5;                     // chukka count line
-  h += g.matches.length * 6;                   // one pairing line per match
-  h += 1;                                       // pad below pairings
+  const head = teamListOnly ? headOf({ ...g.matches[0], teamListOnly: true }) : g.head;
+  if (head) h += 7;                            // shared time + title
+  if (!hideChukkas && !teamListOnly) h += 5;    // chukka count line
+  if (!teamListOnly) {
+    h += g.matches.length * 6;                 // one pairing line per match
+    h += 1;                                     // pad below pairings
+  }
   const offs = uniqueOfficials(g.matches);
   h += offs.length ? offs.length * 5 + 2 : 2;   // officials
   const teams = uniqueTeams(g.matches);
@@ -736,7 +745,7 @@ function drawMatch(doc, match, startY, hideChukkas) {
   // Time (+ optional label) — italic bold, underlined, normalised + width-fitted
   doc.setFont('Jost', 'bolditalic');
   doc.setTextColor(...INK);
-  const timeLine = timeLineOf(match);
+  const timeLine = headOf(match);
   if (timeLine) {
     fitFont(doc, timeLine, 15, PAGE_W - 2 * MARGIN);
     doc.text(timeLine, PAGE_W / 2, y, { align: 'center' });
@@ -745,7 +754,7 @@ function drawMatch(doc, match, startY, hideChukkas) {
   }
 
   // Chukka count
-  if (!hideChukkas) {
+  if (!hideChukkas && !match.teamListOnly) {
     doc.setFont('Jost', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...MUTED);
@@ -755,12 +764,14 @@ function drawMatch(doc, match, startY, hideChukkas) {
   }
 
   // "TEAM A V TEAM B"
-  doc.setFont('Jost', 'bold');
-  doc.setFontSize(13);
   const aName = (match.teamA?.name || 'TBC').toUpperCase();
   const bName = (match.teamB?.name || 'TBC').toUpperCase();
-  doc.text(`${aName} V ${bName}`, PAGE_W / 2, y, { align: 'center' });
-  y += 5;
+  if (!match.teamListOnly) {
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(13);
+    doc.text(`${aName} V ${bName}`, PAGE_W / 2, y, { align: 'center' });
+    y += 5;
+  }
 
   // Result — only once a score is entered. Shows the handicap-adjusted score
   // (goals scored + handicap head start), matching the app's fixture display.
@@ -826,20 +837,25 @@ function drawMatch(doc, match, startY, hideChukkas) {
 // is centred) — matching the printed round-robin layout.
 function drawGroup(doc, g, startY, hideChukkas) {
   if (g.matches.length === 1) return drawMatch(doc, g.matches[0], startY, hideChukkas);
+  // "Team list only": print the block as a straight list of teams and players,
+  // dropping the "A V B" pairing lines. Useful for a big round-robin where the
+  // draw is still TBC and the point of the page is who's in which team.
+  const teamListOnly = g.matches.some(m => m.teamListOnly);
   let y = startY;
 
   // Shared time + title (once), italic bold + underlined, width-fitted
-  if (g.head) {
+  const head = teamListOnly ? headOf({ ...g.matches[0], teamListOnly: true }) : g.head;
+  if (head) {
     doc.setFont('Jost', 'bolditalic');
     doc.setTextColor(...INK);
-    fitFont(doc, g.head, 15, PAGE_W - 2 * MARGIN);
-    doc.text(g.head, PAGE_W / 2, y, { align: 'center' });
-    underlineCentered(doc, g.head, PAGE_W / 2, y);
+    fitFont(doc, head, 15, PAGE_W - 2 * MARGIN);
+    doc.text(head, PAGE_W / 2, y, { align: 'center' });
+    underlineCentered(doc, head, PAGE_W / 2, y);
     y += 7;
   }
 
   // Chukka count (one line for the whole round-robin block)
-  if (!hideChukkas) {
+  if (!hideChukkas && !teamListOnly) {
     doc.setFont('Jost', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...MUTED);
@@ -849,18 +865,20 @@ function drawGroup(doc, g, startY, hideChukkas) {
   }
 
   // Pairing lines: "TEAM A V TEAM B" (with handicap-adjusted score once played)
-  doc.setFont('Jost', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(...INK);
-  g.matches.forEach((m) => {
-    const a = (m.teamA?.name || 'TBC').toUpperCase();
-    const b = (m.teamB?.name || 'TBC').toUpperCase();
-    let line = `${a} V ${b}`;
-    if (hasResult(m)) line += `  ${pdfScore(m, 'A')} \u2013 ${pdfScore(m, 'B')}`;
-    doc.text(line, PAGE_W / 2, y, { align: 'center' });
-    y += 6;
-  });
-  y += 1;
+  if (!teamListOnly) {
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(...INK);
+    g.matches.forEach((m) => {
+      const a = (m.teamA?.name || 'TBC').toUpperCase();
+      const b = (m.teamB?.name || 'TBC').toUpperCase();
+      let line = `${a} V ${b}`;
+      if (hasResult(m)) line += `  ${pdfScore(m, 'A')} \u2013 ${pdfScore(m, 'B')}`;
+      doc.text(line, PAGE_W / 2, y, { align: 'center' });
+      y += 6;
+    });
+    y += 1;
+  }
 
   // Officials, deduped across the block
   const offs = uniqueOfficials(g.matches);
