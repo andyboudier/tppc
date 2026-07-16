@@ -5812,6 +5812,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               }} style={solidBtn}>
                                                 ↓ Summary — all days with scores
                                               </button>
+                                              {(det.days || []).some(d => (d.matches || []).some(m => (m.division || '').trim())) && (
+                                                <button onClick={async () => {
+                                                  try { await generateTournamentPdf(fx, det, {}, { divisionSheets: true, committee }); }
+                                                  catch (err) { fail(err); }
+                                                }} style={outlineBtn}>
+                                                  ↓ Team sheets by division
+                                                </button>
+                                              )}
                                               <div style={{ marginTop: '4px' }}>
                                                 <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '4px' }}>Trophy looked after by</div>
                                                 <input className="input-field" type="text" placeholder="Add the name once the trophy is won" value={trophyDraft[fx.id] ?? (fx.trophyKeeper || '')} onChange={e => setTrophyDraft(prev => ({ ...prev, [fx.id]: e.target.value }))} onBlur={() => { const d = trophyDraft[fx.id]; if (d === undefined) return; const val = d.trim(); if (val !== (fx.trophyKeeper || '')) saveFixtures(fixtures.map(f => f.id === fx.id ? { ...f, trophyKeeper: val } : f)); setTrophyDraft(prev => { const n = { ...prev }; delete n[fx.id]; return n; }); }} style={{ width: '100%', padding: '10px 12px', fontSize: '14px' }} />
@@ -5944,6 +5952,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '52px', padding: '5px 4px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '34px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
+                                                    <input className="input-field" placeholder="Div" title="Division, e.g. I, II, III — groups this match's teams on the 'Team sheets by division' PDF. Order in the list doesn't matter." value={match.division || ''} onChange={e => updMatch(di, mi, m => ({...m, division: e.target.value}))} style={{ width: '38px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '6px 8px', fontSize: '15px', fontWeight: 600 }} />
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>

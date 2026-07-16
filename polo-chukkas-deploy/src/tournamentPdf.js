@@ -586,6 +586,178 @@ function drawResultsSummaryPage(doc, fixture, days) {
   });
 }
 
+// ── Team sheets by division ──────────────────────────────────────────────
+// Military tournaments are drawn into divisions, but the running order is set
+// by when each team can get there, so matches from different divisions are
+// interleaved and can't be grouped by their position in the list. Each match
+// therefore carries a `division` label; here we collect the distinct teams per
+// division and print a team sheet, leaving the programme's time order alone.
+
+const ROMAN_VALS = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+// Sort key for a division label: "2" / "Div 2" → 2, "II" / "Division II" → 2,
+// so divisions always read I, II, III … whatever order the matches are in.
+function divisionRank(label) {
+  const s = String(label || '').trim().toUpperCase();
+  const num = s.match(/\d+/);
+  if (num) return parseInt(num[0], 10);
+  const rom = s.match(/\b[IVXLCDM]+\b/);
+  if (rom) {
+    let total = 0;
+    for (let i = 0; i < rom[0].length; i++) {
+      const v = ROMAN_VALS[rom[0][i]], nx = ROMAN_VALS[rom[0][i + 1]];
+      total += (nx && v < nx) ? -v : v;
+    }
+    return total;
+  }
+  return Number.MAX_SAFE_INTEGER; // unnumbered divisions sort last, then A–Z
+}
+
+// Distinct teams per division across a day's matches, divisions in rank order.
+function teamsByDivision(matches) {
+  const map = new Map();
+  (matches || []).forEach((m) => {
+    const d = (m.division || '').trim();
+    if (!d) return;
+    if (!map.has(d)) map.set(d, { label: d, teams: [], seen: new Set() });
+    const g = map.get(d);
+    [m.teamA, m.teamB].forEach((t) => {
+      if (!t || !t.name) return;
+      const k = t.name.trim().toUpperCase();
+      if (g.seen.has(k)) return;
+      g.seen.add(k);
+      g.teams.push(t);
+    });
+  });
+  return [...map.values()].sort((a, b) =>
+    divisionRank(a.label) - divisionRank(b.label) || a.label.localeCompare(b.label));
+}
+
+// Columns for n teams: a pair sits 2 across, a four as 2x2, otherwise up to 3.
+const colsForTeams = (n) => n <= 2 ? Math.max(1, n) : n === 4 ? 2 : 3;
+
+// Heading for a division: a bare numeral is spelled out ("I" → "DIVISION I",
+// "2" → "DIVISION 2"); anything wordier is printed as typed ("PLATE", "NOVICE").
+const divisionHeading = (label) => {
+  const s = String(label || '').trim();
+  return /^(\d+|[IVXLCDM]+)$/i.test(s) ? `DIVISION ${s.toUpperCase()}` : s.toUpperCase();
+};
+
+function drawDivisionsPage(doc, fixture, day) {
+  const divisions = teamsByDivision(day.matches);
+  if (!divisions.length) return;
+  const bottomY = PAGE_H - 22;
+
+  const header = (continued) => {
+    drawCrest(doc, PAGE_W / 2, 35, 38);
+    let yy = 65;
+    doc.setFont('Jost', 'bolditalic');
+    doc.setTextColor(...INK);
+    const nm = ensureLeadingThe(fixture.name);
+    fitFont(doc, nm, 20, PAGE_W - 2 * MARGIN);
+    doc.text(nm, PAGE_W / 2, yy, { align: 'center' });
+    yy += 9;
+    if (fixture.level) {
+      doc.setFont('Jost', 'italic');
+      doc.setFontSize(14);
+      doc.setTextColor(...BURGUNDY);
+      doc.text(pdfLevel(fixture.level), PAGE_W / 2, yy, { align: 'center' });
+      yy += 8;
+    }
+    const oneDate = daySingleDate(day, fixture);
+    if (oneDate) {
+      doc.setFont('Jost', 'bolditalic');
+      doc.setFontSize(18);
+      doc.setTextColor(...INK);
+      doc.text(continued ? `${oneDate} (CONTINUED)` : oneDate, PAGE_W / 2, yy, { align: 'center' });
+      yy += 9;
+    }
+    if (day.ground) {
+      doc.setFont('Jost', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(...INK);
+      doc.text(day.ground.toUpperCase(), PAGE_W / 2, yy, { align: 'center' });
+      yy += 8;
+    }
+    return yy + 4;
+  };
+  let y = header(false);
+
+  const measureDiv = (d) => {
+    const cols = colsForTeams(d.teams.length);
+    let h = 9;
+    for (let i = 0; i < d.teams.length; i += cols) {
+      const row = d.teams.slice(i, i + cols);
+      h += 5 + Math.max(...row.map(t => (t.players || []).length), 0) * 4.6 + 6;
+    }
+    return h + 4;
+  };
+
+  const nameLine = (t) => `${t.name.toUpperCase()}${fmtHcp(teamHandicap(t))}`;
+  const playerLine = (p) => `${(p.name || '').toUpperCase()}${fmtHcp(p.handicap)}`;
+
+  divisions.forEach((d) => {
+    if (y + measureDiv(d) > bottomY) { doc.addPage(); y = header(true); }
+
+    doc.setFont('Jost', 'bolditalic');
+    doc.setFontSize(14);
+    doc.setTextColor(...INK);
+    const dl = divisionHeading(d.label);
+    doc.text(dl, PAGE_W / 2, y, { align: 'center' });
+    underlineCentered(doc, dl, PAGE_W / 2, y);
+    y += 9;
+
+    const cols = colsForTeams(d.teams.length);
+    const colW = (PAGE_W - 2 * MARGIN) / cols;
+    // One type size per division so every column matches, shrunk until the
+    // longest name fits its column (e.g. "HONOURABLE ARTILLERY COMPANY").
+    const fitAll = (lines, style, base) => {
+      doc.setFont('Jost', style);
+      let s = base;
+      while (s > 6 && lines.some(l => { doc.setFontSize(s); return doc.getTextWidth(l) > colW - 4; })) s -= 0.5;
+      return s;
+    };
+    const tSize = fitAll(d.teams.map(nameLine), 'bold', 11);
+    const pSize = fitAll(d.teams.flatMap(t => (t.players || []).map(playerLine)), 'normal', 10);
+
+    for (let i = 0; i < d.teams.length; i += cols) {
+      const row = d.teams.slice(i, i + cols);
+      // A short final row is centred rather than left-hanging.
+      const pad = row.length < cols ? (colW * (cols - row.length)) / 2 : 0;
+      const cxs = row.map((_, j) => MARGIN + pad + colW * (j + 0.5));
+
+      doc.setFont('Jost', 'bold');
+      doc.setFontSize(tSize);
+      doc.setTextColor(...INK);
+      row.forEach((t, j) => doc.text(nameLine(t), cxs[j], y, { align: 'center' }));
+      y += 5;
+
+      doc.setFont('Jost', 'normal');
+      doc.setFontSize(pSize);
+      const rows = Math.max(...row.map(t => (t.players || []).length), 0);
+      for (let r = 0; r < rows; r++) {
+        row.forEach((t, j) => {
+          const p = (t.players || [])[r];
+          if (p && p.name) doc.text(playerLine(p), cxs[j], y, { align: 'center' });
+        });
+        y += 4.6;
+      }
+      y += 6;
+    }
+    y += 4;
+  });
+
+  // Officials for the day, deduped (e.g. "UMPIRES: ROSIE ROSS & ROSIE LAWRANCE")
+  const offs = uniqueOfficials(day.matches || []);
+  if (offs.length) {
+    if (y + offs.length * 5 > bottomY) { doc.addPage(); y = header(true); }
+    doc.setFont('Jost', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTED);
+    offs.forEach((l) => { doc.text(l, PAGE_W / 2, y, { align: 'center' }); y += 5; });
+    doc.setTextColor(...INK);
+  }
+}
+
 function drawDayPage(doc, fixture, subtitle, day, chukkaByDow, hideChukkas) {
   // Logo top-centre
   drawCrest(doc, PAGE_W / 2, 35, 38);
@@ -993,6 +1165,25 @@ export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}, o
 
   // Cover
   drawCoverPage(doc, fixture, subtitle);
+
+  // Team sheets by division — a standalone handout for military tournaments.
+  // Teams only, no running order, since divisions cut across the time-ordered draw.
+  if (opts.divisionSheets) {
+    const divDays = days.filter(d => teamsByDivision(d.matches).length);
+    if (!divDays.length) {
+      throw new Error('No divisions set yet. Put a division (e.g. I, II, III) on each match in captain mode first.');
+    }
+    divDays.forEach((day) => {
+      doc.addPage();
+      drawDivisionsPage(doc, fixture, day);
+    });
+    doc.addPage();
+    drawRulesPage(doc, opts.committee);
+    const tp = sanitizeFilename(ensureLeadingThe(fixture.name));
+    const dp = sanitizeFilename((opts.filenameDate || subtitle).replace(/ 2026$/, ''));
+    await deliverPdf(doc, `${tp}_${dp}_Teams.pdf`);
+    return;
+  }
 
   // Optional results summary (all games, winners highlighted, no chukkas) — page 2.
   if (opts.resultsSummary) {
