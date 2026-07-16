@@ -933,6 +933,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [captainMode, setCaptainMode] = useState(() => {
     try { return sessionStorage.getItem('tppc-captain') === '1'; } catch (e) { return false; }
   });
+
+  // What members are allowed to see. A fixture's match details stay private
+  // until the captain publishes them, so a draw can be built without going live.
+  // Captains always see everything.
+  const visibleFixtureDetails = captainMode
+    ? fixtureDetails
+    : Object.fromEntries(Object.entries(fixtureDetails).filter(([fid]) =>
+        fixtures.some(f => f.id === fid && f.detailsPublished)));
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -964,6 +972,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   useEffect(() => {
     if (activeTab !== 'live' || liveAutoPickedRef.current) return;
     if (liveDate) { liveAutoPickedRef.current = true; return; }
+    // Only auto-pick a draw this viewer is allowed to see, or a member would
+    // land on an unpublished fixture and get an empty Live Game.
+    const fixtureDetails = visibleFixtureDetails;
     const now = new Date();
     const dom = now.getDate();
     const monthName = now.toLocaleString('en-GB', { month: 'long' }).toLowerCase();
@@ -5686,6 +5697,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 const det = fixtureDetails[fx.id];
                                 const isEditingThis = captainMode && editingDetailsId === fx.id;
                                 if (!det && !captainMode) return null;
+                                // Members only see the draw once the captain publishes it.
+                                if (det && !captainMode && !fx.detailsPublished) {
+                                  return (
+                                    <div style={{ textAlign: 'center', padding: '20px 16px', marginBottom: '14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px' }}>
+                                      <div className="display" style={{ fontSize: '16px', color: 'var(--ink)', marginBottom: '4px' }}>The draw isn’t out yet</div>
+                                      <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                                        Teams and times will appear here once the captain has published them.
+                                      </div>
+                                    </div>
+                                  );
+                                }
                                 const fmtHcp = (h) => h === null || h === undefined ? '' : (h > 0 ? ' +' + h : h < 0 ? ' ' + h : ' 0');
                                 return (
                                   <div style={{ marginBottom: '14px' }}>
@@ -5794,6 +5816,19 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                           const days = det.days || [];
                                           return (
                                             <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                              <div style={{ paddingBottom: '10px', marginBottom: '2px', borderBottom: '1px solid var(--line)' }}>
+                                                <button
+                                                  onClick={() => saveFixtures(fixtures.map(f => f.id === fx.id ? { ...f, detailsPublished: !f.detailsPublished } : f))}
+                                                  style={fx.detailsPublished ? outlineBtn : solidBtn}
+                                                >
+                                                  {fx.detailsPublished ? '🙈 Unpublish draw' : '📣 Publish draw to players'}
+                                                </button>
+                                                <div style={{ fontSize: '11px', color: fx.detailsPublished ? 'var(--burgundy)' : 'var(--muted)', textAlign: 'center', marginTop: '6px', lineHeight: 1.45 }}>
+                                                  {fx.detailsPublished
+                                                    ? 'Players can see this draw and follow it in Live Game.'
+                                                    : 'Only you can see this draw. Build it, then publish when you’re ready.'}
+                                                </div>
+                                              </div>
                                               {days.map((day, dayIdx) => (
                                                 <button key={dayIdx} onClick={async () => {
                                                   try {
@@ -6386,6 +6421,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Live scores update automatically as matches are played.</div>
               {(
                 (() => {
+                  // Members only get published draws here; captains see everything.
+                  const fixtureDetails = visibleFixtureDetails;
                   const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
                   const fixtureName = (fid) => { const f = fixtures.find(x => x.id === fid); return f ? f.name : fid; };
                   const curFd = liveFixtureId ? fixtureDetails[liveFixtureId] : null;
