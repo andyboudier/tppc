@@ -6553,6 +6553,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 const nm = tk === 'teamA' ? nameA : nameB;
                                 const col = tk === 'teamA' ? colA : colB;
                                 const ps = team.players || [];
+                                // Order the line-up by shirt number once numbers are allocated;
+                                // unnumbered players keep their original order at the end. We keep
+                                // each player's ORIGINAL index (pi) so the goal/shirt controls,
+                                // which mutate team.players by index, still target the right player.
+                                const orderedPs = ps
+                                  .map((p, origIdx) => ({ p, origIdx }))
+                                  .sort((a, b) => {
+                                    const va = a.p.shirtNo, vb = b.p.shirtNo;
+                                    const ea = va == null || String(va).trim() === '';
+                                    const eb = vb == null || String(vb).trim() === '';
+                                    if (ea && eb) return a.origIdx - b.origIdx;
+                                    if (ea) return 1;
+                                    if (eb) return -1;
+                                    const na = Number(va), nb = Number(vb);
+                                    if (Number.isFinite(na) && Number.isFinite(nb)) return (na - nb) || (a.origIdx - b.origIdx);
+                                    return String(va).localeCompare(String(vb), undefined, { numeric: true }) || (a.origIdx - b.origIdx);
+                                  });
                                 return (
                                   <div key={tk} style={{ flex: 1, minWidth: '240px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '8px' }}>
@@ -6561,7 +6578,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                       {captainMode && <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 'auto' }}>#&nbsp;=&nbsp;shirt no.</span>}
                                     </div>
                                     {ps.length === 0 && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
-                                    {ps.map((p, pi) => (
+                                    {orderedPs.map(({ p, origIdx: pi }) => (
                                       <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 0', borderBottom: '1px solid #f0ece4' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                                           {captainMode ? (
