@@ -15,3 +15,8 @@ build/
 *.mobileprovision
 *.cer
 *.certSigningRequest
+
+# Android signing keystores — never commit
+*.jks
+*.keystore
+polo-chukkas-deploy/android/app/google-services.json
