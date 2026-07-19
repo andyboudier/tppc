@@ -375,6 +375,7 @@ struct LivePlayer: Identifiable {
     let name: String
     let handicap: Double?
     let goals: Double?
+    let shirtNo: String?
 }
 
 struct LiveTeam {
@@ -390,11 +391,15 @@ struct LiveMatch: Identifiable {
     let scoreA: Double?
     let scoreB: Double?
     let chukkas: Double?
+    let ended: Bool
+    let currentChukka: Int      // chukka in play (1-based); 0 = not started
     let teamA: LiveTeam
     let teamB: LiveTeam
 
     /// A raw score has been entered = the game is being / has been scored.
     var hasScore: Bool { scoreA != nil || scoreB != nil }
+    /// A chukka is under way and the game hasn't been marked full-time.
+    var isLive: Bool { currentChukka > 0 && !ended }
 }
 
 struct LiveGameItem: Identifiable {
@@ -423,6 +428,79 @@ private func anyStr(_ v: Any?) -> String? {
 
 private func nm(_ s: String, _ fallback: String) -> String { s.isEmpty ? fallback : s }
 
+// MARK: - Shirt numbers, team handicap & line-up order (port the web app)
+
+/// Leading-integer parse, mirroring JS parseInt("3A", 10) == 3 and
+/// parseInt("A", 10) == NaN. Returns nil when there's no leading digit.
+private func leadingInt(_ s: String?) -> Int? {
+    guard let s = s else { return nil }
+    var digits = ""
+    for ch in s.trimmingCharacters(in: .whitespaces) {
+        if ch.isNumber { digits.append(ch) } else { break }
+    }
+    return Int(digits)
+}
+
+/// Authoritative team handicap = sum of the four playing players' handicaps.
+/// The playing four are the players wearing shirts 1–4 when at least four
+/// shirt numbers are allocated; otherwise the four highest handicaps. Falls
+/// back to the stored team handicap. Ports tournamentPdf.js `teamHandicap`.
+private func liveTeamHandicap(_ t: LiveTeam) -> Double? {
+    let players = t.players
+    let numbered = players
+        .map { (p: $0, no: leadingInt($0.shirtNo)) }
+        .filter { ($0.no ?? 0) >= 1 }
+    let counted: [LivePlayer]
+    if numbered.count >= 4 {
+        counted = numbered.sorted { ($0.no ?? 0) < ($1.no ?? 0) }.prefix(4).map { $0.p }
+    } else {
+        counted = players.sorted { ($0.handicap ?? -.infinity) > ($1.handicap ?? -.infinity) }.prefix(4).map { $0 }
+    }
+    let hs = counted.compactMap { $0.handicap }
+    if !hs.isEmpty { return hs.reduce(0, +) }
+    return t.handicap
+}
+
+/// Line-up order: ascending by shirt number once allocated; unnumbered players
+/// keep their original order at the end. Stable. Mirrors the phone's live list.
+private func orderedLivePlayers(_ players: [LivePlayer]) -> [LivePlayer] {
+    func key(_ p: LivePlayer) -> (empty: Bool, num: Int, str: String) {
+        let s = (p.shirtNo ?? "").trimmingCharacters(in: .whitespaces)
+        if s.isEmpty { return (true, Int.max, "") }
+        return (false, leadingInt(s) ?? Int.max, s)
+    }
+    return players.enumerated().sorted { a, b in
+        let ka = key(a.element), kb = key(b.element)
+        if ka.empty != kb.empty { return !ka.empty }           // numbered before blank
+        if ka.empty && kb.empty { return a.offset < b.offset }  // blanks keep order
+        if ka.num != kb.num { return ka.num < kb.num }          // numeric ascending
+        if ka.str != kb.str { return ka.str < kb.str }          // then lexical
+        return a.offset < b.offset                               // stable tie-break
+    }.map { $0.element }
+}
+
+private func ordinalShort(_ n: Int) -> String {
+    let suffix: String
+    if (n % 100) >= 11 && (n % 100) <= 13 {
+        suffix = "th"
+    } else {
+        switch n % 10 {
+        case 1: suffix = "st"
+        case 2: suffix = "nd"
+        case 3: suffix = "rd"
+        default: suffix = "th"
+        }
+    }
+    return "\(n)\(suffix)"
+}
+
+/// "Full time", "2nd chukka", or nil when the game hasn't started.
+private func matchStatus(_ m: LiveMatch) -> String? {
+    if m.ended { return "Full time" }
+    if m.currentChukka > 0 { return "\(ordinalShort(m.currentChukka)) chukka" }
+    return nil
+}
+
 // MARK: - Handicap head-start (ports the web app's liveDisplayScore)
 
 private func matchChukkas(_ m: LiveMatch) -> Double {
@@ -433,8 +511,8 @@ private func matchChukkas(_ m: LiveMatch) -> Double {
 /// Goals given to the lower-handicap team: (|hA - hB| * chukkas) / 6, any
 /// fraction counted as half a goal. Returned for the requested side only.
 private func headStart(_ m: LiveMatch, teamA: Bool) -> Double {
-    let hA = m.teamA.handicap ?? 0
-    let hB = m.teamB.handicap ?? 0
+    let hA = liveTeamHandicap(m.teamA) ?? 0
+    let hB = liveTeamHandicap(m.teamB) ?? 0
     if hA == hB { return 0 }
     let units = abs(hA - hB) * matchChukkas(m)
     let whole = floor(units / 6)
@@ -520,7 +598,8 @@ final class LiveStore: ObservableObject {
         let players = (obj["players"] as? [[String: Any]] ?? []).map {
             LivePlayer(name: anyStr($0["name"]) ?? "",
                        handicap: anyNum($0["handicap"]),
-                       goals: anyNum($0["goals"]))
+                       goals: anyNum($0["goals"]),
+                       shirtNo: anyStr($0["shirtNo"]))
         }
         return LiveTeam(name: anyStr(obj["name"]) ?? "",
                         handicap: anyNum(obj["handicap"]),
@@ -528,12 +607,19 @@ final class LiveStore: ObservableObject {
     }
 
     private func parseMatch(_ m: [String: Any]) -> LiveMatch {
-        LiveMatch(id: anyStr(m["id"]) ?? UUID().uuidString,
+        // liveChukka is either the string "ended" (full time) or a chukka number
+        // (0 = not started). Mirrors the phone's curMatch.liveChukka.
+        let lc = m["liveChukka"]
+        let ended = (anyStr(lc)?.lowercased() == "ended")
+        let curCk = ended ? 0 : max(0, Int(anyNum(lc) ?? 0))
+        return LiveMatch(id: anyStr(m["id"]) ?? UUID().uuidString,
                   time: anyStr(m["time"]),
                   label: anyStr(m["label"]),
                   scoreA: anyNum(m["scoreA"]),
                   scoreB: anyNum(m["scoreB"]),
                   chukkas: anyNum(m["chukkas"]),
+                  ended: ended,
+                  currentChukka: curCk,
                   teamA: parseTeam(m["teamA"]),
                   teamB: parseTeam(m["teamB"]))
     }
@@ -604,19 +690,27 @@ struct LiveScreen: View {
                 MessageView(title: "No games today",
                             detail: "Only matches scheduled for today appear here.")
             } else {
-                let live = todays.filter { $0.match.hasScore }
-                let rest = todays.filter { !$0.match.hasScore }
+                let inPlay = todays.filter { !$0.match.ended && ($0.match.isLive || $0.match.hasScore) }
+                let fullTime = todays.filter { $0.match.ended }
+                let notStarted = todays.filter { !$0.match.ended && !$0.match.isLive && !$0.match.hasScore }
                 VStack(spacing: 6) {
-                    if !live.isEmpty {
+                    if !inPlay.isEmpty {
                         SectionLabel("In play")
-                        ForEach(live) { item in
+                        ForEach(inPlay) { item in
                             NavigationLink { LiveDetail(item: item) } label: { LiveCard(item: item) }
                                 .buttonStyle(.plain)
                         }
                     }
-                    if !rest.isEmpty {
-                        SectionLabel(live.isEmpty ? "Fixtures" : "Not started")
-                        ForEach(rest) { item in
+                    if !fullTime.isEmpty {
+                        SectionLabel("Full time")
+                        ForEach(fullTime) { item in
+                            NavigationLink { LiveDetail(item: item) } label: { LiveCard(item: item) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    if !notStarted.isEmpty {
+                        SectionLabel(inPlay.isEmpty && fullTime.isEmpty ? "Fixtures" : "Not started")
+                        ForEach(notStarted) { item in
                             NavigationLink { LiveDetail(item: item) } label: { LiveCard(item: item) }
                                 .buttonStyle(.plain)
                         }
@@ -652,7 +746,7 @@ struct LiveCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                 Spacer()
-                if m.hasScore { Circle().fill(Color.red).frame(width: 6, height: 6) }
+                if m.isLive { Circle().fill(Color.red).frame(width: 6, height: 6) }
             }
             if let label = m.label, !label.isEmpty {
                 Text(label + (m.time.map { " · \($0)" } ?? ""))
@@ -660,11 +754,17 @@ struct LiveCard: View {
             } else if let t = m.time {
                 Text(t).font(.system(size: 10)).foregroundColor(.secondary)
             }
+            if let st = matchStatus(m) {
+                Text(st.uppercased())
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(m.ended ? .secondary : .green)
+                    .lineLimit(1)
+            }
             HStack(spacing: 6) {
                 Text(nm(m.teamA.name, "Blue"))
                     .font(.system(size: 12, weight: .medium)).foregroundColor(.blue)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                if m.hasScore {
+                if m.hasScore || m.isLive || m.ended {
                     Text("\(fmtHalf(displayScore(m, teamA: true)))–\(fmtHalf(displayScore(m, teamA: false)))")
                         .font(.system(size: 14, weight: .bold)).monospacedDigit()
                 } else {
@@ -702,6 +802,14 @@ struct LiveDetail: View {
                 if let label = m.label, !label.isEmpty {
                     Text(label).font(.system(size: 11, weight: .semibold)).foregroundColor(.orange)
                 }
+                if let st = matchStatus(m) {
+                    Text(st.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(m.ended ? .secondary : .green)
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background((m.ended ? Color.secondary : Color.green).opacity(0.18))
+                        .clipShape(Capsule())
+                }
 
                 HStack(alignment: .top, spacing: 8) {
                     VStack(spacing: 2) {
@@ -730,10 +838,10 @@ struct LiveDetail: View {
                         .multilineTextAlignment(.center)
                 }
 
-                PlayerGoals(team: m.teamA, fallback: "Blue", color: .blue)
-                PlayerGoals(team: m.teamB, fallback: "White", color: .white)
+                PlayerGoals(team: m.teamA, fallback: "Blue", color: .blue, onColor: .white)
+                PlayerGoals(team: m.teamB, fallback: "White", color: .white, onColor: .black)
 
-                if !m.hasScore {
+                if !m.hasScore && !m.isLive && !m.ended {
                     Text("Not started yet").font(.system(size: 10)).foregroundColor(.secondary)
                 }
             }
@@ -747,6 +855,7 @@ struct PlayerGoals: View {
     let team: LiveTeam
     let fallback: String
     let color: Color
+    let onColor: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -754,7 +863,7 @@ struct PlayerGoals: View {
                 Circle().fill(color).frame(width: 7, height: 7)
                 Text(nm(team.name, fallback))
                     .font(.system(size: 11, weight: .semibold)).foregroundColor(color)
-                if let h = fmtNum(team.handicap) {
+                if let h = fmtNum(liveTeamHandicap(team)) {
                     Spacer()
                     Text("h'cap \(h)").font(.system(size: 9)).foregroundColor(.secondary)
                 }
@@ -762,8 +871,17 @@ struct PlayerGoals: View {
             if team.players.isEmpty {
                 Text("—").font(.system(size: 11)).foregroundColor(.secondary)
             } else {
-                ForEach(team.players) { p in
-                    HStack {
+                ForEach(orderedLivePlayers(team.players)) { p in
+                    HStack(spacing: 5) {
+                        if let s = p.shirtNo, !s.trimmingCharacters(in: .whitespaces).isEmpty {
+                            Text(s)
+                                .font(.system(size: 10, weight: .bold)).monospacedDigit()
+                                .foregroundColor(onColor)
+                                .frame(width: 16, height: 16)
+                                .background(color)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.black.opacity(0.2), lineWidth: 0.5))
+                        }
                         Text(nm(p.name, "—")).font(.system(size: 12)).lineLimit(1)
                         Spacer()
                         if let g = fmtNum(p.goals), g != "0" {
