@@ -1,5 +1,5 @@
 {
-  "name": "Tedworth Park Polo Club · Chukkas",
+  "name": "Tedworth Park Polo Club \u00b7 Chukkas",
   "short_name": "TPPC Chukkas",
   "description": "Wednesday club chukkas booking and team draw.",
   "start_url": "/",
@@ -10,23 +10,32 @@
   "theme_color": "#6b1f2a",
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon.svg",
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icon.svg",
+      "src": "/icon-maskable-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
-  "categories": ["sports", "lifestyle"]
+  "categories": [
+    "sports",
+    "lifestyle"
+  ]
 }
