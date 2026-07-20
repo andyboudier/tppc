@@ -16,6 +16,12 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		7C0D416E2FC466AD00C91FC9 /* TPPC Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 7C0D41642FC466AA00C91FC9 /* TPPC Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+			AA0000000000000000000011 /* LiveScoreActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* LiveScoreActivityPlugin.swift */; };
+			AA0000000000000000000012 /* TPPCScoreAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000002 /* TPPCScoreAttributes.swift */; };
+			AA0000000000000000000013 /* TPPCScoreAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000002 /* TPPCScoreAttributes.swift */; };
+			AA0000000000000000000014 /* TPPCScoreLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000003 /* TPPCScoreLiveActivity.swift */; };
+			AA0000000000000000000015 /* TPPCScoreWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000004 /* TPPCScoreWidgetBundle.swift */; };
+			AA0000000000000000000016 /* TPPCScoreWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000006 /* TPPCScoreWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,6 +32,13 @@
 			remoteGlobalIDString = 7C0D41632FC466AA00C91FC9;
 			remoteInfo = "TPPC Watch Watch App";
 		};
+			AA0000000000000000000041 /* PBXContainerItemProxy */ = {
+				isa = PBXContainerItemProxy;
+				containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+				proxyType = 1;
+				remoteGlobalIDString = AA0000000000000000000051;
+				remoteInfo = TPPCScoreWidgetExtension;
+			};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -40,6 +53,17 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+			AA0000000000000000000034 /* Embed Foundation Extensions */ = {
+				isa = PBXCopyFilesBuildPhase;
+				buildActionMask = 2147483647;
+				dstPath = "";
+				dstSubfolderSpec = 13;
+				files = (
+					AA0000000000000000000016 /* TPPCScoreWidgetExtension.appex in Embed Foundation Extensions */,
+				);
+				name = "Embed Foundation Extensions";
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +78,12 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		7C0D41642FC466AA00C91FC9 /* TPPC Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TPPC Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+			AA0000000000000000000001 /* LiveScoreActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveScoreActivityPlugin.swift; sourceTree = "<group>"; };
+			AA0000000000000000000002 /* TPPCScoreAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TPPCScoreAttributes.swift; sourceTree = "<group>"; };
+			AA0000000000000000000003 /* TPPCScoreLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TPPCScoreLiveActivity.swift; sourceTree = "<group>"; };
+			AA0000000000000000000004 /* TPPCScoreWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TPPCScoreWidgetBundle.swift; sourceTree = "<group>"; };
+			AA0000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+			AA0000000000000000000006 /* TPPCScoreWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TPPCScoreWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,6 +106,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+			AA0000000000000000000032 /* Frameworks */ = {
+				isa = PBXFrameworksBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -84,6 +121,7 @@
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				AA0000000000000000000021 /* TPPCScoreWidget */,
 				7C0D41652FC466AA00C91FC9 /* TPPC Watch Watch App */,
 				7C0D418A2FC46CB500C91FC9 /* Frameworks */,
 				504EC3051FED79650016851F /* Products */,
@@ -95,6 +133,7 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				7C0D41642FC466AA00C91FC9 /* TPPC Watch Watch App.app */,
+				AA0000000000000000000006 /* TPPCScoreWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -104,6 +143,7 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				AA0000000000000000000001 /* LiveScoreActivityPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -121,6 +161,17 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+			AA0000000000000000000021 /* TPPCScoreWidget */ = {
+				isa = PBXGroup;
+				children = (
+					AA0000000000000000000004 /* TPPCScoreWidgetBundle.swift */,
+					AA0000000000000000000003 /* TPPCScoreLiveActivity.swift */,
+					AA0000000000000000000002 /* TPPCScoreAttributes.swift */,
+					AA0000000000000000000005 /* Info.plist */,
+				);
+				path = TPPCScoreWidget;
+				sourceTree = "<group>";
+			};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -132,11 +183,13 @@
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
 				7C0D416F2FC466AD00C91FC9 /* Embed Watch Content */,
+				AA0000000000000000000034 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				7C0D416D2FC466AD00C91FC9 /* PBXTargetDependency */,
+				AA0000000000000000000042 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -168,6 +221,25 @@
 			productReference = 7C0D41642FC466AA00C91FC9 /* TPPC Watch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
+			AA0000000000000000000051 /* TPPCScoreWidgetExtension */ = {
+				isa = PBXNativeTarget;
+				buildConfigurationList = AA0000000000000000000071 /* Build configuration list for PBXNativeTarget "TPPCScoreWidgetExtension" */;
+				buildPhases = (
+					AA0000000000000000000031 /* Sources */,
+					AA0000000000000000000032 /* Frameworks */,
+					AA0000000000000000000033 /* Resources */,
+				);
+				buildRules = (
+				);
+				dependencies = (
+				);
+				name = TPPCScoreWidgetExtension;
+				packageProductDependencies = (
+				);
+				productName = TPPCScoreWidgetExtension;
+				productReference = AA0000000000000000000006 /* TPPCScoreWidgetExtension.appex */;
+				productType = "com.apple.product-type.app-extension";
+			};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -206,6 +278,7 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				7C0D41632FC466AA00C91FC9 /* TPPC Watch Watch App */,
+				AA0000000000000000000051 /* TPPCScoreWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -231,6 +304,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+			AA0000000000000000000033 /* Resources */ = {
+				isa = PBXResourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -239,6 +319,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				AA0000000000000000000011 /* LiveScoreActivityPlugin.swift in Sources */,
+				AA0000000000000000000012 /* TPPCScoreAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +331,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+			AA0000000000000000000031 /* Sources */ = {
+				isa = PBXSourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					AA0000000000000000000015 /* TPPCScoreWidgetBundle.swift in Sources */,
+					AA0000000000000000000014 /* TPPCScoreLiveActivity.swift in Sources */,
+					AA0000000000000000000013 /* TPPCScoreAttributes.swift in Sources */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -257,6 +349,11 @@
 			target = 7C0D41632FC466AA00C91FC9 /* TPPC Watch Watch App */;
 			targetProxy = 7C0D416C2FC466AD00C91FC9 /* PBXContainerItemProxy */;
 		};
+			AA0000000000000000000042 /* PBXTargetDependency */ = {
+				isa = PBXTargetDependency;
+				target = AA0000000000000000000051 /* TPPCScoreWidgetExtension */;
+				targetProxy = AA0000000000000000000041 /* PBXContainerItemProxy */;
+			};
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -406,7 +503,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 91;
+				CURRENT_PROJECT_VERSION = 92;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -428,7 +525,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 91;
+				CURRENT_PROJECT_VERSION = 92;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -456,7 +553,7 @@
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 91;
+				CURRENT_PROJECT_VERSION = 92;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -500,7 +597,7 @@
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 91;
+				CURRENT_PROJECT_VERSION = 92;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -530,6 +627,58 @@
 			};
 			name = Release;
 		};
+			AA0000000000000000000061 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 92;
+					DEVELOPMENT_TEAM = MKY94CGU4R;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = TPPCScoreWidget/Info.plist;
+					IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@executable_path/Frameworks",
+						"@executable_path/../../Frameworks",
+					);
+					MARKETING_VERSION = 1.0.1;
+					PRODUCT_BUNDLE_IDENTIFIER = uk.co.tedworthparkpolo.chukkas.TPPCScoreWidget;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SDKROOT = iphoneos;
+					SKIP_INSTALL = YES;
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = "1,2";
+				};
+				name = Debug;
+			};
+			AA0000000000000000000062 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 92;
+					DEVELOPMENT_TEAM = MKY94CGU4R;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = TPPCScoreWidget/Info.plist;
+					IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@executable_path/Frameworks",
+						"@executable_path/../../Frameworks",
+					);
+					MARKETING_VERSION = 1.0.1;
+					PRODUCT_BUNDLE_IDENTIFIER = uk.co.tedworthparkpolo.chukkas.TPPCScoreWidget;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SDKROOT = iphoneos;
+					SKIP_INSTALL = YES;
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = "1,2";
+				};
+				name = Release;
+			};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -560,6 +709,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+			AA0000000000000000000071 /* Build configuration list for PBXNativeTarget "TPPCScoreWidgetExtension" */ = {
+				isa = XCConfigurationList;
+				buildConfigurations = (
+					AA0000000000000000000061 /* Debug */,
+					AA0000000000000000000062 /* Release */,
+				);
+				defaultConfigurationIsVisible = 0;
+				defaultConfigurationName = Release;
+			};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
