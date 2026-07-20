@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generateTournamentPdf, DEFAULT_COMMITTEE, teamHandicap } from './tournamentPdf';
+import { startLiveScore, updateLiveScore, endLiveScore } from './liveScoreActivity';
 
 // 2026 Tedworth Park Polo Club grass fixtures
 const FIXTURES_2026 = [
@@ -2909,6 +2910,59 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const goals = teamKey === 'A' ? (match && match.scoreA) : (match && match.scoreB);
     return fmtHalf((Number(goals) || 0) + liveHeadStart(match, teamKey));
   };
+
+  // --- iOS Live Activity: mirror the selected live match to the Lock Screen / Dynamic Island. ---
+  // Safe no-op on web/Android — the native plugin only exists in the iOS build.
+  const liveActivityRef = useRef({ id: null, key: null });
+  const liveActivitySnapshot = (() => {
+    if (!liveMatchId) return null;
+    const fd = liveFixtureId ? visibleFixtureDetails[liveFixtureId] : null;
+    const day = fd ? (fd.days || []).find(d => d.id === liveDayId) : null;
+    const cm = day ? (day.matches || []).find(m => m.id === liveMatchId) : null;
+    if (!cm) return null;
+    const ended = cm.liveChukka === 'ended';
+    const nCk = matchChukkas(cm);
+    const curCk = ended ? nCk : Math.max(0, Math.min(nCk, Number(cm.liveChukka) || 0));
+    const ordn = (n) => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+    return {
+      key: liveFixtureId + '|' + liveDayId + '|' + liveMatchId,
+      ended,
+      isLive: !ended && curCk > 0,
+      teamAName: (cm.teamA && cm.teamA.name) || 'Team A',
+      teamBName: (cm.teamB && cm.teamB.name) || 'Team B',
+      matchLabel: cm.label || 'TPPC',
+      scoreA: String(liveDisplayScore(cm, 'A')),
+      scoreB: String(liveDisplayScore(cm, 'B')),
+      status: ended ? 'Full time' : (curCk > 0 ? (ordn(curCk) + ' chukka') : 'Not started'),
+    };
+  })();
+  const liveActivitySig = liveActivitySnapshot ? JSON.stringify(liveActivitySnapshot) : '';
+  useEffect(() => {
+    const d = liveActivitySnapshot;
+    const ref = liveActivityRef.current;
+    const payload = d && {
+      teamAName: d.teamAName, teamBName: d.teamBName, matchLabel: d.matchLabel,
+      scoreA: d.scoreA, scoreB: d.scoreB, status: d.status, isLive: d.isLive,
+    };
+    // No live match in view, or the selected match isn't under way → end any running activity.
+    if (!d || !d.isLive) {
+      if (ref.id && ref.id !== 'pending') endLiveScore(d && d.ended && ref.key === d.key ? { ...payload, id: ref.id } : { id: ref.id });
+      if (ref.id) liveActivityRef.current = { id: null, key: null };
+      return;
+    }
+    // Live: update the running activity, or start a fresh one for this match.
+    if (ref.key === d.key && ref.id && ref.id !== 'pending') {
+      updateLiveScore({ ...payload, id: ref.id });
+    } else if (ref.id !== 'pending' || ref.key !== d.key) {
+      if (ref.id && ref.id !== 'pending') endLiveScore({ id: ref.id });
+      liveActivityRef.current = { id: 'pending', key: d.key };
+      startLiveScore(payload).then(id => {
+        liveActivityRef.current = id ? { id, key: d.key } : { id: null, key: null };
+        if (id) updateLiveScore({ ...payload, id });
+      }).catch(() => { liveActivityRef.current = { id: null, key: null }; });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveActivitySig]);
 
   const registerInterest = (fixtureId) => {
     setFError('');
