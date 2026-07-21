@@ -47,9 +47,10 @@ The app remembers which tab you were on and returns you there next time.
 2. Fill in the sign-up form:
    - **Name** and **mobile** (your mobile is visible only to the captain).
    - **Handicap** and how many **chukkas** you'd like. Not sure of your handicap?
-     Tap **Look up on HPA ↗** next to the field to open the HPA member search on the
-     HPA website in a new tab. (The captain's player-database editor has the same
-     link.)
+     Tap **Look up on HPA ↗** next to the field — it copies the name you've typed and
+     opens the HPA member search in a new tab, so you can **paste** it straight into
+     the search box (the HPA search can't be pre-filled from a link). The captain's
+     player-database editor has the same link.
    - **Available from / to** if you can only play part of the evening — the draw
      respects this.
    - **No back-to-back** if you'd rather not play consecutive chukkas — the draw
