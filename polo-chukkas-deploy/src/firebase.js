@@ -1,5 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 export const firebaseConfig = {
     apiKey: "AIzaSyBEPZpBeZLmUQdtzGCY7UCIwnGzP8f1xpQ",
@@ -11,4 +15,17 @@ export const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Firestore with an on-device (IndexedDB) cache. On a cold start the app serves
+// the last-known fixtures/scores from the local cache instantly, then refreshes
+// to live from the server — fixing the slow first-load blank screen.
+// persistentMultipleTabManager keeps that cache consistent when the app is open
+// in more than one tab/window (the club relies on multi-device/tab use). If
+// IndexedDB is unavailable (old WebView / private mode), Firestore falls back to
+// its in-memory cache automatically, so this never blocks startup.
+// NOTE: this is the single Firestore initialisation — storage.js imports `db`
+// from here rather than initialising its own, so initializeFirestore always runs
+// before any getFirestore call.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
