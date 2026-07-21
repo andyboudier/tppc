@@ -179,6 +179,30 @@ production web deploy.
 Any app-shell / service-worker caching work **must preserve this behaviour** — if
 the shell HTML gets cached, installed apps stop receiving the ~90s web update.
 
+### App-shell service worker (`public/sw.js`)
+
+`public/sw.js` caches the JS/CSS shell so it isn't re-downloaded on every cold
+start, and is designed around the constraint above:
+
+- **Navigations / `index.html` → network-first.** Online, you always get the
+  freshest HTML pointing at the newest asset hashes, so a new deploy is picked up
+  immediately — the ~90s path is untouched. The cached copy is only an offline
+  fallback.
+- **`/assets/*` → cache-first.** These are content-hashed and immutable, so once
+  fetched they're served from Cache Storage on later cold starts. New builds emit
+  new filenames that get cached on first use; stale ones are pruned on `activate`.
+- **Cross-origin (Firestore, Google Fonts, FCM) is never intercepted.**
+
+The worker's logic is static (it never needs to change per deploy — freshness
+comes from network-first HTML + hashed assets, not a precache manifest). It is
+registered best-effort from `main.jsx` after `load`, and `vercel.json` serves
+`/sw.js` with `no-cache` so any future edit to it is still picked up. To bump it,
+change `VERSION` in `sw.js`, which rotates the cache names on next activate.
+
+Note: service-worker support in the iOS remote-load WKWebView is limited, so on
+iOS the win comes mainly from the HTTP `immutable` asset cache above; browsers and
+the Android PWA get the full service-worker benefit.
+
 ---
 
 ## Build & validate
