@@ -792,6 +792,25 @@ export default function PoloChukkas() {
   const [mobile, setMobile] = useState('');
   const [handicap, setHandicap] = useState('');
   const [chukkas, setChukkas] = useState('');
+  // Transient "name copied" hint for the HPA look-up link ('' | 'signup' | 'editor').
+  const [hpaCopied, setHpaCopied] = useState('');
+  // Copy a player's name to the clipboard so it can be pasted straight into the
+  // HPA member search. The HPA search is a Sport:80 Vue widget with no URL
+  // parameter to pre-fill the name, so copy-then-paste is the reliable route;
+  // the link still opens the search even if the clipboard write is blocked.
+  const copyNameForHpa = (playerName, ctx) => {
+    const n = (playerName || '').trim();
+    if (!n) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(n);
+      }
+      setHpaCopied(ctx);
+      setTimeout(() => setHpaCopied(''), 4000);
+    } catch (e) {
+      /* clipboard unavailable — the link still opens the HPA search */
+    }
+  };
   // Player's earliest available start time (HH:MM string matching one of the
   // first four chukka start times for the active day). Empty string means
   // "available from throw-in" — the default.
@@ -4778,10 +4797,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           href="https://hpa-polo.co.uk/hpa-search-tool/"
                           target="_blank"
                           rel="noopener noreferrer"
-                          title="Look up any current HPA member's handicap on the HPA website"
+                          onClick={() => copyNameForHpa(name, 'signup')}
+                          title={name.trim() ? "Copies the name so you can paste it into the HPA member search" : "Open the HPA member search to find a handicap"}
                           style={{ fontSize: '11px', color: 'var(--burgundy)', textDecoration: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}
                         >
-                          Look up on HPA ↗
+                          {hpaCopied === 'signup' ? 'Name copied — paste it in ↗' : 'Look up on HPA ↗'}
                         </a>
                       </div>
                       <select
@@ -6805,10 +6825,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         href="https://hpa-polo.co.uk/hpa-search-tool/"
                         target="_blank"
                         rel="noopener noreferrer"
-                        title="Look up any current HPA member's handicap on the HPA website"
+                        onClick={() => copyNameForHpa(playerEditor.name, 'editor')}
+                        title={(playerEditor.name || '').trim() ? "Copies the name so you can paste it into the HPA member search" : "Open the HPA member search to find a handicap"}
                         style={{ fontSize: '11px', color: 'var(--burgundy)', textDecoration: 'none', fontWeight: 600 }}
                       >
-                        Look up a handicap on HPA ↗
+                        {hpaCopied === 'editor' ? 'Name copied — paste it into the HPA search ↗' : 'Look up a handicap on HPA ↗'}
                       </a>
                     </div>
                     <div style={{ fontSize: '11px', color: membershipById(playerEditor.membership || 'none').chukkasIncluded ? 'var(--burgundy)' : 'var(--muted)', marginTop: '-4px', lineHeight: 1.45 }}>
