@@ -3,9 +3,7 @@
 // Adds live cross-device sync: when one club member adds a player, every other
 // device with the page open sees the update within milliseconds.
 
-import { initializeApp } from 'firebase/app';
 import {
-  getFirestore,
   doc,
   getDoc,
   setDoc,
@@ -14,10 +12,9 @@ import {
   getDocs,
   onSnapshot,
 } from 'firebase/firestore';
-import { firebaseConfig } from './firebase';
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Single shared Firestore instance (initialised with an on-device IndexedDB
+// cache in firebase.js) — do NOT initialise a second app/Firestore here.
+import { db } from './firebase';
 
 const collectionName = (shared) => (shared ? 'shared' : 'private');
 
