@@ -4772,7 +4772,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
-                      <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Handicap</label>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '11px', color: 'var(--muted)', letterSpacing: '1px', textTransform: 'uppercase' }}>Handicap</label>
+                        <a
+                          href="https://hpa-polo.co.uk/hpa-search-tool/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Look up any current HPA member's handicap on the HPA website"
+                          style={{ fontSize: '11px', color: 'var(--burgundy)', textDecoration: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          Look up on HPA ↗
+                        </a>
+                      </div>
                       <select
                         className="input-field select-field"
                         value={handicap}
@@ -6788,6 +6799,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <select className="input-field select-field" value={playerEditor.membership || 'none'} onChange={e => setPlayerEditor({ ...playerEditor, membership: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
                         {MEMBERSHIP_TYPES_2026.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                       </select>
+                    </div>
+                    <div style={{ marginTop: '-4px' }}>
+                      <a
+                        href="https://hpa-polo.co.uk/hpa-search-tool/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Look up any current HPA member's handicap on the HPA website"
+                        style={{ fontSize: '11px', color: 'var(--burgundy)', textDecoration: 'none', fontWeight: 600 }}
+                      >
+                        Look up a handicap on HPA ↗
+                      </a>
                     </div>
                     <div style={{ fontSize: '11px', color: membershipById(playerEditor.membership || 'none').chukkasIncluded ? 'var(--burgundy)' : 'var(--muted)', marginTop: '-4px', lineHeight: 1.45 }}>
                       {membershipById(playerEditor.membership || 'none').chukkasIncluded
