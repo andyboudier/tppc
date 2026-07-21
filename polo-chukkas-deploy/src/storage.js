@@ -72,7 +72,7 @@ const storage = {
 // IMPORTANT: every persistent *shared* key must appear here or it silently won't
 // sync across devices. Per-day keys follow PoloChukkas.jsx's storageKey scheme:
 // `base` for Wednesday, `base-<day>` for thu/sat/sun.
-const DAYS = ['wed', 'thu', 'sat', 'sun'];
+const DAYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
 const perDay = (base) => DAYS.map((d) => (d === 'wed' ? base : `${base}-${d}`));
 
 const SYNC_KEYS = [

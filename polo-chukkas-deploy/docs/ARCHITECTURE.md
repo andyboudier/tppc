@@ -98,13 +98,12 @@ Per-day keys follow a naming scheme: `base` for Wednesday, `base-<day>` for the
 others (e.g. `roster`, `roster-thu`, `schedule-sat`). The `perDay(base)` helper in
 `storage.js` expands a base name across days.
 
-> **Caveat — Friday sync.** The app's `DAY_KEYS` includes `'fri'`, but
-> `storage.js`'s `DAYS` array (which drives `perDay`) is
-> `['wed','thu','sat','sun']` — Friday is **not** in it. So Friday's per-day shared
-> keys (`roster-fri`, `schedule-fri`, `throwin-fri`, …) are not currently in
-> `SYNC_KEYS` and won't live-sync across devices. If Friday chukkas need
-> cross-device sync, add `'fri'` to `DAYS` in `storage.js`. Verify against the
-> current code before relying on this.
+> **Keep `DAYS` in step with `DAY_KEYS`.** `storage.js`'s `DAYS` array (which
+> drives `perDay`, and therefore which per-day keys are in `SYNC_KEYS`) must match
+> the app's `DAY_KEYS` in `PoloChukkas.jsx`. Both currently list
+> `['wed','thu','fri','sat','sun']`. If they drift, any day present in `DAY_KEYS`
+> but missing from `DAYS` won't live-sync its per-day shared keys (`roster-<day>`,
+> `schedule-<day>`, `throwin-<day>`, …) across devices.
 
 ### Automatic backups
 
