@@ -4,10 +4,14 @@ android {
     namespace = "uk.co.tedworthparkpolo.chukkas"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
+        // Resolve into a local first: writing `versionCode (expr).toInteger()`
+        // directly makes Groovy parse it as versionCode(expr).toInteger(), which
+        // evaluates to null and fails project evaluation. A named int is unambiguous.
+        def resolvedVersionCode = (System.getenv("TPPC_VERSION_CODE") ?: "1").toInteger()
         applicationId "uk.co.tedworthparkpolo.chukkas"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("TPPC_VERSION_CODE") ?: "1").toInteger()
+        versionCode resolvedVersionCode
         versionName "1.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

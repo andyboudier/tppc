@@ -167,7 +167,7 @@ const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move pl
 //   blurb       — one-line description shown on the day menu
 const DAY_CONFIG = {
   wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps' },
-  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only' },
+  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only', notifyNote: 'ladies-only instructional' },
   fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
         instructional: true, maxHandicap: 0, maxChukkas: 2, fixedChukkas: 2, sessionMins: 60 },
   sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas', blurb: 'Open to all handicaps' },
@@ -1149,6 +1149,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         if (!roster.length) return; // only remind about days that actually have players
         const cfg = DAY_CONFIG[dayKey];
         const timeStr = fmtTime(throwInMins[dayKey]);
+        // Spell out special days (e.g. Thursday = ladies-only instructional) so the
+        // notification is unambiguous — "Thursday chukkas (ladies-only instructional)".
+        const dayDesc = cfg.notifyNote ? ` (${cfg.notifyNote})` : '';
 
         // Throw-in reminder — 2 hours before.
         const remindAt = targetDayThrowIn(dayKey).getTime() - 120 * 60 * 1000;
@@ -1156,7 +1159,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           toSchedule.push({
             id: REMINDER_ID_BASE + i * 2,
             title: 'Polo today 🏇',
-            body: `${cfg.fullLabel} chukkas — throw-in ${timeStr}. ${roster.length} signed up.`,
+            body: `${cfg.fullLabel} chukkas${dayDesc} — throw-in ${timeStr}. ${roster.length} signed up.`,
             schedule: { at: new Date(remindAt) },
           });
         }
@@ -1168,7 +1171,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           toSchedule.push({
             id: REMINDER_ID_BASE + i * 2 + 1,
             title: 'Sign-ups closing soon',
-            body: `${cfg.fullLabel} chukkas sign-ups close ${closeText}.`,
+            body: `${cfg.fullLabel} chukkas${dayDesc} sign-ups close ${closeText}.`,
             schedule: { at: new Date(warnAt) },
           });
         }
