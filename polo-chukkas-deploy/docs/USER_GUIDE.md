@@ -116,7 +116,11 @@ Editing is gated behind a 4-digit **captain PIN**.
 
 ### Running a tournament
 
-1. On **Fixtures**, add or edit the fixture (name, date(s), level/handicap).
+1. On **Fixtures**, add or edit the fixture (name, date(s), level/handicap). To
+   control exactly how the title stacks on the programme's **front page**, use
+   **Programme cover title** in the fixture editor: tap **＋ Add line** to add up
+   to five lines (e.g. *The* / *QRH V KRH* / *Gulf War* / *Anniversary* / *Match*),
+   and **×** to remove one. Leave it empty to auto-format from the fixture name.
 2. Collect **team sign-ups** and enter **match details** — the days, matches, teams,
    and squads. You can also **Import** a whole draw by pasting a JSON block: it
    matches fixtures by name and merges days by date, so re-importing a day replaces

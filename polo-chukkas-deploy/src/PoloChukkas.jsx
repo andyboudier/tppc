@@ -3139,16 +3139,37 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try { await window.storage.set('fixtures', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
   };
-  const openAddFixture = () => { setFError(''); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '' }); };
-  const openEditFixture = (fx) => { setFError(''); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '' }); };
+  const openAddFixture = () => { setFError(''); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '', titleLines: [] }); };
+  const openEditFixture = (fx) => { setFError(''); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '', titleLines: Array.isArray(fx.titleLines) ? [...fx.titleLines] : [] }); };
   const setEd = (field, value) => setFixtureEditor(prev => prev ? { ...prev, [field]: value } : prev);
+  // Cover title lines (optional, up to 5) — printed verbatim on the programme's
+  // front page instead of the auto-formatted fixture name.
+  const MAX_TITLE_LINES = 5;
+  const setTitleLine = (i, value) => setFixtureEditor(prev => {
+    if (!prev) return prev;
+    const arr = [...(prev.titleLines || [])];
+    arr[i] = value;
+    return { ...prev, titleLines: arr };
+  });
+  const addTitleLine = () => setFixtureEditor(prev => {
+    if (!prev) return prev;
+    const arr = [...(prev.titleLines || [])];
+    if (arr.length >= MAX_TITLE_LINES) return prev;
+    arr.push('');
+    return { ...prev, titleLines: arr };
+  });
+  const removeTitleLine = (i) => setFixtureEditor(prev => {
+    if (!prev) return prev;
+    return { ...prev, titleLines: (prev.titleLines || []).filter((_, j) => j !== i) };
+  });
   const saveFixtureEditor = () => {
     const ed = fixtureEditor;
     if (!ed) return;
     if (!ed.name.trim()) { setFError('Please enter a fixture name.'); return; }
     if (!ed.date.trim()) { setFError('Please enter a date, e.g. “Sat 30 & Sun 31 May”.'); return; }
     setFError('');
-    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim() };
+    const titleLines = (ed.titleLines || []).map(s => (s || '').trim()).filter(Boolean).slice(0, MAX_TITLE_LINES);
+    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), titleLines };
     let next;
     if (ed.id) {
       next = fixtures.map(f => f.id === ed.id ? { ...f, ...clean } : f);
@@ -3231,6 +3252,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
             Put the weekday + day in the date (e.g. “Sat 30 & Sun 31 May”) so team sign-ups and the programme pick up the right days. The handicap level prints on the programme PDF.
           </div>
+
+          {/* Optional cover title lines — control exactly how the title stacks on the programme's front page */}
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45 }}>
+              <strong style={{ color: 'var(--ink)' }}>Programme cover title (optional).</strong> Add up to {MAX_TITLE_LINES} lines to set exactly how the title stacks on the programme’s front page — e.g. “The”, “QRH V KRH”, “Gulf War”, “Anniversary”, “Match”. Leave empty to auto-format from the fixture name.
+            </div>
+            {(fixtureEditor.titleLines || []).map((ln, i) => (
+              <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: 'var(--muted)', width: '14px', flexShrink: 0, textAlign: 'right' }}>{i + 1}</span>
+                <input className="input-field" type="text" placeholder={`Line ${i + 1}`} value={ln} onChange={e => setTitleLine(i, e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px 12px', fontSize: '14px' }} />
+                <button onClick={() => removeTitleLine(i)} title="Remove line" aria-label={`Remove line ${i + 1}`} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', width: '36px', height: '38px', borderRadius: '4px', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+            {(fixtureEditor.titleLines || []).length < MAX_TITLE_LINES && (
+              <button onClick={addTitleLine} style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--burgundy)', padding: '8px 12px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>＋ Add line</button>
+            )}
+          </div>
+
           {fError && <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>{fError}</div>}
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn-primary" onClick={saveFixtureEditor} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>{fixtureEditor.id ? 'Save fixture' : 'Add fixture'}</button>

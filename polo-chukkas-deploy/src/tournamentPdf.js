@@ -250,6 +250,42 @@ function drawCoverPage(doc, fixture, subtitle) {
   doc.setFont('Jost', 'bolditalic');
   doc.setTextColor(...INK);
 
+  // Captain-entered cover title lines (up to 5) override the auto layout below,
+  // so the front page can read exactly as typed, e.g. "The" / "QRH V KRH" /
+  // "Gulf War" / "Anniversary" / "Match". Empty lines are ignored.
+  const customTitle = (fixture.titleLines || [])
+    .map((s) => (s == null ? '' : String(s).trim()))
+    .filter(Boolean)
+    .slice(0, 5);
+  if (customTitle.length) {
+    const maxW = PAGE_W - 2 * MARGIN;
+    // Shrink the font until the widest line fits the page width…
+    let size = 48;
+    customTitle.forEach((l) => { size = Math.min(size, fitFont(doc, l, 48, maxW, 16)); });
+    let gap = size * 0.46;
+    const levelReserve = (fixture.level && fixture.level.trim()) ? 18 : 4;
+    const bandTop = 150, bandBot = 260;
+    // …and until the whole stack (plus the level line) fits the vertical band.
+    while (size > 16 && bandTop + (customTitle.length - 1) * gap + levelReserve > bandBot) {
+      size -= 1;
+      gap = size * 0.46;
+    }
+    doc.setFontSize(size);
+    const blockH = (customTitle.length - 1) * gap;
+    let yy = bandTop + Math.max(0, ((bandBot - levelReserve - bandTop) - blockH) / 2) + size * 0.30;
+    customTitle.forEach((line, idx) => {
+      doc.text(line, PAGE_W / 2, yy, { align: 'center' });
+      if (idx < customTitle.length - 1) yy += gap;
+    });
+    if (fixture.level && fixture.level.trim()) {
+      doc.setFont('Jost', 'italic');
+      doc.setFontSize(22);
+      doc.setTextColor(...BURGUNDY);
+      doc.text(pdfLevel(fixture.level), PAGE_W / 2, yy + 16, { align: 'center' });
+    }
+    return;
+  }
+
   const fullTitle = ensureLeadingThe(fixture.name);
   // Split on whitespace and chunk so each line fits within page width.
   // Strategy: render "The" alone on its own line, then the rest as 1–2 lines
