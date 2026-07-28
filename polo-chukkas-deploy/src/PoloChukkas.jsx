@@ -1489,12 +1489,29 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     } catch (e) {}
   };
 
-  // Update the directory with this player's details (for next time's autofill)
+  // Update the directory with this player's details (for next time's autofill).
+  // IMPORTANT: this is an ADD-ONLY write. We merge onto the freshest SAVED
+  // directory (not just React state), so a partially-loaded state — e.g. right
+  // after a cold start, before Firestore has synced — can never overwrite the
+  // fuller saved list and make names "disappear". The write can only ever grow
+  // the directory.
   const upsertMember = async (player, extraMembers = members) => {
     const key = (player.name || '').trim().toLowerCase();
     if (!key) return extraMembers;
+    // Base = union of the latest saved directory and the current state, so no
+    // existing entries are ever dropped.
+    let base = { ...extraMembers };
+    try {
+      const stored = await window.storage.get('members', true);
+      if (stored?.value) {
+        const parsed = JSON.parse(stored.value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          base = { ...parsed, ...base };
+        }
+      }
+    } catch (e) { /* fall back to state-only base */ }
     const updated = {
-      ...extraMembers,
+      ...base,
       [key]: {
         name: player.name.trim(),
         handicap: player.handicap,
