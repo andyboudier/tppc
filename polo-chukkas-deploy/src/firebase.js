@@ -1,9 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-} from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 export const firebaseConfig = {
     apiKey: "AIzaSyBEPZpBeZLmUQdtzGCY7UCIwnGzP8f1xpQ",
@@ -16,16 +12,11 @@ export const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 
-// Firestore with an on-device (IndexedDB) cache. On a cold start the app serves
-// the last-known fixtures/scores from the local cache instantly, then refreshes
-// to live from the server — fixing the slow first-load blank screen.
-// persistentMultipleTabManager keeps that cache consistent when the app is open
-// in more than one tab/window (the club relies on multi-device/tab use). If
-// IndexedDB is unavailable (old WebView / private mode), Firestore falls back to
-// its in-memory cache automatically, so this never blocks startup.
-// NOTE: this is the single Firestore initialisation — storage.js imports `db`
-// from here rather than initialising its own, so initializeFirestore always runs
-// before any getFirestore call.
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-});
+// Plain Firestore (no on-device persistent cache). The persistent IndexedDB
+// cache was reverted: on a cold start it could briefly serve a STALE snapshot,
+// and the app performs destructive actions on load (the weekly roster auto-clear
+// deletes a day's roster based on the value it reads). A stale read there could
+// delete a current roster on the server, losing sign-ups. Reading straight from
+// the server on cold start avoids that whole class of bug. storage.js imports
+// this single `db` instance.
+export const db = getFirestore(app);

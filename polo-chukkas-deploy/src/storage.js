@@ -88,6 +88,7 @@ const SYNC_KEYS = [
   'fixture-details',         // match details / teams shown on the fixtures tab
   'teams-db',
   'fixture-details-backups',
+  'roster-backups',          // gzip snapshots of the chukka rosters (retention 50)
 ];
 
 SYNC_KEYS.forEach((key) => {

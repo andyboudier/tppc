@@ -856,6 +856,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
   const backupTimerRef = useRef(null);
+  // Roster snapshots (chukka rosters) — separate from the fixture-details backups.
+  const [showRosterBackups, setShowRosterBackups] = useState(false);
+  const [rosterBackups, setRosterBackups] = useState([]);
+  const rosterBackupTimerRef = useRef(null);
+  const autoClearDoneRef = useRef(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [importMsg, setImportMsg] = useState('');
@@ -1185,18 +1190,36 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       // Auto-clear stale rosters per day: if a roster was stamped for a past
       // day, that day's chukkas are done — wipe it from Firestore so the next
       // person sees a fresh empty roster for the upcoming day.
-      for (const dk of DAY_KEYS) {
-        try {
-          const rw = await window.storage.get(storageKey('roster-week', dk), true);
-          const storedWeek = rw?.value;
-          if (storedWeek && storedWeek < currentDayISO(dk)) {
-            await Promise.all([
-              window.storage.delete(storageKey('roster', dk), true).catch(() => {}),
-              window.storage.delete(storageKey('roster-week', dk), true).catch(() => {}),
-              window.storage.delete(storageKey('schedule', dk), true).catch(() => {}),
-            ]);
-          }
-        } catch (e) {}
+      // SAFETY: loadAll re-runs on every remote change, but this destructive
+      // clear must run at most ONCE per session and only on a well-formed stamp
+      // that is genuinely in the past — never on a today/upcoming stamp — so it
+      // can't delete a current roster (which previously lost sign-ups). It also
+      // snapshots the roster to backups first, so a clear is always recoverable.
+      if (!autoClearDoneRef.current) {
+        autoClearDoneRef.current = true;
+        for (const dk of DAY_KEYS) {
+          try {
+            const rw = await window.storage.get(storageKey('roster-week', dk), true);
+            const storedWeek = rw?.value;
+            const isValidPastStamp = typeof storedWeek === 'string'
+              && /^\d{4}-\d{2}-\d{2}$/.test(storedWeek)
+              && storedWeek < currentDayISO(dk);
+            if (isValidPastStamp) {
+              try {
+                const r = await window.storage.get(storageKey('roster', dk), true);
+                const arr = r?.value ? JSON.parse(r.value) : [];
+                if (Array.isArray(arr) && arr.length) {
+                  await writeRosterBackup({ [dk]: arr }, `auto-clear ${dk} (was ${storedWeek})`);
+                }
+              } catch (e) {}
+              await Promise.all([
+                window.storage.delete(storageKey('roster', dk), true).catch(() => {}),
+                window.storage.delete(storageKey('roster-week', dk), true).catch(() => {}),
+                window.storage.delete(storageKey('schedule', dk), true).catch(() => {}),
+              ]);
+            }
+          } catch (e) {}
+        }
       }
 
       // Load per-day rosters, schedules and throw-in times
@@ -1365,6 +1388,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // ── Chukkas — day-aware save helpers ─────────────────────────────────
   const saveRoster = async (newPlayers, dayKey = activeDay) => {
     setRosters(prev => ({ ...prev, [dayKey]: newPlayers }));
+    // Snapshot the rosters after this change (debounced), so sign-ups can be
+    // recovered if a roster is later cleared or overwritten.
+    scheduleRosterBackup({ ...rosters, [dayKey]: newPlayers });
     try {
       await window.storage.set(storageKey('roster', dayKey), JSON.stringify(newPlayers), true);
       // Stamp which day this roster is for, so we can auto-clear after.
@@ -2657,6 +2683,58 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const gunzipFromB64 = async (b64) => { const ds = new DecompressionStream('gzip'); const buf = await new Response(new Blob([b64ToBytes(b64)]).stream().pipeThrough(ds)).arrayBuffer(); return new TextDecoder().decode(buf); };
   const packBackups = async (list) => { const json = JSON.stringify(list); if (!gzSupported) return json; try { return 'gz:' + await gzipToB64(json); } catch (e) { return json; } };
   const unpackBackups = async (value) => { if (!value) return []; if (typeof value === 'string' && value.startsWith('gz:')) return JSON.parse(await gunzipFromB64(value.slice(3))); return JSON.parse(value); };
+
+  // ── Roster snapshots ──────────────────────────────────────────────────
+  // Keeps up to 50 gzip-compressed snapshots of the chukka rosters (all days)
+  // in a single Firestore record ('roster-backups'), so a mistaken clear or a
+  // lost sign-up can always be restored. Mirrors the fixture-details backups.
+  const MAX_ROSTER_BACKUPS = 50;
+  const writeRosterBackup = async (rostersData, reason = '') => {
+    if (!rostersData) return;
+    const total = Object.values(rostersData).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+    if (total === 0) return; // never snapshot an all-empty state
+    try {
+      const existing = await window.storage.get('roster-backups', true);
+      let list = existing?.value ? await unpackBackups(existing.value) : [];
+      if (!Array.isArray(list)) list = [];
+      // Skip if identical to the most recent snapshot (avoids churn).
+      if (list.length && JSON.stringify(list[list.length - 1].rosters) === JSON.stringify(rostersData)) return;
+      list.push({ ts: Date.now(), reason, rosters: rostersData });
+      while (list.length > MAX_ROSTER_BACKUPS) list.shift();
+      let packed = await packBackups(list);
+      while (list.length > 1 && packed.length > 950000) { list.shift(); packed = await packBackups(list); }
+      await window.storage.set('roster-backups', packed, true);
+    } catch (e) {}
+  };
+  const scheduleRosterBackup = (rostersData) => {
+    if (rosterBackupTimerRef.current) clearTimeout(rosterBackupTimerRef.current);
+    rosterBackupTimerRef.current = setTimeout(() => writeRosterBackup(rostersData), 8000);
+  };
+  const loadRosterBackups = async () => {
+    try {
+      const b = await window.storage.get('roster-backups', true);
+      const list = b?.value ? await unpackBackups(b.value) : [];
+      setRosterBackups(Array.isArray(list) ? list.slice().reverse() : []); // newest first
+    } catch (e) { setRosterBackups([]); }
+  };
+  const restoreRosterBackup = async (snap) => {
+    if (!snap || !snap.rosters) return;
+    if (!window.confirm('Restore the rosters from this snapshot? The current rosters are backed up first, so this is reversible.')) return;
+    await writeRosterBackup(rosters, 'before restore'); // snapshot current first
+    const data = snap.rosters;
+    setRosters(prev => ({ ...prev, ...data }));
+    for (const dk of DAY_KEYS) {
+      const arr = data[dk];
+      if (!Array.isArray(arr)) continue;
+      try {
+        if (arr.length) {
+          await window.storage.set(storageKey('roster', dk), JSON.stringify(arr), true);
+          await window.storage.set(storageKey('roster-week', dk), currentDayISO(dk), true);
+        }
+      } catch (e) {}
+    }
+    setShowRosterBackups(false);
+  };
 
   const writeBackup = async (data) => {
     try {
@@ -4593,6 +4671,39 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   {players.length} {players.length === 1 ? 'rider' : 'riders'} · {totalChukkas} chukkas booked
                 </div>
               </div>
+
+              {/* Roster snapshots — captain-only, always reachable (even when a roster is empty) */}
+              {captainMode && (
+                <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                  <button onClick={() => { const n = !showRosterBackups; setShowRosterBackups(n); if (n) loadRosterBackups(); }} style={{ background: 'none', border: '1px solid var(--line)', color: 'var(--muted)', fontSize: '11px', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', letterSpacing: '0.5px' }}>
+                    {showRosterBackups ? 'Hide roster snapshots' : '↺ Roster snapshots'}
+                  </button>
+                  {showRosterBackups && (
+                    <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px', marginTop: '10px', background: 'var(--cream-pale)', textAlign: 'left' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Roster snapshots · newest first · up to 50 kept</div>
+                      {rosterBackups.length === 0 ? (
+                        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>No snapshots yet — they’re captured automatically as rosters change.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
+                          {rosterBackups.map((b, i) => {
+                            const counts = DAY_KEYS.map(dk => { const a = b.rosters && b.rosters[dk]; return (Array.isArray(a) && a.length) ? `${DAY_CONFIG[dk].short} ${a.length}` : null; }).filter(Boolean).join(' · ');
+                            const when = new Date(b.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                            return (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', borderBottom: '1px solid var(--line)', paddingBottom: '6px' }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: '12px', color: 'var(--ink)' }}>{when}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{counts || 'empty'}{b.reason ? ` · ${b.reason}` : ''}</div>
+                                </div>
+                                <button onClick={() => restoreRosterBackup(b)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>Restore</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* WhatsApp group card — only shown when link is set OR captain is editing */}
               {(waLink || captainMode) && (
