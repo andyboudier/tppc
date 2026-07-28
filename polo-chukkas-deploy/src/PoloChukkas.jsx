@@ -340,90 +340,6 @@ const LocalNotifications = (CapBridge && CapBridge.Plugins) ? CapBridge.Plugins.
 const REMINDER_ID_BASE = 7000; // ids 7000-7999 reserved for chukka reminders
 
 // Example rosters for testing the app
-const EXAMPLES = {
-  may20: {
-    label: 'Wed 20 May',
-    note: '17 players · 7 chukkas',
-    roster: [
-      { name: 'Rosie R',         handicap:  2, chukkas: 5, mobile: '07700 900012' },
-      { name: 'Stevie McCraith', handicap:  2, chukkas: 3, mobile: '07700 900233' },
-      { name: 'Oliver Olsen',    handicap:  1, chukkas: 4, mobile: '07700 900412' },
-      { name: 'Brad',            handicap:  1, chukkas: 6, mobile: '07700 900034' },
-      { name: 'Ed W',            handicap:  1, chukkas: 2, mobile: '07700 900401' },
-      { name: 'Rosie L',         handicap:  0, chukkas: 5, mobile: '07700 900056' },
-      { name: 'Alex W',          handicap:  0, chukkas: 4, mobile: '07700 900245' },
-      { name: 'Piers F',         handicap:  0, chukkas: 2, mobile: '07700 900334' },
-      { name: 'Steve Collins',   handicap:  0, chukkas: 4, mobile: '07700 900423' },
-      { name: 'Robert T-R',      handicap: -1, chukkas: 3, mobile: '07700 900434' },
-      { name: 'Andy B',          handicap: -1, chukkas: 4, mobile: '07700 900298' },
-      { name: 'Max Morant',      handicap: -1, chukkas: 2, mobile: '07700 900445' },
-      { name: 'Lizzie W',        handicap: -1, chukkas: 2, mobile: '07700 900287' },
-      { name: 'William W',       handicap: -2, chukkas: 2, mobile: '07700 900147' },
-      { name: 'Steve Wells',     handicap: -2, chukkas: 4, mobile: '07700 900168' },
-      { name: 'Alfie',           handicap: -2, chukkas: 2, mobile: '07700 900192' },
-      { name: 'Helen',           handicap: -2, chukkas: 2, mobile: '07700 900215' },
-    ],
-  },
-  may13: {
-    label: 'Wed 13 May',
-    note: '10 players · 5 chukkas',
-    roster: [
-      { name: 'Rosie Ross', handicap:  2, chukkas: 4, mobile: '07700 900012' },
-      { name: 'Brad',       handicap:  1, chukkas: 5, mobile: '07700 900034' },
-      { name: 'Rosie L',    handicap:  0, chukkas: 4, mobile: '07700 900056' },
-      { name: 'Sam Tay',    handicap:  0, chukkas: 3, mobile: '07700 900078' },
-      { name: 'Debbie B',   handicap: -1, chukkas: 4, mobile: '07700 900091' },
-      { name: 'Jo Wells',   handicap: -1, chukkas: 4, mobile: '07700 900103' },
-      { name: 'William W',  handicap: -2, chukkas: 4, mobile: '07700 900147' },
-      { name: 'Steve W',    handicap: -2, chukkas: 4, mobile: '07700 900168' },
-      { name: 'Alfie',      handicap: -2, chukkas: 2, mobile: '07700 900192' },
-      { name: 'Helen',      handicap: -2, chukkas: 2, mobile: '07700 900215' },
-    ],
-  },
-  may6: {
-    label: 'Wed 6 May',
-    note: '14 players · 8 chukkas',
-    roster: [
-      { name: 'Rosie Ross', handicap:  2, chukkas: 6, mobile: '07700 900012' },
-      { name: 'Stevie',     handicap:  2, chukkas: 4, mobile: '07700 900233' },
-      { name: 'Brad',       handicap:  1, chukkas: 6, mobile: '07700 900034' },
-      { name: 'Rosie L',    handicap:  0, chukkas: 6, mobile: '07700 900056' },
-      { name: 'Alex W',     handicap:  0, chukkas: 5, mobile: '07700 900245' },
-      { name: 'Sam Tay',    handicap:  0, chukkas: 3, mobile: '07700 900078' },
-      { name: 'Lizzie W',   handicap: -1, chukkas: 2, mobile: '07700 900287' },
-      { name: 'Debbie B',   handicap: -1, chukkas: 4, mobile: '07700 900091' },
-      { name: 'Andy B',     handicap: -1, chukkas: 4, mobile: '07700 900298' },
-      { name: 'Jo Wells',   handicap: -1, chukkas: 4, mobile: '07700 900103' },
-      { name: 'William W',  handicap: -2, chukkas: 5, mobile: '07700 900147' },
-      { name: 'Steve W',    handicap: -2, chukkas: 4, mobile: '07700 900168' },
-      { name: 'Alfie',      handicap: -2, chukkas: 4, mobile: '07700 900192' },
-      { name: 'Helen',      handicap: -2, chukkas: 2, mobile: '07700 900215' },
-    ],
-  },
-  apr29: {
-    label: 'Wed 29 April',
-    note: '16 players · 8 chukkas',
-    roster: [
-      { name: 'Rosie Ross',      handicap:  2, chukkas: 6, mobile: '07700 900012' },
-      { name: 'Brad',            handicap:  1, chukkas: 5, mobile: '07700 900034' },
-      { name: 'Jose',            handicap:  1, chukkas: 8, mobile: '07700 900321' },
-      { name: 'Alex Welham',     handicap:  0, chukkas: 3, mobile: '07700 900245' },
-      { name: 'Rosie Lawrance',  handicap:  0, chukkas: 5, mobile: '07700 900056' },
-      { name: 'Piers F',         handicap:  0, chukkas: 2, mobile: '07700 900334' },
-      { name: 'Andy B',          handicap: -1, chukkas: 4, mobile: '07700 900298' },
-      { name: 'Jo W',            handicap: -1, chukkas: 4, mobile: '07700 900103' },
-      { name: 'Debbie',          handicap: -1, chukkas: 4, mobile: '07700 900091' },
-      { name: 'Alfie',           handicap: -2, chukkas: 2, mobile: '07700 900192' },
-      { name: 'Helen',           handicap: -2, chukkas: 2, mobile: '07700 900215' },
-      { name: 'Steve W',         handicap: -2, chukkas: 4, mobile: '07700 900168' },
-      { name: 'Karen Reeve',     handicap:  0, chukkas: 4, mobile: '07700 900347' },
-      { name: 'Charlie Wilding', handicap: -2, chukkas: 2, mobile: '07700 900356' },
-      { name: 'Milly Till',      handicap: -2, chukkas: 2, mobile: '07700 900369' },
-      { name: 'Gabe Lewis',      handicap: -2, chukkas: 2, mobile: '07700 900372' },
-    ],
-  },
-};
-
 // Format handicap for display (using proper minus sign for negatives)
 const fmtH = (h) => h < 0 ? `−${Math.abs(h)}` : `${h}`;
 
@@ -2047,40 +1963,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       confirmLabel: 'Clear draw',
       onConfirm: () => saveSchedule(null),
     });
-  };
-
-  const loadExample = async (key) => {
-    const ex = EXAMPLES[key];
-    if (!ex) return;
-    const doLoad = async () => {
-      const now = Date.now();
-      const seeded = ex.roster.map((p, i) => ({ id: now + i, vip: false, noConsecutive: false, ...p }));
-      saveRoster(seeded);
-      const newMembers = { ...members };
-      seeded.forEach((p, i) => {
-        newMembers[p.name.toLowerCase()] = {
-          name: p.name,
-          handicap: p.handicap,
-          mobile: p.mobile || '',
-          availableFrom: p.availableFrom || '',
-          availableTo: p.availableTo || '',
-          lastUsed: now - (seeded.length - i),
-        };
-      });
-      setMembers(newMembers);
-      try { await window.storage.set('members', JSON.stringify(newMembers), true); } catch (e) {}
-      saveSchedule(null);
-    };
-    if (players.length > 0) {
-      setConfirmModal({
-        title: `Replace the roster?`,
-        message: `This replaces the current roster with the ${ex.label} example.`,
-        confirmLabel: 'Replace',
-        onConfirm: () => { doLoad(); },
-      });
-    } else {
-      doLoad();
-    }
   };
 
   // Adjust a player's chukka count in the roster
@@ -5084,18 +4966,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         <button onClick={sortByChukkas} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                           sort ↓ chukkas
                         </button>
-                        <button onClick={() => loadExample('may20')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                          load 20 May
-                        </button>
-                        <button onClick={() => loadExample('may13')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                          load 13 May
-                        </button>
-                        <button onClick={() => loadExample('may6')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                          load 6 May
-                        </button>
-                        <button onClick={() => loadExample('apr29')} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
-                          load 29 Apr
-                        </button>
                         <button onClick={clearAll} style={{ background: 'none', border: 'none', fontSize: '11px', color: 'var(--muted)', cursor: 'pointer' }}>
                           clear
                         </button>
@@ -5634,31 +5504,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   <div style={{ fontSize: '13px', marginBottom: '18px' }}>
                     {captainMode ? "Add the first rider to begin the Wednesday draw." : "Be the first to sign up for this Wednesday's chukkas."}
                   </div>
-                  {captainMode && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'stretch', maxWidth: '320px', margin: '0 auto' }}>
-                      {Object.entries(EXAMPLES).map(([key, ex]) => (
-                        <button
-                          key={key}
-                          onClick={() => loadExample(key)}
-                          style={{
-                            background: 'transparent',
-                            border: '1px solid var(--gold)',
-                            color: 'var(--burgundy)',
-                            padding: '10px 16px',
-                            borderRadius: '4px',
-                            fontFamily: "'Outfit', sans-serif",
-                            fontSize: '11px',
-                            fontWeight: 500,
-                            letterSpacing: '1.2px',
-                            textTransform: 'uppercase',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Load · {ex.label} <span style={{ opacity: 0.65, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic' }}>({ex.note})</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
