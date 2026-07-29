@@ -1370,9 +1370,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setLoaded(true);
     };
     loadAll();
+    // Safety net: never let the loading screen stick if a load call rejects
+    // unexpectedly or the network hangs — reveal the app after 6s regardless.
+    const bootSafety = setTimeout(() => setLoaded(true), 6000);
     const onRemoteChange = () => loadAll();
     window.addEventListener('storage-changed', onRemoteChange);
-    return () => window.removeEventListener('storage-changed', onRemoteChange);
+    return () => { clearTimeout(bootSafety); window.removeEventListener('storage-changed', onRemoteChange); };
   }, []);
 
   // When the throw-in time changes, clear any pending availableFrom / availableTo
@@ -4467,6 +4470,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       `}</style>
 
       <div className="polo-app">
+        {/* Loading screen — shown until the first data load completes */}
+        {!loaded && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999, background: '#f4ecd8',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: '22px',
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            }}
+          >
+            <img src="/icon.svg" alt="Tedworth Park Polo Club" width="96" height="96" style={{ width: '96px', height: '96px', borderRadius: '18px' }} />
+            <div style={{ width: '32px', height: '32px', border: '3px solid rgba(107,31,42,0.2)', borderTopColor: '#6b1f2a', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ color: '#6b1f2a', fontFamily: "'Outfit', system-ui, sans-serif", fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.8 }}>Loading…</div>
+          </div>
+        )}
         {/* Masthead */}
         <header
           className="header-bg"

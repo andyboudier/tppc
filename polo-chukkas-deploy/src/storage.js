@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 // Single shared Firestore instance (initialised with an on-device IndexedDB
 // cache in firebase.js) — do NOT initialise a second app/Firestore here.
-import { db } from './firebase';
+import { db, authReady } from './firebase';
 
 const collectionName = (shared) => (shared ? 'shared' : 'private');
 
@@ -42,6 +42,7 @@ const storage = {
   async set(key, value, shared = false) {
     const cacheKey = `${collectionName(shared)}/${key}`;
     cache.set(cacheKey, value);
+    await authReady; // ensure the anonymous auth token is attached before writing
     await setDoc(doc(db, collectionName(shared), key), { value });
     return { key, value, shared };
   },
@@ -49,6 +50,7 @@ const storage = {
   async delete(key, shared = false) {
     const cacheKey = `${collectionName(shared)}/${key}`;
     cache.delete(cacheKey);
+    await authReady; // ensure the anonymous auth token is attached before writing
     await deleteDoc(doc(db, collectionName(shared), key));
     return { key, deleted: true, shared };
   },
