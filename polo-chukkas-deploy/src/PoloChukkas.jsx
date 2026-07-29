@@ -1236,7 +1236,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         } catch (e) {}
         try {
           const s = await window.storage.get(storageKey('schedule', dk), true);
-          if (s?.value) { const parsed = JSON.parse(s.value); if (parsed && parsed.chukkas) rebalanceChukkaTeams(parsed.chukkas); nextSchedules[dk] = parsed; }
+          // Load the saved draw exactly as stored — do NOT re-balance here.
+          // Balancing only happens once, when the draw is first generated;
+          // re-applying it on every load would undo a captain's manual team
+          // swaps (e.g. moving two players onto the same team).
+          if (s?.value) { const parsed = JSON.parse(s.value); nextSchedules[dk] = parsed; }
         } catch (e) {}
         try {
           const t = await window.storage.get(storageKey('throwin', dk), true);
