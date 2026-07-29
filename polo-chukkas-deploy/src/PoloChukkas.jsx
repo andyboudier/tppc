@@ -5064,6 +5064,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 </div>
               </section>
 
+              {/* Loading state — shown while the first data load is in flight, so
+                  members see a spinner instead of a momentarily-empty roster. */}
+              {!loaded && players.length === 0 && (
+                <section style={{ marginBottom: '24px', textAlign: 'center', padding: '36px 20px' }}>
+                  <div style={{
+                    width: '34px', height: '34px', margin: '0 auto',
+                    border: '3px solid var(--line)', borderTopColor: 'var(--burgundy)',
+                    borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+                  }} />
+                  <div className="display-italic" style={{ fontSize: '15px', color: 'var(--muted)', marginTop: '14px' }}>
+                    Loading the roster…
+                  </div>
+                </section>
+              )}
+
               {/* Roster */}
               {players.length > 0 && (
                 <section style={{ marginBottom: '24px' }}>
