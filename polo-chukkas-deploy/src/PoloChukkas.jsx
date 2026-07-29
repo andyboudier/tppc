@@ -174,7 +174,7 @@ const DAY_CONFIG = {
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
 const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
-const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down'];
+const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down', 'Arena'];
 
 // ── Club shop (preview) ──────────────────────────────────────────────────
 // Captain-only for now. Checkout is stubbed until Stripe is wired up: each
