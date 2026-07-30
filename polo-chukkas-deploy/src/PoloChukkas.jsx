@@ -411,8 +411,14 @@ function rebalanceChukkaTeams(chukkas) {
 }
 
 // Build a full evening schedule from the roster
-function buildSchedule(players, startMin) {
+function buildSchedule(players, startMin, maxPerTeam = 4) {
 if (players.length === 0) return null;
+
+// Per-chukka slot cap = teams of at most `maxPerTeam` a side (4 on grass, 3 in
+// the arena). Shadows the module default within this function so all the sizing
+// and fill logic below respects it: capping a chukka at 2×maxPerTeam makes the
+// team split (ceil(n/2)) come out at maxPerTeam per side.
+const SLOTS_PER_CHUKKA = Math.max(2, maxPerTeam) * 2;
 
 // Separate VIP players (played first, never reduced below requested count)
 // from regular players. Within each group, order is preserved (roster order
@@ -1968,7 +1974,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setError('');
     setActivePlayer(null);
     setAddingTo(null);
-    const result = buildSchedule(players, throwInMin);
+    // Arena polo plays 3-a-side, so cap the arena draw at 3 v 3; grass is 4 v 4.
+    const maxPerTeam = (ground || '').trim().toLowerCase() === 'arena' ? 3 : 4;
+    const result = buildSchedule(players, throwInMin, maxPerTeam);
     saveSchedule(result);
     setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   };
