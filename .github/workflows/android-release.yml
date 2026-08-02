@@ -2,17 +2,26 @@ name: Build Android AAB
 
 # Manual trigger only. Run this from the repo's Actions tab whenever you want a
 # fresh Play Store bundle — it does NOT run on every web commit. The finished
-# .aab is attached to the run as a downloadable artifact; download it and upload
-# it in the Google Play Console.
+# signed .aab is (1) attached to the run as an artifact and (2) published as an
+# asset on a GitHub Release (tag android-v<versionCode>) so it has a permanent,
+# direct download link. Optionally pass a versionCode; it defaults to the run
+# number.
 on:
   workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode (leave blank to use the run number)'
+        required: false
+        default: ''
 
 permissions:
-  contents: read
+  contents: write   # needed to publish the .aab as a Release asset
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TPPC_VERSION_CODE: ${{ github.event.inputs.version_code || github.run_number }}
     defaults:
       run:
         working-directory: polo-chukkas-deploy
@@ -60,7 +69,7 @@ jobs:
           TPPC_KEYSTORE_PASSWORD: ${{ secrets.TPPC_KEYSTORE_PASSWORD }}
           TPPC_KEY_ALIAS: ${{ secrets.TPPC_KEY_ALIAS }}
           TPPC_KEY_PASSWORD: ${{ secrets.TPPC_KEY_PASSWORD }}
-          TPPC_VERSION_CODE: ${{ github.run_number }}
+          # TPPC_VERSION_CODE is inherited from the job-level env above.
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
@@ -68,3 +77,21 @@ jobs:
           name: tppc-chukkas-release-aab
           path: polo-chukkas-deploy/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Publish AAB to a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="android-v${TPPC_VERSION_CODE}"
+          ASSET="tppc-poloact-v${TPPC_VERSION_CODE}.aab"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$ASSET"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --title "TPPC PoloACT Android — versionCode ${TPPC_VERSION_CODE}" \
+              --notes "Signed Android App Bundle (versionCode ${TPPC_VERSION_CODE}) for upload to the Google Play Console." \
+              --latest
+          fi
+          echo "Release asset published: $ASSET on tag $TAG"
