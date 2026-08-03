@@ -1,6 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generateTournamentPdf, DEFAULT_COMMITTEE, teamHandicap } from './tournamentPdf';
 import { startLiveScore, updateLiveScore, endLiveScore } from './liveScoreActivity';
+import FixtureBoard from './FixtureBoard';
+import ChukkaBoard from './ChukkaBoard';
+
+// The desktop boards take over above this width. Below it the app is exactly as
+// it always was — the phone layout is not touched by any of this.
+const DESKTOP_MIN_WIDTH = 1024;
+const useIsDesktop = () => {
+  const query = `(min-width: ${DESKTOP_MIN_WIDTH}px)`;
+  const [wide, setWide] = React.useState(
+    () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false));
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia(query);
+    const on = (e) => setWide(e.matches);
+    setWide(mq.matches);
+    // addEventListener is unavailable on MediaQueryList in older WebViews.
+    if (mq.addEventListener) { mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); }
+    mq.addListener(on); return () => mq.removeListener(on);
+  }, [query]);
+  return wide;
+};
 
 // 2026 Tedworth Park Polo Club grass fixtures
 const FIXTURES_2026 = [
@@ -144,6 +165,15 @@ const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || M
 const cleanSquad = (players) => (players || [])
   .filter(p => p && (p.name || '').trim())
   .map(p => ({ name: p.name, handicap: p.handicap ?? null }));
+// Same, but keeps a blank slot that has a named player below it. Used while a
+// squad is being edited: dropping an interior blank would shift every shirt
+// number under it up by one as soon as a name was cleared.
+const trimSquad = (players) => {
+  const rows = (players || []).map(p => ({ name: (p && p.name) || '', handicap: (p && p.handicap) ?? null }));
+  let last = -1;
+  rows.forEach((p, i) => { if (p.name.trim()) last = i; });
+  return rows.slice(0, last + 1);
+};
 // Players listed per team in a tournament match. Four on the field, but a fifth
 // can be named (substitute / shared mount). The PDF sizes itself off the actual
 // player count, so nothing else needs to change.
@@ -275,14 +305,48 @@ const sun7JuneDay = (matches) => ({ id: 'sun', dateLabel: 'Sunday 7th June', gro
 // Handles: 'Sat 30 & Sun 31 May', 'Mon 25 May', 'Fri 24 & Sun 26 July' etc.
 const parseFixtureDateRange = (fx) => {
   const monthMap = { January:0, February:1, March:2, April:3, May:4, June:5, July:6, August:7, September:8, October:9, November:10, December:11 };
-  const month = monthMap[fx.month];
-  if (month === undefined) return null;
-  const nums = [...(fx.date.matchAll(/\b(\d{1,2})\b/g))].map(m => parseInt(m[1], 10)).filter(n => n >= 1 && n <= 31);
-  if (!nums.length) return null;
-  const start = new Date(2026, month, nums[0], 0, 0, 0, 0);
-  const end   = new Date(2026, month, nums[nums.length - 1], 23, 59, 59, 999);
+  const fallback = monthMap[fx.month];
+  if (fallback === undefined) return null;
+  const tokens = String(fx.date || '').match(/\d{1,2}|[A-Za-z]+/g) || [];
+  const parts = [];
+  let pending = [];
+  tokens.forEach((t) => {
+    if (/^\d+$/.test(t)) { pending.push(parseInt(t, 10)); return; }
+    const key = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    if (monthMap[key] !== undefined) {
+      pending.forEach(n => parts.push({ day: n, month: monthMap[key] }));
+      pending = [];
+    }
+  });
+  pending.forEach(n => parts.push({ day: n, month: fallback }));
+  const valid = parts.filter(p => p.day >= 1 && p.day <= 31);
+  if (!valid.length) return null;
+  const a = valid[0], b = valid[valid.length - 1];
+  const start = new Date(2026, a.month, a.day, 0, 0, 0, 0);
+  // A fixture running December into January ends in the following year.
+  const end = new Date(b.month < a.month ? 2027 : 2026, b.month, b.day, 23, 59, 59, 999);
   return { start, end };
 };
+
+// Registering interest closes at the end of the day before the fixture starts.
+// Returns null when the date cannot be parsed, in which case interest stays open
+// rather than shutting members out because of an unrecognised date string.
+const interestClosesAt = (fx) => {
+  const range = parseFixtureDateRange(fx);
+  if (!range) return null;
+  const d = new Date(range.start);
+  d.setDate(d.getDate() - 1);
+  d.setHours(23, 59, 59, 999);
+  return d;
+};
+const isInterestClosed = (fx) => {
+  const at = interestClosesAt(fx);
+  return at ? Date.now() > at.getTime() : false;
+};
+
+// A fixture's programme reaches members only once a captain publishes it, so the
+// draw can be built in peace. Captains always see it, published or not.
+const isProgrammePublished = (det) => !!(det && det.published);
 const isTournamentActive = (fx) => {
   const range = parseFixtureDateRange(fx);
   if (!range) return false;
@@ -859,6 +923,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
   const [trophyDraft, setTrophyDraft] = useState({}); // fxId -> in-progress "trophy looked after by" text, persisted on blur
   const [editingDetailsId, setEditingDetailsId] = useState(null);
+  const isDesktop = useIsDesktop();
+  const [boardFixtureId, setBoardFixtureId] = useState(null); // fixture open on the desktop board
+  const [chukkaBoardOpen, setChukkaBoardOpen] = useState(false); // desktop chukka board
   const [showBackups, setShowBackups] = useState(false);
   const [backups, setBackups] = useState([]);
   const backupTimerRef = useRef(null);
@@ -1430,6 +1497,42 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     } catch (e) {
       setError('Schedule saved locally only — check your connection.');
     }
+  };
+
+  // ── Day settings ─────────────────────────────────────────────────────────
+  // Extracted so the phone's inline editors and the desktop chukka board drive
+  // exactly the same code, rather than two copies that can drift.
+
+  // Move a day's throw-in. Any existing draw keeps its teams and counts; only
+  // the printed times shift, recomputed off the new start.
+  const applyThrowIn = async (hhmm, dayKey = activeDay) => {
+    const parsed = parseTime(hhmm);
+    if (parsed === null) return false;
+    setThrowInMins(prev => ({ ...prev, [dayKey]: parsed }));
+    try { await window.storage.set(storageKey('throwin', dayKey), hhmm, true); } catch (e) {}
+    const existing = schedules[dayKey];
+    if (existing && existing.chukkas) {
+      saveSchedule({
+        ...existing,
+        chukkas: existing.chukkas.map(ck => ({ ...ck, time: chukkaTime(ck.idx, parsed) })),
+      }, dayKey);
+    }
+    return true;
+  };
+
+  const applyGround = async (val, dayKey = activeDay) => {
+    setGrounds(prev => ({ ...prev, [dayKey]: val }));
+    try { await window.storage.set(storageKey('ground', dayKey), val, true); } catch (err) {}
+  };
+
+  // Captain's manual "we're full" switch, on top of the automatic 24-hour cutoff.
+  const toggleManualClosed = async (dayKey = activeDay) => {
+    const val = !manualClosed[dayKey];
+    setManualClosed(prev => ({ ...prev, [dayKey]: val }));
+    try {
+      if (val) await window.storage.set(storageKey('booking-closed', dayKey), '1', true);
+      else await window.storage.delete(storageKey('booking-closed', dayKey), true);
+    } catch (err) {}
   };
 
   // Publish / unpublish the active day's draw to members.
@@ -2149,6 +2252,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setActivePlayer(null);
   };
 
+  // Put a rider on a given side of a given chukka, or take them out (side =
+  // null). One primitive covering every cell of the desktop player grid, where
+  // a click cycles Blue → White → out; the phone's swap/remove/add buttons stay
+  // as they are. Like every other draw edit it routes through updateSchedule,
+  // so sums refresh and a published draw un-publishes.
+  const setChukkaCell = (chukkaIdx, playerId, side) => {
+    if (!schedule) return;
+    const player = players.find(p => p.id === playerId);
+    if (!player) return;
+    updateSchedule((ck, idx) => {
+      if (idx !== chukkaIdx) return ck;
+      const teamA = ck.teamA.filter(p => p.id !== playerId);
+      const teamB = ck.teamB.filter(p => p.id !== playerId);
+      if (side === 'A') return { ...ck, teamA: [...teamA, player], teamB };
+      if (side === 'B') return { ...ck, teamA, teamB: [...teamB, player] };
+      return { ...ck, teamA, teamB };
+    });
+    setActivePlayer(null);
+  };
+
   const addToChukka = (chukkaIdx, playerId) => {
     const player = players.find(p => p.id === playerId);
     if (!player || !schedule) return;
@@ -2601,6 +2724,69 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try { await window.storage.set('teams-db', JSON.stringify(next), true); } catch (e) {}
   };
 
+  // Write one team into the club's teams directory. Pass `oldName` when the team
+  // has been renamed — the directory is keyed by lower-cased name, so a rename is
+  // a new key plus a removal of the old one, not an edit in place.
+  const saveTeamEntry = async (team, oldName) => {
+    const name = (team.name || '').trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    const next = { ...teamsDb };
+    if (oldName) {
+      const from = oldName.trim().toLowerCase();
+      if (from && from !== name.toLowerCase()) delete next[from];
+    }
+    next[name.toLowerCase()] = {
+      ...(teamsDb[name.toLowerCase()] || {}),
+      ...team,
+      name,
+      handicap: team.handicap ?? null,
+      // Trailing blanks only — a gap mid-squad has to survive, or clearing one
+      // name mid-edit would shift every shirt number below it up by one.
+      players: trimSquad(team.players),
+    };
+    await saveTeamsDb(next);
+  };
+
+  const deleteTeamEntry = (name) => {
+    const key = (name || '').trim().toLowerCase();
+    if (!key || !teamsDb[key]) return;
+    setConfirmModal({
+      title: `Delete ${teamsDb[key].name}?`,
+      message: 'This removes the team from the club directory. Fixtures it already plays in keep their squads — only the saved team is removed.',
+      confirmLabel: 'Delete team',
+      onConfirm: () => {
+        const next = { ...teamsDb };
+        delete next[key];
+        saveTeamsDb(next);
+      },
+    });
+  };
+
+  // Shirt colour belongs to the team, not to one match. Set (or clear, with a
+  // null key) the colour a squad plays in: the captain can pick it on the team
+  // board before a ball is thrown in, and the live scoreboard writes the same
+  // field when a colour is chosen there.
+  const setTeamColour = (teamName, colourKey) => {
+    const key = (teamName || '').trim().toLowerCase();
+    if (!key) return;
+    const prev = teamsDb[key] || { name: teamName.trim(), handicap: null, players: [] };
+    if ((prev.colour || null) === (colourKey || null)) return;
+    const entry = { ...prev };
+    if (colourKey) entry.colour = colourKey; else delete entry.colour;
+    saveTeamsDb({ ...teamsDb, [key]: entry });
+  };
+  // Live scoring only ever assigns a colour, never clears one, so a blank key
+  // there means "nothing was chosen" rather than "unset it".
+  const rememberTeamColour = (teamName, colourKey) => {
+    if (!colourKey) return;
+    setTeamColour(teamName, colourKey);
+  };
+  // The colour a squad last wore, if any.
+  const teamColourKey = (teamName) => {
+    const key = (teamName || '').trim().toLowerCase();
+    return (teamsDb[key] || {}).colour || null;
+  };
+
   // Extract teams from fixture details and persist them to the teams-db for future autofill
   const persistTeamsFromDetails = async (details) => {
     const next = { ...teamsDb };
@@ -2977,6 +3163,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const registerInterest = (fixtureId) => {
     setFError('');
+    // Interest closes at the end of the day before the fixture. A captain can
+    // still add someone afterwards — they are the ones fielding the phone calls.
+    const fx = fixtures.find(f => f.id === fixtureId);
+    if (fx && !captainMode && isInterestClosed(fx)) {
+      return setFError('Registering interest has closed for this fixture — it shuts the day before. Please contact the captain.');
+    }
     if (!fName.trim()) return setFError('Please enter your name.');
     if (fHandicap === '') return setFError('Please select your handicap.');
     const cleanedEmail = fEmail.trim();
@@ -4479,6 +4671,105 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       `}</style>
 
       <div className="polo-app">
+        {/* Desktop fixture board. Renders only above the breakpoint and only in
+            captain mode; every edit goes through the same updaters the phone
+            editor uses, so the two views cannot diverge. */}
+        {isDesktop && captainMode && boardFixtureId && (() => {
+          const fx = fixtures.find(f => f.id === boardFixtureId);
+          if (!fx) return null;
+          const draft = fixtureDetails[fx.id] || { days: [] };
+          const setBoardDraft = (next) => saveFixtureDetails({ ...fixtureDetails, [fx.id]: next });
+          const bUpdDay = (di, up) => setBoardDraft({ ...draft, days: (draft.days || []).map((d, i) => i === di ? up(d) : d) });
+          const bUpdMatch = (di, mi, up) => bUpdDay(di, d => ({ ...d, matches: (d.matches || []).map((m, i) => i === mi ? up(m) : m) }));
+          const bUpdTeam = (di, mi, tk, up) => bUpdMatch(di, mi, m => ({ ...m, [tk]: up(m[tk] || {}) }));
+          const bMoveMatch = (di, mi, dir) => bUpdDay(di, d => {
+            const ms = [...(d.matches || [])];
+            const j = mi + dir;
+            if (j < 0 || j >= ms.length) return d;
+            [ms[mi], ms[j]] = [ms[j], ms[mi]];
+            return { ...d, matches: ms };
+          });
+          return (
+            <FixtureBoard
+              fixture={fx}
+              draft={draft}
+              setDraft={setBoardDraft}
+              updDay={bUpdDay}
+              updMatch={bUpdMatch}
+              updTeam={bUpdTeam}
+              moveMatch={bMoveMatch}
+              teamsDb={teamsDb}
+              playerDb={playerDb}
+              groundOptions={GROUND_OPTIONS}
+              teamColours={TEAM_COLOURS}
+              teamColourKey={teamColourKey}
+              saveTeam={saveTeamEntry}
+              deleteTeam={deleteTeamEntry}
+              setTeamColour={setTeamColour}
+              interestCount={(interest[fx.id] || []).length}
+              interestClosesAt={interestClosesAt(fx)}
+              interestClosed={isInterestClosed(fx)}
+              onClose={() => setBoardFixtureId(null)}
+              onPrint={async () => {
+                try { await generateTournamentPdf(fx, draft, {}, { committee }); }
+                catch (err) { alert(err && err.message ? err.message : String(err)); }
+              }}
+            />
+          );
+        })()}
+        {/* Desktop chukka board. Same rules as the fixture board: desktop-only,
+            captain-only, and every edit runs through the phone's own updaters. */}
+        {isDesktop && captainMode && chukkaBoardOpen && (
+          <ChukkaBoard
+            clubName="Tedworth Park Polo Club"
+            dayKeys={DAY_KEYS}
+            dayConfig={DAY_CONFIG}
+            dayKey={activeDay}
+            setDayKey={setActiveDay}
+            rosterCounts={Object.fromEntries(DAY_KEYS.map(k => [k, (rosters[k] || []).length]))}
+            players={players}
+            schedule={schedule}
+            throwInMin={throwInMin}
+            ground={ground}
+            groundOptions={GROUND_OPTIONS}
+            chukkaTime={chukkaTime}
+            totalChukkas={totalChukkas}
+            published={!!drawPublished[activeDay]}
+            setPublished={(v) => setPublished(v)}
+            bookingClosed={isBookingClosed()}
+            manualClosed={!!manualClosed[activeDay]}
+            toggleManualClosed={() => toggleManualClosed()}
+            onThrowIn={(v) => applyThrowIn(v)}
+            onGround={(v) => applyGround(v)}
+            adjustChukkas={adjustChukkas}
+            removePlayer={removePlayer}
+            toggleVip={toggleVip}
+            toggleNoConsecutive={toggleNoConsecutive}
+            togglePonyHire={togglePonyHire}
+            movePlayer={movePlayer}
+            sortByChukkas={sortByChukkas}
+            updateAvail={updateAvail}
+            setCell={setChukkaCell}
+            onGenerate={generate}
+            onClearDraw={clearDraw}
+            onWhatsApp={publishToWhatsApp}
+            onXLSX={exportXLSX}
+            onPNG={exportPNG}
+            rosterBackups={rosterBackups}
+            loadBackups={loadRosterBackups}
+            restoreBackup={restoreRosterBackup}
+            handicapOptions={HANDICAP_OPTIONS}
+            signUp={{
+              name, setName, mobile, setMobile, handicap, setHandicap,
+              chukkas, setChukkas, vip, setVip,
+              noConsecutive, setNoConsecutive, ponyHire, setPonyHire,
+              suggestions, fillFromMember, submit: handleAdd,
+              maxChukkas: maxChukkasFor(), fixedChukkas: fixedChukkasFor(),
+            }}
+            error={error}
+            onClose={() => setChukkaBoardOpen(false)}
+          />
+        )}
         {/* Masthead */}
         <header
           className="header-bg"
@@ -4600,27 +4891,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <button
                       type="button"
                       onClick={async () => {
-                        const parsed = parseTime(throwInInput);
-                        if (parsed === null) return;
-                        setThrowInMins(prev => ({ ...prev, [activeDay]: parsed }));
-                        try { await window.storage.set(storageKey('throwin', activeDay), throwInInput, true); } catch (e) {}
-
-                        // If a schedule already exists for this day, recompute
-                        // each chukka's time using the new throw-in — teams
-                        // and counts stay exactly as drawn.
-                        const existing = schedules[activeDay];
-                        if (existing && existing.chukkas) {
-                          const updated = {
-                            ...existing,
-                            chukkas: existing.chukkas.map(ck => ({
-                              ...ck,
-                              time: chukkaTime(ck.idx, parsed),
-                            })),
-                          };
-                          saveSchedule(updated, activeDay);
-                        }
-
-                        setThrowInEditing(false);
+                        if (await applyThrowIn(throwInInput)) setThrowInEditing(false);
                       }}
                       style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', borderRadius: '4px', padding: '8px 14px', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer' }}
                     >Save</button>
@@ -4636,11 +4907,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <span style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--muted)' }}>Ground</span>
                     <select
                       value={ground}
-                      onChange={async (e) => {
-                        const val = e.target.value;
-                        setGrounds(prev => ({ ...prev, [activeDay]: val }));
-                        try { await window.storage.set(storageKey('ground', activeDay), val, true); } catch (err) {}
-                      }}
+                      onChange={(e) => applyGround(e.target.value)}
                       style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '13px', fontFamily: 'inherit', background: '#fff', color: 'var(--ink)' }}
                     >
                       <option value="">— not set —</option>
@@ -4651,14 +4918,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 {captainMode && (
                   <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                     <button
-                      onClick={async () => {
-                        const val = !manualClosed[activeDay];
-                        setManualClosed(prev => ({ ...prev, [activeDay]: val }));
-                        try {
-                          if (val) await window.storage.set(storageKey('booking-closed', activeDay), '1', true);
-                          else await window.storage.delete(storageKey('booking-closed', activeDay), true);
-                        } catch (err) {}
-                      }}
+                      onClick={() => toggleManualClosed()}
                       style={{
                         padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.3px',
                         border: manualClosed[activeDay] ? 'none' : '1px solid var(--burgundy)',
@@ -4671,6 +4931,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <span style={{ fontSize: '11px', color: manualClosed[activeDay] ? 'var(--burgundy)' : 'var(--muted)' }}>
                       {players.length} signed up{manualClosed[activeDay] ? ' · sign-ups closed' : ''}
                     </span>
+                  </div>
+                )}
+                {isDesktop && captainMode && (
+                  <div style={{ marginTop: '12px' }}>
+                    <button
+                      onClick={() => setChukkaBoardOpen(true)}
+                      style={{ background: 'var(--gold-bright)', border: '1px solid var(--gold-bright)', color: 'var(--ink)', padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                    >⛶ Open the desktop chukka board</button>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '5px' }}>
+                      Roster, draw and settings side by side — with the players × chukkas grid.
+                    </div>
                   </div>
                 )}
                 <h2 className="display" style={{ margin: '2px 0 0', fontSize: '24px' }}>Club Chukka Booking</h2>
@@ -5838,7 +6109,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 const fmtHcp = (h) => h === null || h === undefined ? '' : (h > 0 ? ' +' + h : h < 0 ? ' ' + h : ' 0');
                                 return (
                                   <div style={{ marginBottom: '14px' }}>
-                                    {det && det.days && det.days.map((day, di) => (
+                                    {!captainMode && det && (det.days || []).length > 0 && !isProgrammePublished(det) && (
+                                      <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5, padding: '10px 12px', background: 'var(--cream-warm)', borderRadius: '6px', marginBottom: '10px' }}>
+                                        The draw for this fixture is still being put together. It appears here as soon as the captain publishes it.
+                                      </div>
+                                    )}
+                                    {det && det.days && (captainMode || isProgrammePublished(det)) && det.days.map((day, di) => (
                                       <div key={di} style={{ marginBottom: '18px' }}>
                                         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
                                           <div style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink)', marginBottom: '2px' }}>{day.dateLabel}</div>
@@ -5900,6 +6176,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                 })()}
                                               {match.umpires && (
                                                 <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Umpires: {match.umpires}</div>
+                                              )}
+                                              {match.commentator && (
+                                                <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Commentator: {match.commentator}</div>
                                               )}
                                               {match.goalJudges && (
                                                 <div style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Goal judges: {match.goalJudges}</div>
@@ -6008,8 +6287,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                       </div>
                                     ))}
                                     {captainMode && !isEditingThis && (
-                                      <button onClick={() => setEditingDetailsId(fx.id)} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '10px' }}>
-                                        {det ? 'Edit match details' : '+ Add match details'}
+                                      <button onClick={() => (isDesktop ? setBoardFixtureId(fx.id) : setEditingDetailsId(fx.id))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', marginBottom: '10px' }}>
+                                        {isDesktop
+                                          ? (det ? 'Open team board' : '+ Build the teams and draw')
+                                          : (det ? 'Edit match details' : '+ Add match details')}
                                       </button>
                                     )}
                                     {isEditingThis && (() => {
@@ -6080,7 +6361,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               label: '',
                                               teamA: mkTeam(enteredTeams[i], d),
                                               teamB: mkTeam(enteredTeams[i + 1], d),
-                                              chukkas: 4, umpires: '', goalJudges: '', timekeeper: '', notes: '',
+                                              chukkas: 4, umpires: '', commentator: '', goalJudges: '', timekeeper: '', notes: '',
                                             });
                                           }
                                           return { id: d.key, dateLabel: d.label, ground: '', matches, prizegiving: false };
@@ -6156,6 +6437,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
                                                   <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
+                                                  <input className="input-field" placeholder="Commentator" value={match.commentator || ''} onChange={e => updMatch(di, mi, m => ({...m, commentator: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Goal judges" value={match.goalJudges || ''} onChange={e => updMatch(di, mi, m => ({...m, goalJudges: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                     <input className="input-field" placeholder="Timekeeper" value={match.timekeeper || ''} onChange={e => updMatch(di, mi, m => ({...m, timekeeper: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
@@ -6253,14 +6535,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     id: 'm' + Date.now() + Math.random(),
                                                     time: '',
                                                     label: '',
-                                                    chukkas: 4, umpires: '', goalJudges: '', timekeeper: '',
+                                                    chukkas: 4, umpires: '', commentator: '', goalJudges: '', timekeeper: '',
                                                     teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: cleanSquad(m.teamA?.players) },
                                                     teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: cleanSquad(m.teamB?.players) },
                                                   }));
                                                   updDay(di, d => ({...d, matches: copiedMatches}));
                                                 }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
                                               )}
-                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, chukkas:4, umpires:'', goalJudges:'', timekeeper:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, chukkas:4, umpires:'', commentator:'', goalJudges:'', timekeeper:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
                                             </div>
                                           ))}
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
@@ -6463,6 +6745,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               {!isTournamentActive(fx) ? (
                               <div className="register-form">
                                 <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Register your interest</div>
+                                {(() => {
+                                  const closesAt = interestClosesAt(fx);
+                                  if (!closesAt) return null;
+                                  const closed = isInterestClosed(fx);
+                                  const when = closesAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+                                  return (
+                                    <div style={{ fontSize: '11.5px', lineHeight: 1.5, padding: '9px 12px', borderRadius: '5px', marginBottom: '10px',
+                                                  background: closed ? '#fbf2f2' : 'var(--cream-warm)',
+                                                  color: closed ? 'var(--danger)' : 'var(--muted)',
+                                                  border: `1px solid ${closed ? 'var(--danger)' : 'var(--line)'}` }}>
+                                      {closed
+                                        ? <><strong>Registering has closed.</strong> It shut at the end of {when}, the day before the fixture.{captainMode ? ' As captain you can still add someone below.' : ' Please contact the captain if you still want to play.'}</>
+                                        : <>Registering closes at the end of <strong>{when}</strong> — the day before the fixture.</>}
+                                    </div>
+                                  );
+                                })()}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                   <input
                                     className="input-field"
@@ -6576,8 +6874,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       {!curMatch ? (
                         <div style={{ textAlign: 'center', color: '#999', fontSize: '13px', padding: '30px 0' }}>Select a tournament, day and match to begin live scoring.</div>
                       ) : (() => {
-                        const colA = teamColour(curMatch.liveColorA) || teamColour('blue');
-                        const colB = teamColour(curMatch.liveColorB) || teamColour('white');
+                        // Colour precedence: what this match was set to, else what the squad
+                        // wore last time, else the blue/white default.
+                        const colA = teamColour(curMatch.liveColorA)
+                          || teamColour(teamColourKey((curMatch.teamA || {}).name)) || teamColour('blue');
+                        const colB = teamColour(curMatch.liveColorB)
+                          || teamColour(teamColourKey((curMatch.teamB || {}).name)) || teamColour('white');
                         const nameA = (curMatch.teamA && curMatch.teamA.name) || 'Team A';
                         const nameB = (curMatch.teamB && curMatch.teamB.name) || 'Team B';
                         const hA = teamHandicap(curMatch.teamA);
@@ -6588,7 +6890,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         const curCk = ended ? nCk : Math.max(0, Math.min(nCk, Number(curMatch.liveChukka) || 0));
                         const weekday = (curDay && curDay.dateLabel) ? String(curDay.dateLabel).split(' ')[0] : '';
                         const ctxLeft = [weekday, curDay && curDay.ground].filter(Boolean).join(' · ').toUpperCase();
-                        const setColour = (teamKey, key) => updLiveMatch(liveFixtureId, liveDayId, liveMatchId, m => ({ ...m, [teamKey === 'teamA' ? 'liveColorA' : 'liveColorB']: key }));
+                        // Remember the colour against the team as well as the match, so the
+                        // same squad keeps its shirts across every match of the tournament and
+                        // arrives pre-coloured when a captain next picks it.
+                        const setColour = (teamKey, key) => {
+                          updLiveMatch(liveFixtureId, liveDayId, liveMatchId, m => ({ ...m, [teamKey === 'teamA' ? 'liveColorA' : 'liveColorB']: key }));
+                          const nm = ((curMatch[teamKey] || {}).name || '').trim();
+                          if (nm) rememberTeamColour(nm, key);
+                        };
                         const setChukka = (v) => updLiveMatch(liveFixtureId, liveDayId, liveMatchId, m => ({ ...m, liveChukka: v }));
                         const tile = (col) => (
                           <div style={{ width: '64px', height: '64px', borderRadius: '16px', background: col.hex, color: col.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: '30px', border: '1px solid rgba(0,0,0,0.12)', boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }}>{col.name.charAt(0)}</div>
@@ -6735,7 +7044,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           {captainMode && liveColoursOpen && (
                             <div style={{ marginTop: '8px', background: '#fff', border: '1px solid var(--line)', borderRadius: '8px', padding: '14px' }}>
                               {['teamA', 'teamB'].map(tk => {
-                                const sel = tk === 'teamA' ? (curMatch.liveColorA || 'blue') : (curMatch.liveColorB || 'white');
+                                const remembered = teamColourKey((curMatch[tk] || {}).name);
+                                const sel = tk === 'teamA'
+                                  ? (curMatch.liveColorA || remembered || 'blue')
+                                  : (curMatch.liveColorB || remembered || 'white');
                                 const nm = tk === 'teamA' ? nameA : nameB;
                                 return (
                                   <div key={tk} style={{ marginBottom: '12px' }}>
