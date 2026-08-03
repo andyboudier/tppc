@@ -4770,6 +4770,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             onClose={() => setChukkaBoardOpen(false)}
           />
         )}
+        {/* Loading screen — shown until the first data load completes. Kept
+            visually consistent across the TPPC, Druids and Vaux apps. */}
+        {!loaded && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999, background: '#000',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: '22px',
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            }}
+          >
+            <img src="/icon.svg" alt="Tedworth Park Polo Club" width="88" height="88" style={{ width: '88px', height: '88px' }} />
+            <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.22)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ color: '#fff', fontFamily: "'Outfit', system-ui, sans-serif", fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.75 }}>Loading…</div>
+          </div>
+        )}
         {/* Masthead */}
         <header
           className="header-bg"
@@ -6620,7 +6638,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                   </div>
                                 ))}
 
-                                {!isTournamentActive(fx) && (showTeamForm ? (
+                                {!isPast && !isTournamentActive(fx) && (showTeamForm ? (
                                   <div className="register-form" style={{ marginTop: '12px' }}>
                                     <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Enter a team</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
