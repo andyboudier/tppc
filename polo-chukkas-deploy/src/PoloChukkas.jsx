@@ -1260,6 +1260,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Load shared data
   useEffect(() => {
     const loadAll = async () => {
+      // Warm the cache with ONE bulk read of the shared collection before the
+      // per-key reads below. Without this, loadAll fans out into ~50 sequential
+      // Firestore round-trips on a cold start (the cause of the ~30s hang); with
+      // it, every window.storage.get(...) call here is an instant cache hit.
+      try { await window.storage.primeShared(); } catch (e) {}
       // Auto-clear stale rosters per day: if a roster was stamped for a past
       // day, that day's chukkas are done — wipe it from Firestore so the next
       // person sees a fresh empty roster for the upcoming day.
@@ -4770,22 +4775,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             onClose={() => setChukkaBoardOpen(false)}
           />
         )}
-        {/* Loading screen — shown until the first data load completes. Kept
-            visually consistent across the TPPC, Druids and Vaux apps. */}
+        {/* Loading screen — the TPPC club crest on a clean white background,
+            shown until the first data load completes. */}
         {!loaded && (
           <div
             role="status"
             aria-live="polite"
             style={{
-              position: 'fixed', inset: 0, zIndex: 9999, background: '#000',
+              position: 'fixed', inset: 0, zIndex: 9999, background: '#fff',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', gap: '22px',
+              justifyContent: 'center', gap: '24px',
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
-            <img src="/icon.svg" alt="Tedworth Park Polo Club" width="88" height="88" style={{ width: '88px', height: '88px' }} />
-            <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.22)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <div style={{ color: '#fff', fontFamily: "'Outfit', system-ui, sans-serif", fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.75 }}>Loading…</div>
+            <img src="/apple-touch-icon.png" alt="Tedworth Park Polo Club" width="128" height="128" style={{ width: '128px', height: '128px' }} />
+            <div style={{ width: '32px', height: '32px', border: '3px solid rgba(0,0,0,0.12)', borderTopColor: '#6b1f2a', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ color: 'rgba(0,0,0,0.55)', fontFamily: "'Outfit', system-ui, sans-serif", fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.9 }}>Loading…</div>
           </div>
         )}
         {/* Masthead */}
