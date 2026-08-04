@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'uk.co.tedworthparkpolo.chukkas',
-  appName: 'TPPC Chukkas',
+  appName: 'TPPC PoloACT',
   webDir: 'dist', // Vite's default build output
   ios: {
     contentInset: 'always',
