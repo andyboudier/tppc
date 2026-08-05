@@ -125,7 +125,7 @@ in a single Firestore record:
 `capacitor.config.ts` defines the native shell:
 
 - `appId: uk.co.tedworthparkpolo.chukkas`, `appName: TPPC Chukkas`.
-- **Remote-load wrapper:** `server.url = https://tppc-chukkas.vercel.app`. The
+- **Remote-load wrapper:** `server.url = https://tppc.poloact.co.uk`. The
   installed app loads the live web app rather than a bundled copy, which is why web
   changes reach installed iOS apps in ~90s with no rebuild. To revert to a
   local bundle (friendlier for App Store review), comment out the `url` + cleartext
