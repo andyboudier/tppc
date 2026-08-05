@@ -103,7 +103,7 @@ raw PDF is unreliable). See **[docs/DOMAIN_RULES.md](docs/DOMAIN_RULES.md)**.
 - **Web:** Vercel auto-deploys from `main`. A commit reaches the live web app in
   ~90 seconds. Each branch/PR also gets a Vercel preview build — check that first.
 - **Installed iOS apps:** the native app is a **remote-load wrapper**
-  (`capacitor.config.ts` points at `https://tppc-chukkas.vercel.app`), so web
+  (`capacitor.config.ts` points at `https://tppc.poloact.co.uk`), so web
   changes reach already-installed iOS apps within ~90 seconds too — **no rebuild**.
 - **Native changes** (splash screen, plugins, the Live Activity widget) do **not**
   ride that path — they go through **Xcode Cloud → TestFlight** on the next iOS build.
