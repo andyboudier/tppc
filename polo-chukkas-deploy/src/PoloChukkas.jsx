@@ -1,8 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { generateTournamentPdf, DEFAULT_COMMITTEE, teamHandicap } from './tournamentPdf';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { DEFAULT_COMMITTEE, teamHandicap } from './pdfShared';
 import { startLiveScore, updateLiveScore, endLiveScore } from './liveScoreActivity';
-import FixtureBoard from './FixtureBoard';
-import ChukkaBoard from './ChukkaBoard';
+
+// The PDF generator is only reachable behind an explicit print action, so it is
+// loaded on demand. Same signature as before, so call sites are unchanged apart
+// from the await that was already there.
+const generateTournamentPdf = async (...args) => {
+  const { generateTournamentPdf: run } = await import('./tournamentPdf');
+  return run(...args);
+};
+
+// Both boards render only under isDesktop && captainMode, so they are never on
+// a phone's cold-start path.
+const FixtureBoard = React.lazy(() => import('./FixtureBoard'));
+const ChukkaBoard = React.lazy(() => import('./ChukkaBoard'));
 
 // The desktop boards take over above this width. Below it the app is exactly as
 // it always was — the phone layout is not touched by any of this.
@@ -4695,6 +4706,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             return { ...d, matches: ms };
           });
           return (
+            <Suspense fallback={null}>
             <FixtureBoard
               fixture={fx}
               draft={draft}
@@ -4720,11 +4732,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 catch (err) { alert(err && err.message ? err.message : String(err)); }
               }}
             />
+            </Suspense>
           );
         })()}
         {/* Desktop chukka board. Same rules as the fixture board: desktop-only,
             captain-only, and every edit runs through the phone's own updaters. */}
         {isDesktop && captainMode && chukkaBoardOpen && (
+          <Suspense fallback={null}>
           <ChukkaBoard
             clubName="Tedworth Park Polo Club"
             dayKeys={DAY_KEYS}
@@ -4774,6 +4788,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             error={error}
             onClose={() => setChukkaBoardOpen(false)}
           />
+          </Suspense>
         )}
         {/* Loading screen — the TPPC club crest on a clean white background,
             shown until the first data load completes. */}
