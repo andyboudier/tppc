@@ -1028,6 +1028,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   }, [activeTab, fixtureDetails, liveDate]);
 
   const [loaded, setLoaded] = useState(false);
+  // Split out from `loaded` so the full-screen crest can come down as soon as
+  // the rosters are in, while anything still gated on the FULL load (e.g. the
+  // player-list spinner further down) keeps waiting for `loaded`.
+  const [rostersReady, setRostersReady] = useState(false);
   const scheduleRef = useRef(null);
 
   // Scroll to the current/nearest fixture when the fixtures tab is opened.
@@ -1318,13 +1322,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
-      for (const dk of DAY_KEYS) {
+      // Issue all 30 per-day reads at once rather than awaiting them one after
+      // another. Nothing here depends on anything else here, so serialising them
+      // only multiplied the round-trip cost — the whole block now costs one
+      // round-trip instead of thirty. `read` keeps the per-key error isolation
+      // the separate try/catch blocks used to give: one unreadable key yields
+      // null and the rest still land.
+      const read = (base, dk) =>
+        window.storage.get(storageKey(base, dk), true).catch(() => null);
+      const dayReads = await Promise.all(DAY_KEYS.map((dk) =>
+        Promise.all([
+          read('roster', dk), read('schedule', dk), read('throwin', dk),
+          read('ground', dk), read('booking-closed', dk), read('draw-published', dk),
+        ]).then(([r, s, t, g, bc, dp]) => ({ dk, r, s, t, g, bc, dp }))
+      ));
+      for (const { dk, r, s, t, g, bc, dp } of dayReads) {
         try {
-          const r = await window.storage.get(storageKey('roster', dk), true);
           if (r?.value) nextRosters[dk] = JSON.parse(r.value);
         } catch (e) {}
         try {
-          const s = await window.storage.get(storageKey('schedule', dk), true);
           // Load the saved draw exactly as stored — do NOT re-balance here.
           // Balancing only happens once, when the draw is first generated;
           // re-applying it on every load would undo a captain's manual team
@@ -1332,22 +1348,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           if (s?.value) { const parsed = JSON.parse(s.value); nextSchedules[dk] = parsed; }
         } catch (e) {}
         try {
-          const t = await window.storage.get(storageKey('throwin', dk), true);
           if (t?.value) {
             const parsed = parseTime(t.value);
             if (parsed !== null) nextThrowIns[dk] = parsed;
           }
         } catch (e) {}
         try {
-          const g = await window.storage.get(storageKey('ground', dk), true);
           if (g?.value) nextGrounds[dk] = g.value;
         } catch (e) {}
         try {
-          const bc = await window.storage.get(storageKey('booking-closed', dk), true);
           if (bc?.value) nextClosed[dk] = bc.value === '1';
         } catch (e) {}
         try {
-          const dp = await window.storage.get(storageKey('draw-published', dk), true);
           if (dp?.value) nextPublished[dk] = dp.value === '1';
         } catch (e) {}
       }
@@ -1357,6 +1369,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setGrounds(nextGrounds);
       setManualClosed(nextClosed);
       setDrawPublished(nextPublished);
+      // The rosters ARE the app's front page, and they are now all in hand.
+      // Drop the full-screen crest here rather than at the end of loadAll, so
+      // members stop waiting on the fixtures, players and payments data that
+      // loads below and that the chukkas tab doesn't render anyway.
+      setRostersReady(true);
 
       try {
         const f = await window.storage.get('fixture-interest', true);
@@ -1436,31 +1453,37 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           fixturesLoadedRef.current = true;
         }
       } catch (e) {}
+      // Six more independent singles — fetch them together, for the same reason
+      // the per-day reads are batched above. `committee` in particular has no
+      // document and no live listener, so before negative caching it was a
+      // guaranteed server round-trip on every single load.
+      const one = (key) => window.storage.get(key, true).catch(() => null);
+      const [w, cm, m, p, s, t] = await Promise.all([
+        one('wa-link'), one('committee'), one('members'),
+        one('players'), one('subsidies'), one('transactions'),
+      ]);
       try {
-        const w = await window.storage.get('wa-link', true);
         if (w?.value) setWaLink(w.value);
       } catch (e) {}
       try {
-        const cm = await window.storage.get('committee', true);
         if (cm?.value) setCommittee(cm.value);
       } catch (e) {}
       try {
-        const m = await window.storage.get('members', true);
         if (m?.value) setMembers(JSON.parse(m.value));
       } catch (e) {}
       try {
-        const p = await window.storage.get('players', true);
         if (p?.value) { const arr = JSON.parse(p.value); if (Array.isArray(arr)) setPlayerDb(arr); }
       } catch (e) {}
       try {
-        const s = await window.storage.get('subsidies', true);
         if (s?.value) { const arr = JSON.parse(s.value); if (Array.isArray(arr)) setSubsidies(arr); }
       } catch (e) {}
       try {
-        const t = await window.storage.get('transactions', true);
         if (t?.value) { const arr = JSON.parse(t.value); if (Array.isArray(arr)) setTransactions(arr); }
       } catch (e) {}
       setLoaded(true);
+      // Belt and braces: if an early return or a throw ever skips the call made
+      // after the per-day reads, the crest must still come down.
+      setRostersReady(true);
     };
     loadAll();
     // Remote changes arrive one event per key, and a single captain action can
@@ -4803,8 +4826,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           </Suspense>
         )}
         {/* Loading screen — the TPPC club crest on a clean white background,
-            shown until the first data load completes. */}
-        {!loaded && (
+            shown until the rosters are in. Deliberately gated on rostersReady
+            rather than the full `loaded`: the chukkas tab renders from the
+            rosters alone, so holding the crest up for the fixtures, player and
+            payment data behind them just made members wait for screens they
+            aren't looking at yet. */}
+        {!rostersReady && (
           <div
             role="status"
             aria-live="polite"
