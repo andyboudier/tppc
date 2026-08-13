@@ -1,5 +1,5 @@
 #!/bin/sh
-# build trigger: 2026-08-05 — bump to 1.0.3 (custom domain + new icons).
+# build trigger: 2026-08-13 — bump to 1.0.4 (1.0.3 train closed in App Store Connect).
 # Xcode Cloud post-clone: install JS deps so the Capacitor Swift packages
 # (referenced by CapApp-SPM/Package.swift at ../../../node_modules/@capacitor/*)
 # exist before Xcode resolves Swift Package dependencies.
