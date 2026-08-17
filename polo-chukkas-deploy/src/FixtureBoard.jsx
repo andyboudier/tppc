@@ -65,6 +65,9 @@ export default function FixtureBoard({
   const [sel, setSel] = useState({ di: 0, mi: 0 });
   const [tab, setTab] = useState('teams');
   const [search, setSearch] = useState('');
+  // Separate from the players search so switching tabs doesn't carry a query
+  // across into a list where it means something different.
+  const [teamSearch, setTeamSearch] = useState('');
   const [dropTarget, setDropTarget] = useState(null); // `${di}:${mi}:${tk}`
   const [adding, setAdding] = useState(false);        // the "new team" form is open
   const [newName, setNewName] = useState('');
@@ -99,6 +102,19 @@ export default function FixtureBoard({
       .filter(t => t && (t.name || '').trim() && !inFixture.has(norm(t.name)))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [teamsDb, teams]);
+
+  // Both rail lists are filtered by the same query, so a search says what the
+  // rail can show as a whole — a team you half-remember is found whether or not
+  // it is already in this fixture, which is exactly when you go looking for it.
+  const teamQuery = norm(teamSearch);
+  const shownTeams = useMemo(
+    () => (teamQuery ? teams.filter(t => norm(t.name).includes(teamQuery)) : teams),
+    [teams, teamQuery],
+  );
+  const shownAvailable = useMemo(
+    () => (teamQuery ? availableTeams.filter(t => norm(t.name).includes(teamQuery)) : availableTeams),
+    [availableTeams, teamQuery],
+  );
 
   const players = useMemo(() => {
     const q = norm(search);
@@ -227,6 +243,11 @@ export default function FixtureBoard({
 
           {tab === 'teams' ? (
             <div style={S.railBody}>
+              {teams.length + availableTeams.length > 0 && (
+                <input value={teamSearch} onChange={e => setTeamSearch(e.target.value)}
+                  placeholder={`Search ${teams.length + availableTeams.length} teams…`} style={S.search}
+                  onKeyDown={e => { if (e.key === 'Escape') setTeamSearch(''); }} />
+              )}
               {adding ? (
                 <form style={S.newTeam} onSubmit={(e) => { e.preventDefault(); createTeam(); }}>
                   <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
@@ -242,12 +263,15 @@ export default function FixtureBoard({
                 <button onClick={() => setAdding(true)} style={S.addTeamBtn}>＋ New team</button>
               )}
 
-              {teams.length === 0 && !adding && (
+              {!teamQuery && teams.length === 0 && !adding && (
                 <p style={S.hint}>No teams in this fixture yet. Create one above, or type a name
                   straight into a match slot — either way it lands here and can be dragged into
                   every other match it plays.</p>
               )}
-              {teams.map(t => (
+              {teamQuery && shownTeams.length === 0 && shownAvailable.length === 0 && (
+                <p style={S.hint}>No team matches “{teamSearch.trim()}”.</p>
+              )}
+              {shownTeams.map(t => (
                 <TeamCard
                   key={norm(t.name)} team={t} colour={colourOf(t.name)}
                   teamColours={teamColours} setColour={(k) => setTeamColour(t.name, k)}
@@ -260,10 +284,10 @@ export default function FixtureBoard({
                 />
               ))}
 
-              {availableTeams.length > 0 && (
+              {shownAvailable.length > 0 && (
                 <>
                   <div style={S.railHead}>Not in this fixture</div>
-                  {availableTeams.map(t => (
+                  {shownAvailable.map(t => (
                     <TeamCard
                       key={norm(t.name)} team={{ ...t, slots: [] }} colour={colourOf(t.name)}
                       teamColours={teamColours} setColour={(k) => setTeamColour(t.name, k)}
