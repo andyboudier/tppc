@@ -208,9 +208,11 @@ const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move pl
 //   blurb       — one-line description shown on the day menu
 const DAY_CONFIG = {
   wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps' },
-  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only', notifyNote: 'ladies-only instructional' },
+  thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only', notifyNote: 'ladies-only instructional',
+        capArena: 6, capOther: 8 },
   fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
-        instructional: true, maxHandicap: 0, maxChukkas: 2, fixedChukkas: 2, sessionMins: 60 },
+        instructional: true, maxHandicap: 0, maxChukkas: 2, fixedChukkas: 2, sessionMins: 60,
+        capArena: 6, capOther: 8 },
   sat: { key: 'sat', label: 'Sat',  fullLabel: 'Saturday',   short: 'Sat', dow: 6, eveningPrev: 'Friday',    defaultStartMin: CHUKKA_START_MIN_SAT, tabLabel: 'Sat Chukkas', blurb: 'Open to all handicaps' },
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
@@ -1099,8 +1101,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const CUTOFF_HOURS = 24; // Sat/Sun only
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
 
+  // Thursday ladies and Friday instructional are small sessions with a hard
+  // capacity: the arena only takes 6, anywhere else 8. Days with no capOther in
+  // DAY_CONFIG (Wed/Sat/Sun) are uncapped, as before.
+  const signupCap = (dayKey = activeDay) => {
+    const cfg = DAY_CONFIG[dayKey];
+    if (!cfg || cfg.capOther == null) return null;
+    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? cfg.capArena : cfg.capOther;
+  };
+  const isSessionFull = (dayKey = activeDay) => {
+    const cap = signupCap(dayKey);
+    return cap != null && (rosters[dayKey] || []).length >= cap;
+  };
+
   const isBookingClosed = (dayKey = activeDay) => {
     if (manualClosed[dayKey]) return true; // captain closed it manually (e.g. full)
+    // Capacity is a hard limit on the small sessions, so it is checked BEFORE
+    // the manual override below: opening a day past its time cutoff must not
+    // also let it overfill.
+    if (isSessionFull(dayKey)) return true;
     // Captain has explicitly opened THIS session past its cutoff. Compared
     // against the session date so it cannot linger into a later week.
     if (manualOpen[dayKey] && manualOpen[dayKey] === currentDayISO(dayKey)) return false;
@@ -1121,6 +1140,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const bookingClosedReason = (dayKey = activeDay) => {
     if (manualClosed[dayKey]) {
       return 'Sign-ups for this session are closed — it\u2019s full. Please contact the captain if you\u2019d still like to play.';
+    }
+    if (isSessionFull(dayKey)) {
+      const cap = signupCap(dayKey);
+      const arena = (grounds[dayKey] || '').trim().toLowerCase() === 'arena';
+      return `This session is full — ${cap} places${arena ? ' in the arena' : ''}. Please contact the captain if you\u2019d still like to play.`;
     }
     if (dayKey === 'wed') {
       const dow = new Date().getDay();
@@ -5061,6 +5085,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         i.e. not when the captain has closed the day as full. */}
                     {!manualClosed[activeDay] && (() => {
                       const overridden = manualOpen[activeDay] === currentDayISO(activeDay);
+                      // A full session is not a cutoff problem, so overriding the
+                      // cutoff would not help — don't offer it.
+                      if (isSessionFull(activeDay)) return null;
                       if (!overridden && !isBookingClosed()) return null;
                       return (
                         <>
@@ -5083,8 +5110,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         </>
                       );
                     })()}
-                    <span style={{ fontSize: '11px', color: manualClosed[activeDay] ? 'var(--burgundy)' : 'var(--muted)' }}>
-                      {players.length} signed up{manualClosed[activeDay] ? ' · sign-ups closed' : ''}
+                    <span style={{ fontSize: '11px', color: (manualClosed[activeDay] || isSessionFull()) ? 'var(--burgundy)' : 'var(--muted)' }}>
+                      {players.length} signed up{signupCap() != null ? ` of ${signupCap()}${(grounds[activeDay] || '').trim().toLowerCase() === 'arena' ? ' (arena)' : ''}` : ''}
+                      {manualClosed[activeDay] ? ' · sign-ups closed' : isSessionFull() ? ' · full' : ''}
                     </span>
                   </div>
                 )}
