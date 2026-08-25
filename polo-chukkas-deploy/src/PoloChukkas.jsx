@@ -809,6 +809,10 @@ export default function PoloChukkas() {
   // the override applies to that one session and lapses by itself once the day
   // rolls round — a cutoff can never be left permanently disabled by accident.
   const [manualOpen, setManualOpen] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
+  // Captain's manual "lift the capacity" override. Same session-stamped shape as
+  // manualOpen: the cap is ON by default and a lift applies to one session only,
+  // so a day can never be left permanently uncapped by accident.
+  const [capLifted, setCapLifted] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
   // The draw stays hidden from members until the captain publishes it, so they
   // only see it when it's ready. Persisted per day and synced.
   const [drawPublished, setDrawPublished] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -1107,8 +1111,19 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const signupCap = (dayKey = activeDay) => {
     const cfg = DAY_CONFIG[dayKey];
     if (!cfg || cfg.capOther == null) return null;
+    // Captain has lifted the cap for THIS session — treat the day as uncapped.
+    if (capLifted[dayKey] && capLifted[dayKey] === currentDayISO(dayKey)) return null;
     return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? cfg.capArena : cfg.capOther;
   };
+  // The cap this day would have if it were not lifted — used for the captain's
+  // toggle, which has to name the number it is about to restore.
+  const baseSignupCap = (dayKey = activeDay) => {
+    const cfg = DAY_CONFIG[dayKey];
+    if (!cfg || cfg.capOther == null) return null;
+    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? cfg.capArena : cfg.capOther;
+  };
+  const isCapLifted = (dayKey = activeDay) =>
+    baseSignupCap(dayKey) != null && capLifted[dayKey] === currentDayISO(dayKey);
   const isSessionFull = (dayKey = activeDay) => {
     const cap = signupCap(dayKey);
     return cap != null && (rosters[dayKey] || []).length >= cap;
@@ -1376,6 +1391,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       const nextOpen = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
+      const nextCapLift = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       // Issue all 30 per-day reads at once rather than awaiting them one after
       // another. Nothing here depends on anything else here, so serialising them
@@ -1389,10 +1405,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         Promise.all([
           read('roster', dk), read('schedule', dk), read('throwin', dk),
           read('ground', dk), read('booking-closed', dk), read('draw-published', dk),
-          read('booking-open', dk),
-        ]).then(([r, s, t, g, bc, dp, bo]) => ({ dk, r, s, t, g, bc, dp, bo }))
+          read('booking-open', dk), read('cap-off', dk),
+        ]).then(([r, s, t, g, bc, dp, bo, co]) => ({ dk, r, s, t, g, bc, dp, bo, co }))
       ));
-      for (const { dk, r, s, t, g, bc, dp, bo } of dayReads) {
+      for (const { dk, r, s, t, g, bc, dp, bo, co } of dayReads) {
         try {
           if (r?.value) nextRosters[dk] = JSON.parse(r.value);
         } catch (e) {}
@@ -1421,6 +1437,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         try {
           if (bo?.value) nextOpen[dk] = bo.value;
         } catch (e) {}
+        try {
+          if (co?.value) nextCapLift[dk] = co.value;
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
@@ -1428,6 +1447,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setGrounds(nextGrounds);
       setManualClosed(nextClosed);
       setManualOpen(nextOpen);
+      setCapLifted(nextCapLift);
       setDrawPublished(nextPublished);
       // The rosters ARE the app's front page, and they are now all in hand.
       // Drop the full-screen crest here rather than at the end of loadAll, so
@@ -1658,6 +1678,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try {
       if (val) await window.storage.set(storageKey('booking-open', dayKey), val, true);
       else await window.storage.delete(storageKey('booking-open', dayKey), true);
+    } catch (err) {}
+  };
+
+  // Captain's "lift the cap" switch. Stamped with the session date so it only
+  // ever applies to that session and the cap returns by itself next week.
+  const toggleCapLifted = async (dayKey = activeDay) => {
+    const iso = currentDayISO(dayKey);
+    const val = capLifted[dayKey] === iso ? '' : iso;
+    setCapLifted(prev => ({ ...prev, [dayKey]: val }));
+    try {
+      if (val) await window.storage.set(storageKey('cap-off', dayKey), val, true);
+      else await window.storage.delete(storageKey('cap-off', dayKey), true);
     } catch (err) {}
   };
 
@@ -5110,9 +5142,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         </>
                       );
                     })()}
+                    {/* Lift / restore this session's capacity. Only shown on the
+                        days that have one (Thu ladies, Fri instructional). */}
+                    {baseSignupCap() != null && (
+                      <button
+                        onClick={() => toggleCapLifted()}
+                        style={{
+                          padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.3px',
+                          border: isCapLifted() ? 'none' : '1px solid var(--burgundy)',
+                          background: isCapLifted() ? 'var(--burgundy)' : '#fff',
+                          color: isCapLifted() ? '#fff' : 'var(--burgundy)',
+                        }}
+                      >
+                        {isCapLifted()
+                          ? `↺ Restore the ${baseSignupCap()}-place limit`
+                          : `∞ Lift the ${baseSignupCap()}-place limit`}
+                      </button>
+                    )}
                     <span style={{ fontSize: '11px', color: (manualClosed[activeDay] || isSessionFull()) ? 'var(--burgundy)' : 'var(--muted)' }}>
                       {players.length} signed up{signupCap() != null ? ` of ${signupCap()}${(grounds[activeDay] || '').trim().toLowerCase() === 'arena' ? ' (arena)' : ''}` : ''}
-                      {manualClosed[activeDay] ? ' · sign-ups closed' : isSessionFull() ? ' · full' : ''}
+                      {manualClosed[activeDay] ? ' · sign-ups closed' : isSessionFull() ? ' · full' : isCapLifted() ? ' · limit lifted for this session' : ''}
                     </span>
                   </div>
                 )}
