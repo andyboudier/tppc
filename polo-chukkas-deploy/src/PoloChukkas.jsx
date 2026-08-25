@@ -215,6 +215,28 @@ const DAY_CONFIG = {
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
 const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
+
+// Which day tab to open on when there is no recent saved view (see
+// readViewState — it deliberately expires after 12h so the app opens fresh the
+// next day). This used to fall back to a hard-coded 'wed', which meant that
+// from Wednesday evening onwards the app still opened on Wednesday: a member
+// meaning to book Thursday ladies' chukkas could add themselves to Wednesday
+// without noticing. Default to the next session that has not started yet.
+const defaultActiveDay = () => {
+  const now = new Date();
+  const dow = now.getDay();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  let best = 'wed';
+  let bestAhead = Infinity;
+  DAY_KEYS.forEach((k) => {
+    const cfg = DAY_CONFIG[k];
+    let ahead = (cfg.dow - dow + 7) % 7;
+    // On the day itself it stays "today" only until that session starts.
+    if (ahead === 0 && mins >= cfg.defaultStartMin) ahead = 7;
+    if (ahead < bestAhead) { bestAhead = ahead; best = k; }
+  });
+  return best;
+};
 const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down', 'Arena'];
 
 // ── Club shop (preview) ──────────────────────────────────────────────────
@@ -761,7 +783,7 @@ export default function PoloChukkas() {
   });
   // Which chukka day is being viewed/booked within the Chukkas tab.
   const [activeDay, setActiveDay] = useState(() =>
-    (restoredView && DAY_KEYS.includes(restoredView.activeDay)) ? restoredView.activeDay : 'wed');
+    (restoredView && DAY_KEYS.includes(restoredView.activeDay)) ? restoredView.activeDay : defaultActiveDay());
   // Shop: selected variant per product (e.g. mallet length). Pre-Stripe placeholder.
   const [shopOptions, setShopOptions] = useState({});
   // Tournament committee printed on the programme rules page. Captain-editable
@@ -780,6 +802,11 @@ export default function PoloChukkas() {
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
   const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
+  // Captain's manual "open it anyway" override, on top of the automatic cutoff.
+  // Stores the ISO date of the SESSION it was opened for, not a plain flag, so
+  // the override applies to that one session and lapses by itself once the day
+  // rolls round — a cutoff can never be left permanently disabled by accident.
+  const [manualOpen, setManualOpen] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
   // The draw stays hidden from members until the captain publishes it, so they
   // only see it when it's ready. Persisted per day and synced.
   const [drawPublished, setDrawPublished] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -1074,6 +1101,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const isBookingClosed = (dayKey = activeDay) => {
     if (manualClosed[dayKey]) return true; // captain closed it manually (e.g. full)
+    // Captain has explicitly opened THIS session past its cutoff. Compared
+    // against the session date so it cannot linger into a later week.
+    if (manualOpen[dayKey] && manualOpen[dayKey] === currentDayISO(dayKey)) return false;
     if (dayKey === 'wed') {
       const now = new Date();
       const dow = now.getDay(); // 0 Sun · 1 Mon · 2 Tue · 3 Wed · 4 Thu …
@@ -1321,6 +1351,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextThrowIns = Object.fromEntries(DAY_KEYS.map(k => [k, DAY_CONFIG[k].defaultStartMin]));
       const nextGrounds = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
+      const nextOpen = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       // Issue all 30 per-day reads at once rather than awaiting them one after
       // another. Nothing here depends on anything else here, so serialising them
@@ -1334,9 +1365,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         Promise.all([
           read('roster', dk), read('schedule', dk), read('throwin', dk),
           read('ground', dk), read('booking-closed', dk), read('draw-published', dk),
-        ]).then(([r, s, t, g, bc, dp]) => ({ dk, r, s, t, g, bc, dp }))
+          read('booking-open', dk),
+        ]).then(([r, s, t, g, bc, dp, bo]) => ({ dk, r, s, t, g, bc, dp, bo }))
       ));
-      for (const { dk, r, s, t, g, bc, dp } of dayReads) {
+      for (const { dk, r, s, t, g, bc, dp, bo } of dayReads) {
         try {
           if (r?.value) nextRosters[dk] = JSON.parse(r.value);
         } catch (e) {}
@@ -1362,12 +1394,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         try {
           if (dp?.value) nextPublished[dk] = dp.value === '1';
         } catch (e) {}
+        try {
+          if (bo?.value) nextOpen[dk] = bo.value;
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
       setThrowInMins(nextThrowIns);
       setGrounds(nextGrounds);
       setManualClosed(nextClosed);
+      setManualOpen(nextOpen);
       setDrawPublished(nextPublished);
       // The rosters ARE the app's front page, and they are now all in hand.
       // Drop the full-screen crest here rather than at the end of loadAll, so
@@ -1583,6 +1619,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try {
       if (val) await window.storage.set(storageKey('booking-closed', dayKey), '1', true);
       else await window.storage.delete(storageKey('booking-closed', dayKey), true);
+    } catch (err) {}
+  };
+
+  // Captain's manual "open it anyway" switch — lets members sign up after the
+  // automatic cutoff has passed (e.g. opening tomorrow's Wednesday on Tuesday
+  // afternoon). Stamped with the session date so it only ever applies to that
+  // session. An explicit "we're full" close still wins over it.
+  const toggleManualOpen = async (dayKey = activeDay) => {
+    const iso = currentDayISO(dayKey);
+    const on = manualOpen[dayKey] === iso;
+    const val = on ? '' : iso;
+    setManualOpen(prev => ({ ...prev, [dayKey]: val }));
+    try {
+      if (val) await window.storage.set(storageKey('booking-open', dayKey), val, true);
+      else await window.storage.delete(storageKey('booking-open', dayKey), true);
     } catch (err) {}
   };
 
@@ -5005,6 +5056,33 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     >
                       {manualClosed[activeDay] ? '↺ Re-open sign-ups' : '✕ Close sign-ups (full)'}
                     </button>
+                    {/* Override the automatic cutoff for this one session. Only
+                        offered when the cutoff is what's actually blocking —
+                        i.e. not when the captain has closed the day as full. */}
+                    {!manualClosed[activeDay] && (() => {
+                      const overridden = manualOpen[activeDay] === currentDayISO(activeDay);
+                      if (!overridden && !isBookingClosed()) return null;
+                      return (
+                        <>
+                          <button
+                            onClick={() => toggleManualOpen()}
+                            style={{
+                              padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.3px',
+                              border: overridden ? 'none' : '1px solid var(--burgundy)',
+                              background: overridden ? 'var(--burgundy)' : '#fff',
+                              color: overridden ? '#fff' : 'var(--burgundy)',
+                            }}
+                          >
+                            {overridden ? '↺ Restore the normal cutoff' : '🔓 Open sign-ups anyway'}
+                          </button>
+                          <span style={{ fontSize: '11px', color: overridden ? 'var(--burgundy)' : 'var(--muted)', textAlign: 'center', lineHeight: 1.4 }}>
+                            {overridden
+                              ? `Members can sign up for ${getDateStr(activeDay)} despite the cutoff.`
+                              : 'The cutoff has passed — members cannot sign up.'}
+                          </span>
+                        </>
+                      );
+                    })()}
                     <span style={{ fontSize: '11px', color: manualClosed[activeDay] ? 'var(--burgundy)' : 'var(--muted)' }}>
                       {players.length} signed up{manualClosed[activeDay] ? ' · sign-ups closed' : ''}
                     </span>
