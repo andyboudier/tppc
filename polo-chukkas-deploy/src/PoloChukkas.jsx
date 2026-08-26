@@ -819,6 +819,13 @@ export default function PoloChukkas() {
   // is the club's answer to "how many fit", which doesn't change week to week.
   // null means "use the built-in 6 arena / 8 elsewhere".
   const [capLimits, setCapLimits] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, null])));
+  // Waiting list for the capped days. Once a session is full, members join this
+  // instead of being turned away, and the captain moves them across when a
+  // cancellation frees a place. Per day, synced, and cleared with the roster.
+  const [waitlists, setWaitlists] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, []])));
+  // The person the captain has just moved onto the roster, so the "let them
+  // know" prompt can appear right where they made the change.
+  const [promoted, setPromoted] = useState(null);
   // Per-day sign-up cut-off, captain-editable. Shape { d, t }: close `d` days
   // before the session at time `t` (HH:MM), or at throw-in when `t` is ''.
   // The defaults reproduce the behaviour these days have always had —
@@ -870,6 +877,7 @@ export default function PoloChukkas() {
   const [availableTo, setAvailableTo] = useState('');
 const [vip, setVip] = useState(false);
 const [noConsecutive, setNoConsecutive] = useState(false);
+const [email, setEmail] = useState('');           // signup: waiting-list contact only
 const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pony (affects price) — off by default
   const [error, setError] = useState('');
   const [bookingMsg, setBookingMsg] = useState('');   // post-signup cost confirmation
@@ -890,6 +898,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Convenience accessors so the existing component code can keep using
   // `players`, `schedule`, etc. without knowing about the day dimension.
   const players = rosters[activeDay];
+  const waitingList = waitlists[activeDay] || [];
   const schedule = schedules[activeDay];
   const throwInMin = throwInMins[activeDay];
   const ground = grounds[activeDay];
@@ -1163,17 +1172,29 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return cap != null && (rosters[dayKey] || []).length >= cap;
   };
 
-  const isBookingClosed = (dayKey = activeDay) => {
-    if (manualClosed[dayKey]) return true; // captain closed it manually (e.g. full)
+  // WHY a day is shut, not just whether: 'closed' (captain), 'full' (at
+  // capacity), 'cutoff' (past the deadline), or '' when it is open. The waiting
+  // list needs to tell "full" apart from the others — being full is the one
+  // case where a place can still come back.
+  const bookingBlock = (dayKey = activeDay) => {
+    if (manualClosed[dayKey]) return 'closed'; // captain closed it manually (e.g. full)
     // Capacity is a hard limit on the small sessions, so it is checked BEFORE
     // the manual override below: opening a day past its time cutoff must not
     // also let it overfill.
-    if (isSessionFull(dayKey)) return true;
+    if (isSessionFull(dayKey)) return 'full';
     // Captain has explicitly opened THIS session past its cutoff. Compared
     // against the session date so it cannot linger into a later week.
-    if (manualOpen[dayKey] && manualOpen[dayKey] === currentDayISO(dayKey)) return false;
-    return Date.now() >= cutoffTime(dayKey);
+    if (manualOpen[dayKey] && manualOpen[dayKey] === currentDayISO(dayKey)) return '';
+    return Date.now() >= cutoffTime(dayKey) ? 'cutoff' : '';
   };
+  const isBookingClosed = (dayKey = activeDay) => bookingBlock(dayKey) !== '';
+
+  // The waiting list is offered whenever a capped session is full — including
+  // after the sign-up deadline, which is precisely when a late cancellation
+  // happens and a queue is worth most. It costs nothing to be on it: the
+  // captain still decides who comes across, and closing the day manually turns
+  // it off along with everything else.
+  const waitlistOpen = (dayKey = activeDay) => bookingBlock(dayKey) === 'full';
 
   // Human-readable explanation shown in the booking-closed banner and handleAdd error.
   const bookingClosedReason = (dayKey = activeDay) => {
@@ -1404,6 +1425,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 window.storage.delete(storageKey('roster', dk), true).catch(() => {}),
                 window.storage.delete(storageKey('roster-week', dk), true).catch(() => {}),
                 window.storage.delete(storageKey('schedule', dk), true).catch(() => {}),
+                // The waiting list is for that week's session — it must not
+                // linger into the next one.
+                window.storage.delete(storageKey('waitlist', dk), true).catch(() => {}),
               ]);
             }
           } catch (e) {}
@@ -1420,6 +1444,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextCapLift = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextCutoffs = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
       const nextCapLimits = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
+      const nextWaitlists = Object.fromEntries(DAY_KEYS.map(k => [k, []]));
       const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       // Issue all 30 per-day reads at once rather than awaiting them one after
       // another. Nothing here depends on anything else here, so serialising them
@@ -1434,10 +1459,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           read('roster', dk), read('schedule', dk), read('throwin', dk),
           read('ground', dk), read('booking-closed', dk), read('draw-published', dk),
           read('booking-open', dk), read('cap-off', dk), read('cutoff', dk),
-          read('cap-limit', dk),
-        ]).then(([r, s, t, g, bc, dp, bo, co, cu, cl]) => ({ dk, r, s, t, g, bc, dp, bo, co, cu, cl }))
+          read('cap-limit', dk), read('waitlist', dk),
+        ]).then(([r, s, t, g, bc, dp, bo, co, cu, cl, wl]) => ({ dk, r, s, t, g, bc, dp, bo, co, cu, cl, wl }))
       ));
-      for (const { dk, r, s, t, g, bc, dp, bo, co, cu, cl } of dayReads) {
+      for (const { dk, r, s, t, g, bc, dp, bo, co, cu, cl, wl } of dayReads) {
         try {
           if (r?.value) nextRosters[dk] = JSON.parse(r.value);
         } catch (e) {}
@@ -1483,6 +1508,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             }
           }
         } catch (e) {}
+        try {
+          if (wl?.value) {
+            const parsed = JSON.parse(wl.value);
+            if (Array.isArray(parsed)) nextWaitlists[dk] = parsed;
+          }
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
@@ -1493,6 +1524,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setCapLifted(nextCapLift);
       setCutoffs(nextCutoffs);
       setCapLimits(nextCapLimits);
+      setWaitlists(nextWaitlists);
       setDrawPublished(nextPublished);
       // The rosters ARE the app's front page, and they are now all in hand.
       // Drop the full-screen crest here rather than at the end of loadAll, so
@@ -2225,17 +2257,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Leave chukkas blank — varies week to week
   };
 
-  const handleAdd = () => {
-    setError('');
-    // Booking cutoff: 24h before Wednesday 17:30. Captain bypasses.
-    if (!captainMode && isBookingClosed()) {
-      return setError(`${bookingClosedReason()} To be added, please contact the captain at ${CONTACT_EMAIL}.`);
-    }
-    if (!name.trim()) return setError('Please enter a name.');
-    if (handicap === '') return setError('Please select a handicap.');
-    const dayCfg = DAY_CONFIG[activeDay];
+  // Validation shared by "add to roster" and "join the waiting list": the two
+  // differ only in which list the person lands on, so they must agree on who is
+  // allowed to sign up at all. `against` is the lists to check for a duplicate,
+  // each with the message to show if one is found.
+  const validateSignup = (against) => {
+    if (!name.trim()) return { error: 'Please enter a name.' };
+    if (handicap === '') return { error: 'Please select a handicap.' };
     const fixedC = fixedChukkasFor();
-    if (!fixedC && !chukkas) return setError('How many chukkas?');
+    if (!fixedC && !chukkas) return { error: 'How many chukkas?' };
     const h = parseInt(handicap, 10);
     // On a fixed-length session everyone plays the same number of chukkas,
     // whatever the (disabled) field says.
@@ -2243,72 +2273,167 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Beginners-only days (Friday instructional). Captain can override.
     if (!captainMode) {
       const blocked = handicapBlockReason(h);
-      if (blocked) return setError(blocked);
+      if (blocked) return { error: blocked };
     }
     const maxC = maxChukkasFor();
-    if (isNaN(c) || c < 1 || c > maxC) return setError(`Chukkas must be between 1 and ${maxC}.`);
+    if (isNaN(c) || c < 1 || c > maxC) return { error: `Chukkas must be between 1 and ${maxC}.` };
     // Sanity check: if both bounds are set, availableTo must not be earlier than availableFrom.
     if (availableFrom && availableTo) {
       const fromMin = parseTime(availableFrom);
       const toMin = parseTime(availableTo);
       if (fromMin !== null && toMin !== null && toMin < fromMin) {
-        return setError('"Available to" must be the same as or later than "Available from".');
+        return { error: '"Available to" must be the same as or later than "Available from".' };
       }
     }
     // Prevent the same person being added twice (case- and whitespace-insensitive)
     const cleanedName = name.trim().replace(/\s+/g, ' ');
     const normalized = cleanedName.toLowerCase();
-    const existing = players.find(p => p.name.trim().replace(/\s+/g, ' ').toLowerCase() === normalized);
-    if (existing) {
-      return setError(`${existing.name} is already on the roster${captainMode ? ' — adjust their chukkas with the +/− buttons.' : ' for this Wednesday.'}`);
+    for (const { list, message } of against) {
+      const existing = (list || []).find(x => x.name.trim().replace(/\s+/g, ' ').toLowerCase() === normalized);
+      if (existing) return { error: message(existing) };
     }
-    const newPlayer = {
-      id: Date.now(),
-      name: cleanedName,
-      mobile: mobile.trim() || undefined,
-      handicap: h,
-      chukkas: c,
-      // Stored as HH:MM string; empty = available from the throw-in (default)
-      availableFrom: availableFrom || fmtTime(throwInMin),
-      // Stored as HH:MM string; empty = no upper cap (play through last chukka)
-      availableTo: availableTo || '',
- 
-      vip: captainMode ? vip : false,
-      noConsecutive: dayCfg.instructional ? false : noConsecutive,
-      ponyHire: ponyHire,   };
+    return { h, c, cleanedName };
+  };
+
+  // The roster / waiting-list entry for whoever is filling the form in.
+  const signupEntry = ({ h, c, cleanedName }) => ({
+    id: Date.now(),
+    name: cleanedName,
+    mobile: mobile.trim() || undefined,
+    handicap: h,
+    chukkas: c,
+    // Stored as HH:MM string; empty = available from the throw-in (default)
+    availableFrom: availableFrom || fmtTime(throwInMin),
+    // Stored as HH:MM string; empty = no upper cap (play through last chukka)
+    availableTo: availableTo || '',
+    vip: captainMode ? vip : false,
+    noConsecutive: DAY_CONFIG[activeDay].instructional ? false : noConsecutive,
+    ponyHire: ponyHire,
+  });
+
+  const clearSignupForm = () => {
+    const fixedC = fixedChukkasFor();
+    setName(''); setMobile(''); setEmail(''); setHandicap('');
+    setChukkas(fixedC ? String(fixedC) : '');
+    setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
+  };
+
+  // Interim (pre-Stripe): quote the cost and, if anything is owed, log a 'due'
+  // item the captain settles under Checkout. They go on the roster either way;
+  // the captain can remove them later if unpaid. Returns the amount owed as
+  // text, or '' when there is nothing to pay.
+  const chargeForBooking = (cleanedName, c, wantsPony, dayKey = activeDay) => {
+    const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
+    const subject = rec || { membership: 'none', military: false, subsidies: [] };
+    const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none');
+    if (bd.total <= 0) return '';
+    const dueTx = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
+      playerId: rec ? rec.id : null, playerName: cleanedName, day: dayKey,
+      chukkas: c, ponyLevel: wantsPony ? 'club' : 'none',
+      ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
+      subsidyDeductions: [],
+      total: bd.total, status: 'due', method: '', note: '',
+    };
+    const nextTx = [dueTx, ...transactions];
+    setTransactions(nextTx);
+    window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
+    return `\u00a3${fmtMoney(bd.total)} due${wantsPony ? ' (incl. pony hire)' : ''}`;
+  };
+
+  const handleAdd = () => {
+    setError('');
+    // Past the day's cutoff, or full, or closed by the captain. Captain bypasses.
+    if (!captainMode && isBookingClosed()) {
+      return setError(`${bookingClosedReason()} To be added, please contact the captain at ${CONTACT_EMAIL}.`);
+    }
+    const v = validateSignup([
+      { list: players, message: (e) => `${e.name} is already on the roster${captainMode ? ' \u2014 adjust their chukkas with the +/\u2212 buttons.' : ` for this ${activeDayConfig.fullLabel}.`}` },
+    ]);
+    if (v.error) return setError(v.error);
+    const newPlayer = signupEntry(v);
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    // Interim (pre-Stripe): quote the cost and, if anything is owed, log a 'due'
-    // item the captain settles under Checkout. They go on the roster either way;
-    // the captain can remove them later if unpaid.
-    {
-      const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
-      const subject = rec || { membership: 'none', military: false, subsidies: [] };
-      const bd = priceBooking(subject, c, ponyHire ? 'club' : 'none');
-      if (bd.total > 0) {
-        const dueTx = {
-          id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
-          playerId: rec ? rec.id : null, playerName: cleanedName, day: activeDay,
-          chukkas: c, ponyLevel: ponyHire ? 'club' : 'none',
-          ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
-          subsidyDeductions: [],
-          total: bd.total, status: 'due', method: '', note: '',
-        };
-        const nextTx = [dueTx, ...transactions];
-        setTransactions(nextTx);
-        window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
-        setBookingMsg(`Added to the roster. £${fmtMoney(bd.total)} due${ponyHire ? ' (incl. pony hire)' : ''} — please settle with the Captain.`);
-      } else {
-        setBookingMsg('Added to the roster — no charge.');
-      }
-    }
-    setName(''); setMobile(''); setHandicap(''); setChukkas(fixedC ? String(fixedC) : ''); setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
+    const owed = chargeForBooking(v.cleanedName, v.c, ponyHire);
+    setBookingMsg(owed
+      ? `Added to the roster. ${owed} \u2014 please settle with the Captain.`
+      : 'Added to the roster \u2014 no charge.');
+    clearSignupForm();
     saveSchedule(null);
   };
 
   const removePlayer = (id) => {
     saveRoster(players.filter(p => p.id !== id));
     saveSchedule(null);
+  };
+
+  const saveWaitlist = async (next, dayKey = activeDay) => {
+    setWaitlists(prev => ({ ...prev, [dayKey]: next }));
+    try {
+      if (next.length) await window.storage.set(storageKey('waitlist', dayKey), JSON.stringify(next), true);
+      else await window.storage.delete(storageKey('waitlist', dayKey), true);
+    } catch (e) { setError('Saved locally only — check your connection.'); }
+  };
+
+  const handleJoinWaitlist = () => {
+    setError('');
+    setBookingMsg('');
+    if (!waitlistOpen()) return setError(bookingClosedReason());
+    const v = validateSignup([
+      { list: players, message: (e) => `${e.name} is already on the roster for this ${activeDayConfig.fullLabel}.` },
+      { list: waitingList, message: (e) => `${e.name} is already on the waiting list.` },
+    ]);
+    if (v.error) return setError(v.error);
+    const cleanedEmail = email.trim();
+    if (cleanedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail)) {
+      return setError('That email address looks off — please double-check.');
+    }
+    const entry = { ...signupEntry(v), email: cleanedEmail || undefined, addedAt: Date.now() };
+    const place = waitingList.length + 1;
+    saveWaitlist([...waitingList, entry]);
+    // Nobody is billed for waiting — the charge is raised if and when the
+    // captain moves them onto the roster.
+    setBookingMsg(`You\u2019re number ${place} on the waiting list for ${getDateStr()}. The captain will be in touch if a place comes up${cleanedEmail ? '' : ' — leave an email address next time and they can let you know directly'}.`);
+    clearSignupForm();
+  };
+
+  // A cancellation has freed a place (or the captain has decided to squeeze
+  // someone in): move a waiting-list entry across to the roster. This is where
+  // the booking is charged, since joining the list costs nothing.
+  const promoteFromWaitlist = (id) => {
+    const entry = waitingList.find(w => w.id === id);
+    if (!entry) return;
+    const { addedAt, ...player } = entry;
+    saveRoster([...players, player]);
+    upsertMember(player);
+    saveWaitlist(waitingList.filter(w => w.id !== id));
+    saveSchedule(null);
+    const owed = chargeForBooking(player.name, player.chukkas, !!player.ponyHire);
+    // Stamped with the day so the prompt cannot follow the captain onto
+    // another tab, where its date and throw-in would be wrong.
+    setPromoted({ ...entry, owed, day: activeDay });
+  };
+
+  const removeFromWaitlist = (id) => {
+    setPromoted(prev => (prev && prev.id === id ? null : prev));
+    saveWaitlist(waitingList.filter(w => w.id !== id));
+  };
+
+  // Prefilled "you're on" email, so telling someone takes one tap rather than
+  // the captain retyping the date and throw-in every time.
+  const notifyMailto = (entry) => {
+    const subject = `${activeDayConfig.fullLabel} chukkas \u2014 you\u2019re on the roster`;
+    const body = [
+      `Hi ${entry.name.split(' ')[0]},`,
+      '',
+      `A place has come up for the ${activeDayConfig.fullLabel} chukkas on ${getDateStr()}, throw-in ${fmtTime(throwInMin)}${ground ? ` (${ground})` : ''}. You\u2019re on the roster.`,
+      entry.owed ? `` : null,
+      entry.owed ? `${entry.owed} \u2014 please settle with the captain.` : null,
+      '',
+      'See you there,',
+      'Tedworth Park Polo Club',
+    ].filter(l => l !== null).join('\n');
+    return `mailto:${entry.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   const generate = () => {
@@ -5468,8 +5593,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Sign up</div>
                 <h2 className="display" style={{ margin: '0 0 16px', fontSize: '22px' }}>Add a Player</h2>
 
+                {/* Session full — the waiting list is offered instead of a flat no. */}
+                {!captainMode && waitlistOpen() && (
+                  <div
+                    style={{
+                      background: 'var(--cream-pale)', border: '1px solid var(--line)',
+                      borderLeft: '4px solid var(--gold-bright)', borderRadius: '4px',
+                      padding: '14px 16px', marginBottom: '16px', fontSize: '13px', lineHeight: 1.55,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: '6px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>
+                      This {activeDayConfig.fullLabel} is full{(grounds[activeDay] || '').trim().toLowerCase() === 'arena' ? ' — the arena takes ' + signupCap() : ''}
+                    </div>
+                    <div style={{ color: 'var(--ink)' }}>
+                      Add your details below to join the waiting list{waitingList.length ? ` — ${waitingList.length} ${waitingList.length === 1 ? 'person is' : 'people are'} already on it` : ''}. Leave an email address and the captain can let you know the moment a place comes up.
+                    </div>
+                  </div>
+                )}
+
                 {/* Booking cutoff banner — public only, within the closed window for this day */}
-                {!captainMode && isBookingClosed() && (
+                {!captainMode && isBookingClosed() && !waitlistOpen() && (
                   <div
                     role="alert"
                     style={{
@@ -5541,6 +5684,19 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     autoComplete="tel"
                     inputMode="tel"
                   />
+                  {/* Only asked for when joining the waiting list — that is the
+                      one case where the captain needs to reach you later. */}
+                  {!captainMode && waitlistOpen() && (
+                    <input
+                      className="input-field"
+                      type="email"
+                      placeholder="Email (optional) — so the captain can tell you if a place opens"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
@@ -5719,7 +5875,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
                   {(() => {
                     const hcpReason = captainMode ? '' : handicapBlockReason(handicap);
-                    const closed = !captainMode && isBookingClosed();
+                    // Full but still before the deadline: the form takes them
+                    // onto the waiting list rather than turning them away.
+                    const joinMode = !captainMode && waitlistOpen();
+                    const closed = !captainMode && !joinMode && isBookingClosed();
                     const disabled = closed || !!hcpReason;
                     return (
                       <>
@@ -5740,12 +5899,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         )}
                         <button
                           className="btn-primary"
-                          onClick={handleAdd}
+                          onClick={joinMode ? handleJoinWaitlist : handleAdd}
                           disabled={disabled}
                           style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                         >
                           {closed ? 'Bookings closed · email captain'
                             : hcpReason ? 'Beginners only · handicap 0 and below'
+                            : joinMode ? 'Join the waiting list'
                             : 'Add to Roster'}
                         </button>
                       </>
@@ -6005,6 +6165,112 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     Clear roster · start again
                   </button>
                     </>
+                  )}
+                </section>
+              )}
+
+              {/* Waiting list — everyone who signed up after the session filled.
+                  Members see who is waiting and where they are in the queue; the
+                  captain moves people across when a place frees up. */}
+              {(waitingList.length > 0 || (captainMode && promoted && promoted.day === activeDay)) && (
+                <section className="card" style={{ padding: '20px', marginBottom: '24px' }}>
+                  <div className="label-eyebrow" style={{ marginBottom: '2px' }}>Waiting list</div>
+                  <h2 className="display" style={{ margin: '0 0 4px', fontSize: '22px' }}>
+                    {waitingList.length ? `${waitingList.length} waiting` : 'Nobody waiting'}
+                  </h2>
+                  {waitingList.length > 0 && (
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+                      {signupCap() != null && players.length < signupCap()
+                        ? `${signupCap() - players.length} ${signupCap() - players.length === 1 ? 'place has' : 'places have'} come free — ${captainMode ? 'move someone across.' : 'the captain will be in touch.'}`
+                        : `In the order they signed up. ${captainMode ? 'Move someone across if a place frees up.' : 'The captain will be in touch if a place comes up.'}`}
+                    </div>
+                  )}
+
+                  {/* Just-promoted prompt — the one moment the captain wants to
+                      tell someone, right where they did it. */}
+                  {captainMode && promoted && promoted.day === activeDay && (
+                    <div style={{
+                      background: 'var(--cream-pale)', border: '1px solid var(--line)',
+                      borderLeft: '4px solid var(--gold-bright)', borderRadius: '4px',
+                      padding: '12px 14px', marginBottom: '14px', fontSize: '13px', lineHeight: 1.5,
+                    }}>
+                      <strong>{promoted.name}</strong> is on the roster{promoted.owed ? ` · ${promoted.owed}` : ''}.
+                      {promoted.email ? (
+                        <a
+                          href={notifyMailto(promoted)}
+                          style={{ display: 'inline-block', marginLeft: '8px', color: 'var(--burgundy)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: '3px' }}
+                        >✉ Let {promoted.name.split(' ')[0]} know</a>
+                      ) : (
+                        <span style={{ marginLeft: '6px', color: 'var(--muted)' }}>
+                          No email on file{promoted.mobile ? ` — ${promoted.mobile}` : ''}.
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setPromoted(null)}
+                        style={{ background: 'none', border: 'none', marginLeft: '8px', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                      >dismiss</button>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {waitingList.map((w, i) => (
+                      <div
+                        key={w.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                          padding: '10px 12px', background: 'var(--cream-pale)',
+                          border: '1px solid var(--line)', borderRadius: '4px',
+                        }}
+                      >
+                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: '15px', color: 'var(--muted)', minWidth: '22px' }}>{i + 1}</span>
+                        <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, color: 'var(--ink)' }}>
+                            {w.name}
+                            <span style={{ marginLeft: '6px', fontSize: '12px', color: 'var(--muted)' }}>{fmtH(w.handicap)}</span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                            {w.chukkas} chukka{w.chukkas === 1 ? '' : 's'}
+                            {w.ponyHire ? ' · pony hire' : ''}
+                            {captainMode && w.mobile && (
+                              <>
+                                {' · '}
+                                <a href={`tel:${w.mobile.replace(/\s+/g, '')}`} className="phone-link">{w.mobile}</a>
+                              </>
+                            )}
+                            {captainMode && w.email && (
+                              <>
+                                {' · '}
+                                <a href={`mailto:${w.email}`} className="phone-link" style={{ textTransform: 'none', letterSpacing: 0 }}>{w.email}</a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {captainMode && (
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => promoteFromWaitlist(w.id)}
+                              style={{
+                                background: 'var(--burgundy)', color: 'var(--cream)', border: 'none',
+                                borderRadius: '4px', padding: '7px 12px', fontSize: '11px',
+                                letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap',
+                              }}
+                            >↑ Add to roster</button>
+                            <button
+                              className="remove-btn"
+                              onClick={() => removeFromWaitlist(w.id)}
+                              aria-label={`Remove ${w.name} from the waiting list`}
+                            >×</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {captainMode && signupCap() != null && players.length >= signupCap() && (
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '10px', lineHeight: 1.5 }}>
+                      The session is at its {signupCap()}-place limit. Moving someone across still works — it puts the roster one over, so remove a player first if that is not what you want.
+                    </div>
                   )}
                 </section>
               )}
