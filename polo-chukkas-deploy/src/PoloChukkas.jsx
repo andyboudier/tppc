@@ -207,7 +207,8 @@ const MIN_PLAYERS_PER_CHUKKA = 4; // target minimum; redistribution will move pl
 //   instructional — hides options that don't apply to a fixed teaching session
 //   blurb       — one-line description shown on the day menu
 const DAY_CONFIG = {
-  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps' },
+  wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps',
+        cutoffDaysBefore: 1, cutoffAt: '12:00' },
   thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only', notifyNote: 'ladies-only instructional',
         capArena: 6, capOther: 8 },
   fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
@@ -813,6 +814,24 @@ export default function PoloChukkas() {
   // manualOpen: the cap is ON by default and a lift applies to one session only,
   // so a day can never be left permanently uncapped by accident.
   const [capLifted, setCapLifted] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, ''])));
+  // Captain-set capacity for the capped days, shape { arena, other }. Unlike the
+  // lift above this is a lasting setting rather than a one-session override: it
+  // is the club's answer to "how many fit", which doesn't change week to week.
+  // null means "use the built-in 6 arena / 8 elsewhere".
+  const [capLimits, setCapLimits] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, null])));
+  // Per-day sign-up cut-off, captain-editable. Shape { d, t }: close `d` days
+  // before the session at time `t` (HH:MM), or at throw-in when `t` is ''.
+  // The defaults reproduce the behaviour these days have always had —
+  // Wednesday closes Tuesday at 12:00, every other day 24h before throw-in
+  // (1 day before, at the throw-in time) — so nothing changes until a captain
+  // actually edits one.
+  const [cutoffs, setCutoffs] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, null])));
+  const cutoffFor = (dayKey = activeDay) => {
+    const saved = cutoffs[dayKey];
+    if (saved && typeof saved.d === 'number') return saved;
+    const cfg = DAY_CONFIG[dayKey] || {};
+    return { d: cfg.cutoffDaysBefore != null ? cfg.cutoffDaysBefore : 1, t: cfg.cutoffAt || '' };
+  };
   // The draw stays hidden from members until the captain publishes it, so they
   // only see it when it's ready. Persisted per day and synced.
   const [drawPublished, setDrawPublished] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -858,6 +877,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // Throw-in time editor (captain mode)
   const [throwInEditing, setThrowInEditing] = useState(false);
+  const [capEditing, setCapEditing] = useState(false);
+  const [capArenaInput, setCapArenaInput] = useState('');
+  const [capOtherInput, setCapOtherInput] = useState('');
+  const [cutoffEditing, setCutoffEditing] = useState(false);
+  const [cutoffInput, setCutoffInput] = useState('');
+  const [cutoffDays, setCutoffDays] = useState('1');
   const [throwInInput, setThrowInInput] = useState('');
 
   const activeDayConfig = DAY_CONFIG[activeDay];
@@ -1097,30 +1122,39 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Captain PIN — visible in source, this is a soft gate not real security
   const CAPTAIN_PIN = '1907';
 
-  // Booking cutoffs:
-  //   Wednesday — closes Tuesday 12:00 (noon); stays closed all day Wednesday;
-  //               reopens Thursday (after the auto-clear on first load).
-  //   Saturday / Sunday — closes 24 hours before throw-in (existing behaviour).
+  // Booking cutoffs are no longer hard-coded per day: each day closes `d` days
+  // before the session at time `t`, taken from the captain's saved value or the
+  // day's default in DAY_CONFIG (see cutoffTime / cutoffFor below). The defaults
+  // reproduce what these days have always done — Wednesday closes Tuesday at
+  // noon, everything else 24 hours before throw-in.
   // Captain mode always bypasses the cutoff.
-  const CUTOFF_HOURS = 24; // Sat/Sun only
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
 
   // Thursday ladies and Friday instructional are small sessions with a hard
   // capacity: the arena only takes 6, anywhere else 8. Days with no capOther in
   // DAY_CONFIG (Wed/Sat/Sun) are uncapped, as before.
-  const signupCap = (dayKey = activeDay) => {
+  // The two capacities in force for a day: the captain's if they have set them,
+  // otherwise the built-in ones. Returns null for the uncapped days.
+  const capConfigFor = (dayKey = activeDay) => {
     const cfg = DAY_CONFIG[dayKey];
     if (!cfg || cfg.capOther == null) return null;
+    const saved = capLimits[dayKey];
+    if (saved && typeof saved.arena === 'number' && typeof saved.other === 'number') return saved;
+    return { arena: cfg.capArena, other: cfg.capOther };
+  };
+  const signupCap = (dayKey = activeDay) => {
+    const caps = capConfigFor(dayKey);
+    if (!caps) return null;
     // Captain has lifted the cap for THIS session — treat the day as uncapped.
     if (capLifted[dayKey] && capLifted[dayKey] === currentDayISO(dayKey)) return null;
-    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? cfg.capArena : cfg.capOther;
+    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? caps.arena : caps.other;
   };
   // The cap this day would have if it were not lifted — used for the captain's
   // toggle, which has to name the number it is about to restore.
   const baseSignupCap = (dayKey = activeDay) => {
-    const cfg = DAY_CONFIG[dayKey];
-    if (!cfg || cfg.capOther == null) return null;
-    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? cfg.capArena : cfg.capOther;
+    const caps = capConfigFor(dayKey);
+    if (!caps) return null;
+    return (grounds[dayKey] || '').trim().toLowerCase() === 'arena' ? caps.arena : caps.other;
   };
   const isCapLifted = (dayKey = activeDay) =>
     baseSignupCap(dayKey) != null && capLifted[dayKey] === currentDayISO(dayKey);
@@ -1138,17 +1172,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Captain has explicitly opened THIS session past its cutoff. Compared
     // against the session date so it cannot linger into a later week.
     if (manualOpen[dayKey] && manualOpen[dayKey] === currentDayISO(dayKey)) return false;
-    if (dayKey === 'wed') {
-      const now = new Date();
-      const dow = now.getDay(); // 0 Sun · 1 Mon · 2 Tue · 3 Wed · 4 Thu …
-      const timeMin = now.getHours() * 60 + now.getMinutes();
-      if (dow === 2 && timeMin >= 12 * 60) return true; // Tuesday from noon
-      if (dow === 3) return true;                         // All day Wednesday
-      return false;                                        // Thu–Mon + Tue morning: open
-    }
-    // Sat / Sun: close 24 hours before throw-in
-    const cutoff = targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
-    return Date.now() >= cutoff;
+    return Date.now() >= cutoffTime(dayKey);
   };
 
   // Human-readable explanation shown in the booking-closed banner and handleAdd error.
@@ -1161,14 +1185,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const arena = (grounds[dayKey] || '').trim().toLowerCase() === 'arena';
       return `This session is full — ${cap} places${arena ? ' in the arena' : ''}. Please contact the captain if you\u2019d still like to play.`;
     }
-    if (dayKey === 'wed') {
-      const dow = new Date().getDay();
-      if (dow === 3) {
-        return "This week's Wednesday chukkas are today. Sign-ups for next week open on Thursday once the roster has cleared.";
-      }
-      return "Sign-ups have closed for this Wednesday. The deadline is Tuesday at 12pm.";
-    }
-    return `Sign-ups close 24 hours before throw-in (${DAY_CONFIG[dayKey].eveningPrev} ${fmtTime(throwInMins[dayKey])}).`;
+    return `Sign-ups for this ${DAY_CONFIG[dayKey].fullLabel} closed ${cutoffLabel(dayKey)}.`;
   };
 
   // Target throw-in datetime for a given day. Rolls forward to next week
@@ -1191,17 +1208,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return target;
   };
 
-  // Sign-up cutoff datetime (ms) for a day — mirrors isBookingClosed():
-  //   Wed closes Tuesday 12:00; Sat/Sun/Thu close 24h before throw-in.
-  const cutoffTime = (dayKey) => {
-    if (dayKey === 'wed') {
-      const wed = targetDayThrowIn('wed');
-      const tue = new Date(wed);
-      tue.setDate(wed.getDate() - 1);
-      tue.setHours(12, 0, 0, 0);
-      return tue.getTime();
-    }
-    return targetDayThrowIn(dayKey).getTime() - CUTOFF_HOURS * 60 * 60 * 1000;
+  // Sign-up cutoff datetime (ms) for a day, from the captain's setting or the
+  // day's default: `d` days before the session, at `t` (or at throw-in when the
+  // time is blank). This is the ONE place the cutoff is computed — the members'
+  // banner, isBookingClosed and the reminder notification all read it, so they
+  // cannot drift apart from each other or from what the captain set.
+  const cutoffTime = (dayKey = activeDay) => {
+    const { d, t } = cutoffFor(dayKey);
+    const session = targetDayThrowIn(dayKey);
+    const at = new Date(session);
+    at.setDate(session.getDate() - (d || 0));
+    const mins = t ? parseTime(t) : throwInMins[dayKey];
+    if (mins != null) at.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+    return at.getTime();
+  };
+  // "Tuesday at 12:00" — how the cut-off reads to a member, derived rather than
+  // hard-coded so it always matches whatever the captain has set.
+  const cutoffLabel = (dayKey = activeDay) => {
+    const at = new Date(cutoffTime(dayKey));
+    const weekday = at.toLocaleDateString('en-GB', { weekday: 'long' });
+    return `${weekday} at ${fmtTime(at.getHours() * 60 + at.getMinutes())}`;
   };
 
   // Schedule iOS reminders for upcoming sessions that have sign-ups. Re-run on
@@ -1243,7 +1269,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         }
 
         // Sign-ups closing reminder — 3 hours before the cutoff.
-        const closeText = dayKey === 'wed' ? 'Tuesday at 12:00' : `${cfg.eveningPrev} at ${timeStr}`;
+        const closeText = cutoffLabel(dayKey);
         const warnAt = cutoffTime(dayKey) - 180 * 60 * 1000;
         if (warnAt > now + 60 * 1000) {
           toSchedule.push({
@@ -1392,6 +1418,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const nextClosed = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       const nextOpen = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
       const nextCapLift = Object.fromEntries(DAY_KEYS.map(k => [k, '']));
+      const nextCutoffs = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
+      const nextCapLimits = Object.fromEntries(DAY_KEYS.map(k => [k, null]));
       const nextPublished = Object.fromEntries(DAY_KEYS.map(k => [k, false]));
       // Issue all 30 per-day reads at once rather than awaiting them one after
       // another. Nothing here depends on anything else here, so serialising them
@@ -1405,10 +1433,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         Promise.all([
           read('roster', dk), read('schedule', dk), read('throwin', dk),
           read('ground', dk), read('booking-closed', dk), read('draw-published', dk),
-          read('booking-open', dk), read('cap-off', dk),
-        ]).then(([r, s, t, g, bc, dp, bo, co]) => ({ dk, r, s, t, g, bc, dp, bo, co }))
+          read('booking-open', dk), read('cap-off', dk), read('cutoff', dk),
+          read('cap-limit', dk),
+        ]).then(([r, s, t, g, bc, dp, bo, co, cu, cl]) => ({ dk, r, s, t, g, bc, dp, bo, co, cu, cl }))
       ));
-      for (const { dk, r, s, t, g, bc, dp, bo, co } of dayReads) {
+      for (const { dk, r, s, t, g, bc, dp, bo, co, cu, cl } of dayReads) {
         try {
           if (r?.value) nextRosters[dk] = JSON.parse(r.value);
         } catch (e) {}
@@ -1440,6 +1469,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         try {
           if (co?.value) nextCapLift[dk] = co.value;
         } catch (e) {}
+        try {
+          if (cu?.value) {
+            const parsed = JSON.parse(cu.value);
+            if (parsed && typeof parsed.d === 'number') nextCutoffs[dk] = { d: parsed.d, t: parsed.t || '' };
+          }
+        } catch (e) {}
+        try {
+          if (cl?.value) {
+            const parsed = JSON.parse(cl.value);
+            if (parsed && typeof parsed.arena === 'number' && typeof parsed.other === 'number') {
+              nextCapLimits[dk] = { arena: parsed.arena, other: parsed.other };
+            }
+          }
+        } catch (e) {}
       }
       setRosters(nextRosters);
       setSchedules(nextSchedules);
@@ -1448,6 +1491,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setManualClosed(nextClosed);
       setManualOpen(nextOpen);
       setCapLifted(nextCapLift);
+      setCutoffs(nextCutoffs);
+      setCapLimits(nextCapLimits);
       setDrawPublished(nextPublished);
       // The rosters ARE the app's front page, and they are now all in hand.
       // Drop the full-screen crest here rather than at the end of loadAll, so
@@ -1636,6 +1681,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // Move a day's throw-in. Any existing draw keeps its teams and counts; only
   // the printed times shift, recomputed off the new start.
+  // Persist a captain-set cut-off. Saved per day so each session can close on
+  // its own schedule; the notification copy and the members' banner both read
+  // from the same value, so they can never drift apart from it.
+  const applyCutoff = async (daysBefore, hhmm, dayKey = activeDay) => {
+    const d = Math.max(0, Math.min(6, parseInt(daysBefore, 10) || 0));
+    const t = hhmm && parseTime(hhmm) !== null ? hhmm : '';
+    const next = { d, t };
+    setCutoffs(prev => ({ ...prev, [dayKey]: next }));
+    try { await window.storage.set(storageKey('cutoff', dayKey), JSON.stringify(next), true); } catch (e) {}
+    return true;
+  };
+  // Drop back to the day's built-in cut-off.
+  const resetCutoff = async (dayKey = activeDay) => {
+    setCutoffs(prev => ({ ...prev, [dayKey]: null }));
+    try { await window.storage.delete(storageKey('cutoff', dayKey), true); } catch (e) {}
+  };
+
   const applyThrowIn = async (hhmm, dayKey = activeDay) => {
     const parsed = parseTime(hhmm);
     if (parsed === null) return false;
@@ -1691,6 +1753,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (val) await window.storage.set(storageKey('cap-off', dayKey), val, true);
       else await window.storage.delete(storageKey('cap-off', dayKey), true);
     } catch (err) {}
+  };
+
+  // Persist captain-set capacities for a day. Kept as two numbers rather than
+  // one, so switching ground still picks the right limit without the captain
+  // having to come back and re-edit it.
+  const applyCapLimits = async (arenaVal, otherVal, dayKey = activeDay) => {
+    const clamp = (v) => Math.max(1, Math.min(60, parseInt(v, 10) || 0));
+    const arena = clamp(arenaVal);
+    const other = clamp(otherVal);
+    if (!arena || !other) return false;
+    const next = { arena, other };
+    setCapLimits(prev => ({ ...prev, [dayKey]: next }));
+    try { await window.storage.set(storageKey('cap-limit', dayKey), JSON.stringify(next), true); } catch (e) {}
+    return true;
+  };
+  // Drop back to the day's built-in 6 arena / 8 elsewhere.
+  const resetCapLimits = async (dayKey = activeDay) => {
+    setCapLimits(prev => ({ ...prev, [dayKey]: null }));
+    try { await window.storage.delete(storageKey('cap-limit', dayKey), true); } catch (e) {}
   };
 
   // Publish / unpublish the active day's draw to members.
@@ -5086,6 +5167,62 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     >cancel</button>
                   </div>
                 ) : null}
+                {/* Sign-up cut-off — captain-editable, and the single source for
+                    the members' banner and the "sign-ups closing" reminder. */}
+                <div style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--muted)', marginTop: '6px' }}>
+                  Sign-ups close {cutoffLabel(activeDay)}
+                  {captainMode && !cutoffEditing && (
+                    <button
+                      type="button"
+                      onClick={() => { const c = cutoffFor(activeDay); setCutoffDays(String(c.d)); setCutoffInput(c.t || fmtTime(throwInMin)); setCutoffEditing(true); }}
+                      style={{
+                        background: 'none', border: 'none', marginLeft: '8px',
+                        fontSize: '10px', color: 'var(--burgundy)', cursor: 'pointer',
+                        textDecoration: 'underline', textUnderlineOffset: '3px',
+                        fontFamily: 'inherit', letterSpacing: '1px', textTransform: 'uppercase',
+                      }}
+                    >edit cut-off</button>
+                  )}
+                </div>
+                {captainMode && cutoffEditing ? (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
+                    <select
+                      value={cutoffDays}
+                      onChange={(e) => setCutoffDays(e.target.value)}
+                      className="input-field select-field"
+                      style={{ padding: '8px 10px', fontSize: '14px' }}
+                    >
+                      <option value="0">Same day</option>
+                      <option value="1">1 day before</option>
+                      <option value="2">2 days before</option>
+                      <option value="3">3 days before</option>
+                      <option value="4">4 days before</option>
+                      <option value="5">5 days before</option>
+                      <option value="6">6 days before</option>
+                    </select>
+                    <input
+                      type="time"
+                      value={cutoffInput}
+                      onChange={(e) => setCutoffInput(e.target.value)}
+                      style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '15px', fontFamily: 'inherit' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => { await applyCutoff(cutoffDays, cutoffInput); setCutoffEditing(false); }}
+                      style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', borderRadius: '4px', padding: '8px 14px', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer' }}
+                    >Save</button>
+                    <button
+                      type="button"
+                      onClick={async () => { await resetCutoff(); setCutoffEditing(false); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                    >default</button>
+                    <button
+                      type="button"
+                      onClick={() => setCutoffEditing(false)}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                    >cancel</button>
+                  </div>
+                ) : null}
                 {captainMode && (
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', margin: '8px 0 0' }}>
                     <span style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--muted)' }}>Ground</span>
@@ -5159,6 +5296,54 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           : `∞ Lift the ${baseSignupCap()}-place limit`}
                       </button>
                     )}
+                    {/* Change the capacities themselves. The 6/8 defaults stay
+                        unless a captain sets something here, and "default" puts
+                        them back. */}
+                    {capConfigFor() != null && (capEditing ? (
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                          Arena
+                          <input
+                            type="number" min="1" max="60" inputMode="numeric"
+                            value={capArenaInput}
+                            onChange={(e) => setCapArenaInput(e.target.value)}
+                            style={{ width: '56px', marginLeft: '4px', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '14px', fontFamily: 'inherit' }}
+                          />
+                        </label>
+                        <label style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                          Elsewhere
+                          <input
+                            type="number" min="1" max="60" inputMode="numeric"
+                            value={capOtherInput}
+                            onChange={(e) => setCapOtherInput(e.target.value)}
+                            style={{ width: '56px', marginLeft: '4px', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '14px', fontFamily: 'inherit' }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={async () => { if (await applyCapLimits(capArenaInput, capOtherInput)) setCapEditing(false); }}
+                          style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', borderRadius: '4px', padding: '7px 14px', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer' }}
+                        >Save</button>
+                        <button
+                          type="button"
+                          onClick={async () => { await resetCapLimits(); setCapEditing(false); }}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                        >default</button>
+                        <button
+                          type="button"
+                          onClick={() => setCapEditing(false)}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                        >cancel</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { const c = capConfigFor(); setCapArenaInput(String(c.arena)); setCapOtherInput(String(c.other)); setCapEditing(true); }}
+                        style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', fontFamily: 'inherit' }}
+                      >
+                        {`Edit places (${capConfigFor().arena} arena · ${capConfigFor().other} elsewhere)`}
+                      </button>
+                    ))}
                     <span style={{ fontSize: '11px', color: (manualClosed[activeDay] || isSessionFull()) ? 'var(--burgundy)' : 'var(--muted)' }}>
                       {players.length} signed up{signupCap() != null ? ` of ${signupCap()}${(grounds[activeDay] || '').trim().toLowerCase() === 'arena' ? ' (arena)' : ''}` : ''}
                       {manualClosed[activeDay] ? ' · sign-ups closed' : isSessionFull() ? ' · full' : isCapLifted() ? ' · limit lifted for this session' : ''}
