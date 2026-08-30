@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
+import {
+  enterStageMode, exitStageMode, reacquireWakeLock,
+  isFullscreen, canFullscreen, canWakeLock,
+} from './stageMode';
 import { DEFAULT_COMMITTEE, teamHandicap } from './pdfShared';
 import { startLiveScore, updateLiveScore, endLiveScore } from './liveScoreActivity';
 
@@ -1008,6 +1012,59 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
   const [trophyDraft, setTrophyDraft] = useState({}); // fxId -> in-progress "trophy looked after by" text, persisted on blur
   const [editingDetailsId, setEditingDetailsId] = useState(null);
+  // Stage mode — Live Game filling the screen with the phone kept awake, for a
+  // handset propped on the boards through a chukka.
+  const [stageMode, setStageMode] = useState(false);
+  const [stageNote, setStageNote] = useState('');
+
+  const toggleStageMode = async () => {
+    if (stageMode) {
+      await exitStageMode();
+      setStageMode(false);
+      setStageNote('');
+      return;
+    }
+    const { fullscreen, awake } = await enterStageMode();
+    setStageMode(true);
+    // Say which half took effect rather than letting the switch look broken:
+    // iPhone Safari has no Fullscreen API, and a wake lock can be refused.
+    setStageNote(
+      fullscreen && awake ? ''
+        : awake ? 'Screen kept awake. This browser can\u2019t go full screen.'
+        : fullscreen ? 'Full screen. This browser won\u2019t keep the screen awake.'
+        : 'This browser supports neither full screen nor keeping the screen awake.'
+    );
+  };
+
+  // Leaving full screen by any other route — Esc, the system gesture, the
+  // Android back button — must switch the toggle off too, or it lies.
+  useEffect(() => {
+    if (!stageMode) return undefined;
+    const onChange = () => { if (canFullscreen() && !isFullscreen()) { exitStageMode(); setStageMode(false); setStageNote(''); } };
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, [stageMode]);
+
+  // The browser drops the wake lock whenever the page is hidden, so take it
+  // again on the way back — otherwise stage mode quietly stops working after
+  // the first time you check a message.
+  useEffect(() => {
+    if (!stageMode) return undefined;
+    const onVisible = () => { if (document.visibilityState === 'visible') reacquireWakeLock(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [stageMode]);
+
+  // Never leave the screen pinned awake after Live Game is left or the app closes.
+  useEffect(() => {
+    if (stageMode && activeTab !== 'live') { exitStageMode(); setStageMode(false); setStageNote(''); }
+  }, [activeTab, stageMode]);
+  useEffect(() => () => { exitStageMode(); }, []);
+
   useEffect(() => {
     if (!editingDetailsId) return undefined;
     // One frame, so the editor is laid out before we measure where it is.
@@ -7569,8 +7626,35 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
           {activeTab === 'live' && (
             <div style={{ maxWidth: '760px', margin: '0 auto' }}>
-              <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Live Game</div>
-              <div style={{ fontSize: '12px', color: '#777', marginBottom: '16px' }}>Live scores update automatically as matches are played.</div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Live Game</div>
+                  <div style={{ fontSize: '12px', color: '#777' }}>Live scores update automatically as matches are played.</div>
+                </div>
+                {(canFullscreen() || canWakeLock()) && (
+                  <button
+                    type="button"
+                    onClick={toggleStageMode}
+                    title={stageMode ? 'Leave full screen and let the screen sleep again' : 'Fill the screen and stop it going to sleep'}
+                    style={{
+                      flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '6px',
+                      padding: '8px 13px', borderRadius: '999px', cursor: 'pointer',
+                      fontSize: '12px', fontWeight: 600, fontFamily: 'inherit', letterSpacing: '0.3px',
+                      border: stageMode ? 'none' : '1px solid var(--burgundy)',
+                      background: stageMode ? 'var(--burgundy)' : 'transparent',
+                      color: stageMode ? 'var(--cream)' : 'var(--burgundy)',
+                    }}
+                  >
+                    {stageMode ? '\u2715 Exit full screen' : '\u26f6 Full screen'}
+                  </button>
+                )}
+              </div>
+              {stageMode && (
+                <div style={{ fontSize: '11px', color: 'var(--muted)', margin: '8px 0 0', lineHeight: 1.45 }}>
+                  {stageNote || 'Full screen \u00b7 the screen won\u2019t go to sleep while this is on.'}
+                </div>
+              )}
+              <div style={{ marginBottom: '16px' }} />
               {(
                 (() => {
                   // Members only get published draws here; captains see everything.
