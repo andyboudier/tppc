@@ -4,6 +4,7 @@ import {
   isFullscreen, canFullscreen, canWakeLock,
 } from './stageMode';
 import { DEFAULT_COMMITTEE, teamHandicap } from './pdfShared';
+import { headStartFor, headStartGoals, matchChukkas, isArenaGround } from './handicap';
 import { startLiveScore, updateLiveScore, endLiveScore } from './liveScoreActivity';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -3520,20 +3521,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Any fraction of a goal is counted as half a goal.
   //   e.g. 2-goal diff over 4 chukkas = (2*4)/6 = 1.5; 1-goal diff = (1*4)/6 = 0.5;
   //        3-goal diff = (3*4)/6 = 2; 2-goal diff over 2 chukkas = (2*2)/6 = 0.5.
-  const matchChukkas = (match) => {
-    const n = Number(match && match.chukkas);
-    return Number.isFinite(n) && n > 0 ? n : 4; // matches default to 4 chukkas
-  };
-  const liveHeadStart = (match, teamKey) => {
-    const hA = teamHandicap(match && match.teamA) || 0;
-    const hB = teamHandicap(match && match.teamB) || 0;
-    if (hA === hB) return 0;
-    const units = Math.abs(hA - hB) * matchChukkas(match); // goal diff * chukkas
-    const whole = Math.floor(units / 6);
-    const goals = whole + (units % 6 > 0 ? 0.5 : 0); // divide by 6; any fraction → half a goal
-    const lower = hA < hB ? 'A' : 'B';
-    return teamKey === lower ? goals : 0;
-  };
+  const liveHeadStart = (match, teamKey) => headStartFor(match, teamKey, teamHandicap);
   const fmtHalf = (n) => {
     const whole = Math.floor(n);
     const half = (n - whole) >= 0.5;
@@ -7139,6 +7127,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               teamA: mkTeam(enteredTeams[i], d),
                                               teamB: mkTeam(enteredTeams[i + 1], d),
                                               chukkas: 4, umpires: '', commentator: '', goalJudges: '', timekeeper: '', notes: '',
+                                              arenaHandicap: isArenaGround(d.ground),
                                             });
                                           }
                                           return { id: d.key, dateLabel: d.label, ground: '', matches, prizegiving: false };
@@ -7220,6 +7209,59 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                     <input className="input-field" placeholder="Commentator" value={match.commentator || ''} onChange={e => updMatch(di, mi, m => ({...m, commentator: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                   </div>
+                                                  {/* Which handicap rule this match runs under, and — for a round
+                                                      robin carried across days — whether its score continues from an
+                                                      earlier one. Both are stored on the match, so nothing already
+                                                      recorded is restated by a rule change. */}
+                                                  {(() => {
+                                                    const hs = headStartGoals(match, teamHandicap);
+                                                    const earlier = (draft.days || [])
+                                                      .flatMap((d2, dj) => dj < di ? (d2.matches || []).map(m2 => ({ m2, label: `${d2.dateLabel || 'Day ' + (dj + 1)} · ${m2.label || ((m2.teamA?.name || 'A') + ' v ' + (m2.teamB?.name || 'B'))}` })) : []);
+                                                    return (
+                                                      <div style={{ background: 'var(--cream-warm)', border: '1px solid var(--line)', borderRadius: '4px', padding: '7px 9px', marginBottom: '5px' }}>
+                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--ink)', cursor: 'pointer', userSelect: 'none' }}>
+                                                          <input type="checkbox" checked={!!match.arenaHandicap} onChange={e => updMatch(di, mi, m => ({...m, arenaHandicap: e.target.checked}))} style={{ width: '14px', height: '14px', accentColor: 'var(--burgundy)' }} />
+                                                          Arena handicap — HPA Arena Rule 17(b), difference &times; 2
+                                                        </label>
+                                                        {earlier.length > 0 && (
+                                                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--ink)', cursor: 'pointer', userSelect: 'none', marginTop: '5px' }}>
+                                                            <input type="checkbox" checked={!!match.continuation} onChange={e => updMatch(di, mi, m => ({...m, continuation: e.target.checked, continuedFrom: e.target.checked ? m.continuedFrom : ''}))} style={{ width: '14px', height: '14px', accentColor: 'var(--burgundy)' }} />
+                                                            Continuation — the score carries on from an earlier day
+                                                          </label>
+                                                        )}
+                                                        {match.continuation && earlier.length > 0 && (
+                                                          <div style={{ display: 'flex', gap: '6px', marginTop: '5px', alignItems: 'center' }}>
+                                                            <select
+                                                              className="input-field select-field"
+                                                              value={match.continuedFrom || ''}
+                                                              onChange={e => {
+                                                                const src = earlier.find(x => x.m2.id === e.target.value);
+                                                                // Carry the running score across with the link, so the
+                                                                // captain doesn't retype it — and so it is obvious the
+                                                                // second day starts where the first left off.
+                                                                updMatch(di, mi, m => ({
+                                                                  ...m,
+                                                                  continuedFrom: e.target.value,
+                                                                  ...(src ? { scoreA: src.m2.scoreA ?? null, scoreB: src.m2.scoreB ?? null } : {}),
+                                                                }));
+                                                              }}
+                                                              style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '11px' }}
+                                                            >
+                                                              <option value="">Carry the score on from…</option>
+                                                              {earlier.map(({ m2, label }) => <option key={m2.id} value={m2.id}>{label}</option>)}
+                                                            </select>
+                                                          </div>
+                                                        )}
+                                                        <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '5px', lineHeight: 1.45 }}>
+                                                          {match.continuation
+                                                            ? 'No goals on — they were given on the first day and carry in the score above.'
+                                                            : hs.goals > 0
+                                                              ? `Goals on: ${fmtHalf(hs.goals)} to ${hs.team === 'A' ? (match.teamA?.name || 'Team A') : (match.teamB?.name || 'Team B')}${match.arenaHandicap ? ' (arena, \u00d72)' : ` (grass, \u00d7${matchChukkas(match)}\u00f76)`}`
+                                                              : 'Goals on: none — the teams are level.'}
+                                                        </div>
+                                                      </div>
+                                                    );
+                                                  })()}
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Goal judges" value={match.goalJudges || ''} onChange={e => updMatch(di, mi, m => ({...m, goalJudges: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                     <input className="input-field" placeholder="Timekeeper" value={match.timekeeper || ''} onChange={e => updMatch(di, mi, m => ({...m, timekeeper: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
@@ -7318,13 +7360,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     time: '',
                                                     label: '',
                                                     chukkas: 4, umpires: '', commentator: '', goalJudges: '', timekeeper: '',
+                                                    arenaHandicap: isArenaGround(srcDay.ground),
                                                     teamA: { name: m.teamA?.name || '', handicap: m.teamA?.handicap ?? null, players: cleanSquad(m.teamA?.players) },
                                                     teamB: { name: m.teamB?.name || '', handicap: m.teamB?.handicap ?? null, players: cleanSquad(m.teamB?.players) },
                                                   }));
                                                   updDay(di, d => ({...d, matches: copiedMatches}));
                                                 }} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--burgundy)', color: 'var(--burgundy)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px', opacity: 0.75 }}>↩ Copy teams from Day 1</button>
                                               )}
-                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, chukkas:4, umpires:'', commentator:'', goalJudges:'', timekeeper:'', notes:''}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
+                                              <button onClick={() => updDay(di, d => ({...d, matches: [...(d.matches||[]), {id:'m'+Date.now(), time:'', label:'', teamA:{name:'', handicap:null, players:[]}, teamB:{name:'', handicap:null, players:[]}, chukkas:4, umpires:'', commentator:'', goalJudges:'', timekeeper:'', notes:'', arenaHandicap: isArenaGround(d.ground)}]}))} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '5px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px', marginBottom: '2px' }}>+ Add match</button>
                                             </div>
                                           ))}
                                           <button onClick={() => setDraft({...draft, days: [...(draft.days||[]), {id:'d'+Date.now(), dateLabel:'', ground:'', matches:[], prizegiving:false}]})} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--line)', color: 'var(--muted)', padding: '7px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>+ Add day</button>
