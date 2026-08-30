@@ -887,6 +887,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [dueMethod, setDueMethod] = useState({});      // per-due payment-method picker in Checkout
 
   // Throw-in time editor (captain mode)
+  // The match-details editor opens well below the fold on a long fixture, so
+  // tapping "Edit match details" used to leave you looking at the same screen
+  // with the editor somewhere off the bottom. Scrolled into view once it mounts.
+  const detailsEditorRef = useRef(null);
   const [throwInEditing, setThrowInEditing] = useState(false);
   const [capEditing, setCapEditing] = useState(false);
   const [capArenaInput, setCapArenaInput] = useState('');
@@ -1004,6 +1008,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [fixtureEditor, setFixtureEditor] = useState(null); // null | { id?, month, date, name, level }
   const [trophyDraft, setTrophyDraft] = useState({}); // fxId -> in-progress "trophy looked after by" text, persisted on blur
   const [editingDetailsId, setEditingDetailsId] = useState(null);
+  useEffect(() => {
+    if (!editingDetailsId) return undefined;
+    // One frame, so the editor is laid out before we measure where it is.
+    const t = requestAnimationFrame(() => {
+      detailsEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(t);
+  }, [editingDetailsId]);
+
   const isDesktop = useIsDesktop();
   const [boardFixtureId, setBoardFixtureId] = useState(null); // fixture open on the desktop board
   const [chukkaBoardOpen, setChukkaBoardOpen] = useState(false); // desktop chukka board
@@ -7078,7 +7091,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                         setDraft({ ...draft, days: newDays });
                                       };
                                       return (
-                                        <div style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px' }}>
+                                        <div ref={detailsEditorRef} style={{ background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', marginBottom: '14px', scrollMarginTop: '12px' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                             <div className="label-eyebrow" style={{ fontSize: '10px' }}>Match details</div>
                                             <button onClick={() => setEditingDetailsId(null)} style={{ background: 'none', border: 'none', fontSize: '20px', color: 'var(--muted)', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
@@ -7136,15 +7149,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     <input className="input-field" placeholder="Time" value={match.time || ''} onChange={e => updMatch(di, mi, m => ({...m, time: e.target.value}))} style={{ width: '52px', padding: '5px 4px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" type="number" min="1" placeholder="Ch" title="Chukkas in this match (used for the handicap goal start)" value={match.chukkas ?? ''} onChange={e => updMatch(di, mi, m => ({...m, chukkas: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1)}))} style={{ width: '34px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
                                                     <input className="input-field" placeholder="Div" title="Division, e.g. I, II, III — groups this match's teams on the 'Team sheets by division' PDF. Order in the list doesn't matter." value={match.division || ''} onChange={e => updMatch(di, mi, m => ({...m, division: e.target.value}))} style={{ width: '38px', padding: '5px 2px', fontSize: '11px', textAlign: 'center' }} />
-                                                    <input className="input-field" placeholder="Label e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '6px 8px', fontSize: '15px', fontWeight: 600 }} />
-                                                    <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, gap: '1px' }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, gap: '1px', marginLeft: 'auto' }}>
                                                       <button onClick={() => moveMatch(di, mi, -1)} disabled={mi === 0} title="Move up" style={{ background: 'none', border: 'none', color: mi === 0 ? 'var(--line)' : 'var(--burgundy)', fontSize: '10px', cursor: mi === 0 ? 'default' : 'pointer', lineHeight: 1, padding: '1px 3px' }}>▲</button>
                                                       <button onClick={() => moveMatch(di, mi, 1)} disabled={mi === (day.matches || []).length - 1} title="Move down" style={{ background: 'none', border: 'none', color: mi === (day.matches || []).length - 1 ? 'var(--line)' : 'var(--burgundy)', fontSize: '10px', cursor: mi === (day.matches || []).length - 1 ? 'default' : 'pointer', lineHeight: 1, padding: '1px 3px' }}>▼</button>
                                                     </div>
                                                     <button onClick={() => { const matches = day.matches.filter((_,i) => i!==mi); updDay(di, d => ({...d, matches})); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '16px', cursor: 'pointer', flexShrink: 0, lineHeight: 1, padding: '0 2px' }}>×</button>
                                                   </div>
-                                                  <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
-                                                  <input className="input-field" placeholder="Commentator" value={match.commentator || ''} onChange={e => updMatch(di, mi, m => ({...m, commentator: e.target.value}))} style={{ width: '100%', padding: '5px 7px', fontSize: '12px', marginBottom: '5px' }} />
+                                                  {/* The match title on its own line, under the time/chukkas/division
+                                                      row, so it reads as the heading it is rather than as one more
+                                                      small box in a row of small boxes. */}
+                                                  <input className="input-field" placeholder="Match title e.g. Final" value={match.label || ''} onChange={e => updMatch(di, mi, m => ({...m, label: e.target.value}))} style={{ width: '100%', padding: '7px 9px', fontSize: '15px', fontWeight: 600, marginBottom: '5px' }} />
+                                                  <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
+                                                    <input className="input-field" placeholder="Umpires" value={match.umpires || ''} onChange={e => updMatch(di, mi, m => ({...m, umpires: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
+                                                    <input className="input-field" placeholder="Commentator" value={match.commentator || ''} onChange={e => updMatch(di, mi, m => ({...m, commentator: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
+                                                  </div>
                                                   <div style={{ display: 'flex', gap: '6px', marginBottom: '5px' }}>
                                                     <input className="input-field" placeholder="Goal judges" value={match.goalJudges || ''} onChange={e => updMatch(di, mi, m => ({...m, goalJudges: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
                                                     <input className="input-field" placeholder="Timekeeper" value={match.timekeeper || ''} onChange={e => updMatch(di, mi, m => ({...m, timekeeper: e.target.value}))} style={{ flex: 1, minWidth: 0, padding: '5px 7px', fontSize: '12px' }} />
