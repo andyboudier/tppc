@@ -3946,6 +3946,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           line-height: 1.4;
         }
         .polo-app * { box-sizing: border-box; }
+        /* Stage mode: the score gets the whole screen. The masthead and the
+           tab bar are hidden rather than unmounted, so leaving stage mode
+           returns you exactly where you were. */
+        .polo-app.stage-on .header-bg,
+        .polo-app.stage-on .tabs { display: none; }
         .display { font-family: 'Fraunces', Georgia, serif; font-weight: 500; }
         .display-italic { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; }
         .label-eyebrow {
@@ -5095,7 +5100,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         .reveal { animation: fadeInScale 0.4s ease-out; }
       `}</style>
 
-      <div className="polo-app">
+      <div className={`polo-app${stageMode ? ' stage-on' : ''}`}>
         {/* Desktop fixture board. Renders only above the breakpoint and only in
             captain mode; every edit goes through the same updaters the phone
             editor uses, so the two views cannot diverge. */}
