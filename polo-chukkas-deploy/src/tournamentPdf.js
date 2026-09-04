@@ -242,7 +242,10 @@ function underlineCentered(doc, text, cx, baselineY, gap = 0.8) {
 
 // ── Page builders ────────────────────────────────────────────────────────
 
-function drawCoverPage(doc, fixture, subtitle) {
+// `compact` is passed when a trophy photograph will follow: the title block
+// moves up the page so the photo gets a band worth having rather than the
+// 28mm the standard layout leaves at the foot.
+function drawCoverPage(doc, fixture, subtitle, compact) {
   // Crest large, near upper third
   drawCrest(doc, PAGE_W / 2, 95, 90);
 
@@ -264,7 +267,7 @@ function drawCoverPage(doc, fixture, subtitle) {
     customTitle.forEach((l) => { size = Math.min(size, fitFont(doc, l, 48, maxW, 16)); });
     let gap = size * 0.46;
     const levelReserve = (fixture.level && fixture.level.trim()) ? 18 : 4;
-    const bandTop = 150, bandBot = 260;
+    const bandTop = compact ? 128 : 150, bandBot = compact ? 232 : 260;
     // …and until the whole stack (plus the level line) fits the vertical band.
     while (size > 16 && bandTop + (customTitle.length - 1) * gap + levelReserve > bandBot) {
       size -= 1;
@@ -282,8 +285,9 @@ function drawCoverPage(doc, fixture, subtitle) {
       doc.setFontSize(22);
       doc.setTextColor(...BURGUNDY);
       doc.text(pdfLevel(fixture.level), PAGE_W / 2, yy + 16, { align: 'center' });
+      return yy + 16;
     }
-    return;
+    return yy;
   }
 
   const fullTitle = ensureLeadingThe(fixture.name);
@@ -295,7 +299,7 @@ function drawCoverPage(doc, fixture, subtitle) {
   const restWords = words.slice(1);
 
   doc.setFontSize(48);
-  let y = 190;
+  let y = compact ? 166 : 190;
   doc.text(first, PAGE_W / 2, y, { align: 'center' });
   y += 24;
 
@@ -325,6 +329,34 @@ function drawCoverPage(doc, fixture, subtitle) {
     doc.setFontSize(22);
     doc.setTextColor(...BURGUNDY);
     doc.text(pdfLevel(fixture.level), PAGE_W / 2, y + 1, { align: 'center' });
+    return y + 1;
+  }
+  return y;
+}
+
+// The club's photograph of the trophy, under the title on the front sheet.
+//
+// Takes whatever room the title left rather than a fixed box, because that room
+// varies a lot: a five-line custom title can run to within 20mm of the foot of
+// the page, while "The May Cup" leaves half of it. Below MIN_TROPHY_H there is
+// no room worth using and the photo is simply left out — a squashed thumbnail
+// would look worse than none.
+const MIN_TROPHY_H = 24;
+
+function drawTrophyPhoto(doc, trophy, afterY) {
+  if (!trophy || !trophy.dataUrl) return;
+  const top = afterY + 12;
+  const avail = (PAGE_H - 20) - top;
+  if (avail < MIN_TROPHY_H) return;
+  const maxW = PAGE_W - 2 * MARGIN - 30;
+  const ratio = (trophy.w && trophy.h) ? trophy.w / trophy.h : 1.4;
+  let h = Math.min(avail, 72);
+  let w = h * ratio;
+  if (w > maxW) { w = maxW; h = w / ratio; }
+  try {
+    doc.addImage(trophy.dataUrl, 'JPEG', (PAGE_W - w) / 2, top, w, h, undefined, 'FAST');
+  } catch (e) {
+    // A corrupt or unreadable photo must never cost the captain the programme.
   }
 }
 
@@ -1227,8 +1259,12 @@ export async function generateTournamentPdf(fixture, detail, chukkaByDow = {}, o
   const subtitle = opts.subtitle || buildDateSubtitle(fixture);
   const hideChukkas = !!opts.hideChukkas;
 
-  // Cover
-  drawCoverPage(doc, fixture, subtitle);
+  // Cover, then the trophy photograph in whatever room the title left.
+  // opts.trophyImage is resolved by the caller — the PDF module does no
+  // Firestore reads of its own.
+  const hasTrophy = !!(opts.trophyImage && opts.trophyImage.dataUrl);
+  const coverBottom = drawCoverPage(doc, fixture, subtitle, hasTrophy);
+  drawTrophyPhoto(doc, opts.trophyImage, coverBottom);
 
   // Team sheets by division — a standalone handout for military tournaments.
   // Teams only, no running order, since divisions cut across the time-ordered draw.
