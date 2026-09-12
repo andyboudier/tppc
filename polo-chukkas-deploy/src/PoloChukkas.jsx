@@ -1317,6 +1317,43 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [authSheetStart, setAuthSheetStart] = useState(undefined);
   const openSignIn = (at) => { setAuthSheetStart(at); setAuthSheetOpen(true); };
 
+  // The signed-in member's record in the player database, matched on the
+  // email they signed in with. An admin puts the email on the record; from
+  // then on that person books as that record — its name and handicap — and
+  // may also book anyone who shares its team, and nobody else. With no record
+  // they book as their profile says, and only themselves.
+  const myPlayer = (() => {
+    if (!auth.enabled || !auth.user) return null;
+    const em = (auth.user.email || '').trim().toLowerCase();
+    if (!em) return null;
+    return playerDb.find(p => p.active !== false && (p.email || '').trim().toLowerCase() === em) || null;
+  })();
+  const teamKey = (t) => (t || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const teammates = myPlayer && teamKey(myPlayer.team)
+    ? playerDb
+      .filter(p => p.id !== myPlayer.id && p.active !== false && teamKey(p.team) === teamKey(myPlayer.team))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    : [];
+  // Booking as a member (sign-in on, not an admin): the form is for yourself
+  // or a teammate, chosen from a list, never a name typed in.
+  const memberBooking = auth.enabled && isMember && !captainMode;
+  const [bookingFor, setBookingFor] = useState('me'); // 'me' | a teammate's player id
+  const myName = (myPlayer && myPlayer.name) || (auth.profile && auth.profile.name) || (auth.user && auth.user.displayName) || '';
+  // What goes in the form for whoever is being booked.
+  const detailsFor = (who) => {
+    const rec = who === 'me' ? null : teammates.find(t => t.id === who);
+    const src = rec || myPlayer || auth.profile || {};
+    return {
+      name: src.name || '',
+      handicap: src.handicap == null || src.handicap === '' ? '' : String(src.handicap),
+      mobile: src.mobile || '',
+    };
+  };
+  // A member may take off a list what they put on it — themselves, or a
+  // teammate they booked — and their own entry whoever put it there.
+  const canRemoveEntry = (p) => !!(auth.enabled && auth.user && p
+    && (p.uid === auth.user.uid || (myPlayer && p.playerId && p.playerId === myPlayer.id)));
+
   // What members are allowed to see. A fixture's match details stay private
   // until the captain publishes them, so a draw can be built without going live.
   // Captains always see everything.
@@ -1663,28 +1700,34 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!captainMode) setActiveTab(prev => (CAPTAIN_ONLY_TABS.includes(prev) ? 'chukkas' : prev));
   }, [captainMode]);
 
-  // A signed-in member books as themselves: the form starts with what their
-  // profile says, and they can still change any of it for the day.
+  // A signed-in member books as themselves, or a teammate: the form carries
+  // what the player database (or, failing that, their profile) says about
+  // whoever is chosen. Handicap and mobile stay editable for the day.
   useEffect(() => {
-    if (!auth.enabled || !auth.profile) return;
-    const p = auth.profile;
-    if (!name && p.name) setName(p.name);
-    if (handicap === '' && p.handicap != null && p.handicap !== '') setHandicap(String(p.handicap));
-    if (!mobile && p.mobile) setMobile(p.mobile);
+    if (!memberBooking) return;
+    if (bookingFor !== 'me' && !teammates.some(t => t.id === bookingFor)) { setBookingFor('me'); return; }
+    const d = detailsFor(bookingFor);
+    setName(d.name); setHandicap(d.handicap); setMobile(d.mobile);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.profile, auth.user && auth.user.uid]);
+  }, [memberBooking, bookingFor, myPlayer && myPlayer.id, auth.profile && auth.profile.name, auth.user && auth.user.uid]);
 
   // First sign-in with nothing on the profile yet: ask once for a name and
-  // handicap, since that is what the chukka list needs.
+  // handicap, since that is what the chukka list needs. Someone already in
+  // the player database is not asked — the record fills the profile in.
   const askedProfileFor = useRef(null);
   useEffect(() => {
-    if (!auth.enabled || !auth.ready || !auth.user) return;
+    if (!auth.enabled || !auth.ready || !auth.user || !loaded) return;
     if (auth.profile && auth.profile.name) return;
     if (askedProfileFor.current === auth.user.uid) return;
     askedProfileFor.current = auth.user.uid;
+    if (myPlayer && myPlayer.name) {
+      window.auth.saveProfile({ name: myPlayer.name, handicap: myPlayer.handicap, mobile: myPlayer.mobile || '', hpa: '' })
+        .catch(() => openSignIn('profile'));
+      return;
+    }
     openSignIn('profile');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.enabled, auth.ready, auth.user && auth.user.uid, auth.profile]);
+  }, [auth.enabled, auth.ready, auth.user && auth.user.uid, auth.profile, loaded]);
 
   // Hard refresh — clears caches and busts iOS's web-clip HTML cache.
   // Used by the manual refresh button and the prolonged-hidden listener below.
@@ -2202,7 +2245,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     id: '', name: '', handicap: '', email: '', mobile: '',
     type: 'Member', membership: 'none', military: false, unit: '', active: true,
     subsidies: [], notes: '',
+    // Free text. Players with the same team may book each other in, once
+    // sign-in is on — see myPlayer.
+    team: '',
   });
+  const teamNames = [...new Set(playerDb.map(p => (p.team || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const newPlayerId = (salt = '') => `p-${Date.now()}-${salt}${Math.random().toString(36).slice(2, 7)}`;
   const savePlayerDb = async (next) => {
     setPlayerDb(next);
@@ -2232,6 +2279,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       active: draft.active !== false,
       subsidies: Array.isArray(draft.subsidies) ? draft.subsidies : [],
       notes: (draft.notes || '').trim(),
+      team: (draft.team || '').trim().replace(/\s+/g, ' '),
       updatedAt: Date.now(),
     };
     const exists = playerDb.some(p => p.id === record.id);
@@ -2282,7 +2330,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         name: f.name,
         handicap: (f.handicap == null || f.handicap === '') ? null : Number(f.handicap),
         email: '', mobile: f.mobile || '', type: 'Member', membership: 'none',
-        military: false, unit: '', active: true, subsidies: [], notes: '',
+        military: false, unit: '', active: true, subsidies: [], notes: '', team: '',
         updatedAt: Date.now(),
       }));
     if (!additions.length) { setPdbError('Everyone from chukkas and tournaments is already registered.'); return; }
@@ -2643,6 +2691,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Who booked this, when sign-in is on: it lets a member take their own
     // name off the list, and nobody else's.
     uid: auth.enabled && auth.user ? auth.user.uid : undefined,
+    // The player-database record this entry is for, and — when a member has
+    // booked a teammate in — who did the booking, shown on the list.
+    playerId: (() => {
+      if (!memberBooking) return undefined;
+      const rec = bookingFor === 'me' ? myPlayer : teammates.find(t => t.id === bookingFor);
+      return rec ? rec.id : undefined;
+    })(),
+    bookedBy: memberBooking && bookingFor !== 'me' && myName ? myName : undefined,
     name: cleanedName,
     mobile: mobile.trim() || undefined,
     handicap: h,
@@ -2661,6 +2717,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setName(''); setMobile(''); setEmail(''); setHandicap('');
     setChukkas(fixedC ? String(fixedC) : '');
     setAvailableFrom(''); setAvailableTo(''); setVip(false); setNoConsecutive(false); setPonyHire(false);
+    // A member's form goes back to being for themselves.
+    if (memberBooking) {
+      setBookingFor('me');
+      const d = detailsFor('me');
+      setName(d.name); setHandicap(d.handicap); setMobile(d.mobile);
+    }
   };
 
   // Interim (pre-Stripe): quote the cost and, if anything is owed, log a 'due'
@@ -2701,9 +2763,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
     const owed = chargeForBooking(v.cleanedName, v.c, ponyHire);
+    const who = newPlayer.bookedBy ? `${v.cleanedName} added` : 'Added';
     setBookingMsg(owed
-      ? `Added to the roster. ${owed} \u2014 please settle with the Captain.`
-      : 'Added to the roster \u2014 no charge.');
+      ? `${who} to the roster. ${owed} \u2014 please settle with the Captain.`
+      : `${who} to the roster \u2014 no charge.`);
     clearSignupForm();
     saveSchedule(null);
   };
@@ -2740,7 +2803,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     saveWaitlist([...waitingList, entry]);
     // Nobody is billed for waiting — the charge is raised if and when the
     // captain moves them onto the roster.
-    setBookingMsg(`You\u2019re number ${place} on the waiting list for ${getDateStr()}. The captain will be in touch if a place comes up${cleanedEmail ? '' : ' — leave an email address next time and they can let you know directly'}.`);
+    setBookingMsg(entry.bookedBy
+      ? `${v.cleanedName} is number ${place} on the waiting list for ${getDateStr()}. The captain will be in touch if a place comes up.`
+      : `You\u2019re number ${place} on the waiting list for ${getDateStr()}. The captain will be in touch if a place comes up${cleanedEmail ? '' : ' — leave an email address next time and they can let you know directly'}.`);
     clearSignupForm();
   };
 
@@ -6151,6 +6216,32 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {memberBooking ? (
+                    /* Signed in: you book yourself, or a teammate from the
+                       player database — never a name typed in. */
+                    <div style={{ padding: '12px 14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px' }}>
+                      <label htmlFor="booking-for" style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px', textTransform: 'uppercase' }}>Booking for</label>
+                      {teammates.length > 0 ? (
+                        <select id="booking-for" className="input-field select-field" value={bookingFor} onChange={(e) => setBookingFor(e.target.value)}>
+                          <option value="me">{myName ? `Me — ${myName}` : 'Me'}</option>
+                          {teammates.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}{t.handicap != null ? ` (${fmtH(t.handicap)})` : ''}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div id="booking-for" style={{ fontSize: '16px', fontWeight: 500, color: 'var(--ink)' }}>{myName || '—'}</div>
+                      )}
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px', lineHeight: 1.45 }}>
+                        {teammates.length > 0
+                          ? <>You can book yourself or anyone in <strong>{myPlayer.team}</strong>.</>
+                          : myPlayer
+                            ? 'Booking as yourself — your details are the club’s record for you.'
+                            : <>Booking as yourself.{' '}
+                                <button type="button" onClick={() => openSignIn('profile')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--burgundy)', cursor: 'pointer', textDecoration: 'underline', fontSize: '11px', fontFamily: 'inherit' }}>Change your name or handicap</button>
+                              </>}
+                      </div>
+                    </div>
+                  ) : (
                   <input
                     className="input-field"
                     type="text"
@@ -6160,7 +6251,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     onChange={(e) => setName(e.target.value)}
                     autoComplete="name"
                   />
-                  {suggestions.length > 0 && (
+                  )}
+                  {!memberBooking && suggestions.length > 0 && (
                     <div className="suggestion-row">
                       <span className="suggestion-label">
                         {nameInputLower ? 'Did you mean:' : 'Quick add:'}
@@ -6509,6 +6601,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 500, fontSize: '16px', wordBreak: 'break-word' }}>{p.name}</div>
                             <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                              {p.bookedBy && <span className="pref-tag" title={`Booked in by ${p.bookedBy}`}>via {p.bookedBy}</span>}
                               {availLabel && <span className="pref-tag">{availLabel}</span>}
                               {p.vip && <span style={{ fontSize: '10px', background: 'var(--gold)', color: 'var(--burgundy-deep)', padding: '1px 6px', borderRadius: '8px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>VIP</span>}
                               {p.noConsecutive && <span style={{ fontSize: '10px', background: 'var(--cream-warm)', color: 'var(--muted)', padding: '1px 6px', borderRadius: '8px', border: '1px solid var(--line)', letterSpacing: '0.3px' }}>no consec.</span>}
@@ -6604,8 +6697,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
                                 <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
                               </div>
-                              {auth.enabled && auth.user && p.uid === auth.user.uid && (
-                                <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label="Take my name off the list" title="Take my name off the list">×</button>
+                              {canRemoveEntry(p) && (
+                                <button className="remove-btn" onClick={() => removePlayer(p.id)}
+                                  aria-label={p.bookedBy && p.name !== myName ? `Take ${p.name} off the list` : 'Take my name off the list'}
+                                  title={p.bookedBy && p.name !== myName ? `Take ${p.name} off the list` : 'Take my name off the list'}>×</button>
                               )}
                             </>
                           )}
@@ -6748,6 +6843,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5 }}>
                             {w.chukkas} chukka{w.chukkas === 1 ? '' : 's'}
                             {w.ponyHire ? ' · pony hire' : ''}
+                            {w.bookedBy ? ` · via ${w.bookedBy}` : ''}
                             {captainMode && w.mobile && (
                               <>
                                 {' · '}
@@ -6762,7 +6858,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             )}
                           </div>
                         </div>
-                        {(captainMode || (auth.enabled && auth.user && w.uid === auth.user.uid)) && (
+                        {(captainMode || canRemoveEntry(w)) && (
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             {captainMode && <button
                               type="button"
@@ -8535,7 +8631,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         : 'Pays per chukka — booking sends them to checkout to pay first.'}
                     </div>
                     <input className="input-field" type="email" placeholder="Email" value={playerEditor.email} onChange={e => setPlayerEditor({ ...playerEditor, email: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    {auth.enabled && (
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-4px', lineHeight: 1.45 }}>
+                        Whoever signs in with this email books as this player, and can book anyone in the same team.
+                      </div>
+                    )}
                     <input className="input-field" type="tel" placeholder="Mobile" value={playerEditor.mobile} onChange={e => setPlayerEditor({ ...playerEditor, mobile: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    <input className="input-field" type="text" list="playerdb-teams" placeholder="Team (optional)" value={playerEditor.team || ''} onChange={e => setPlayerEditor({ ...playerEditor, team: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                    <datalist id="playerdb-teams">
+                      {teamNames.map(t => <option key={t} value={t} />)}
+                    </datalist>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={!!playerEditor.military} onChange={e => setPlayerEditor({ ...playerEditor, military: e.target.checked })} />
                       Military (eligible for subsidies)
@@ -8596,6 +8701,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.name}</span>
                           {p.handicap != null && <span style={{ fontSize: '13px', color: 'var(--muted)' }}>({p.handicap > 0 ? `+${p.handicap}` : p.handicap})</span>}
                           <span style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                            {p.team && <span title={`Team: ${p.team}`} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--burgundy)', border: '1px solid var(--burgundy)', padding: '2px 6px', borderRadius: '3px', maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.team}</span>}
                             {!membershipById(p.membership || 'none').chukkasIncluded && <span title="Pays per chukka — no chukka-inclusive membership" style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px' }}>£/chukka</span>}
                             {p.military && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--gold)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Mil</span>}
                             {p.active === false && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Inactive</span>}
@@ -9238,7 +9344,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
         {/* PIN modal — captain access */}
         {auth.enabled && (
-          <AuthSheet open={authSheetOpen} onClose={() => setAuthSheetOpen(false)} auth={auth} startAt={authSheetStart} handicapOptions={HANDICAP_OPTIONS} />
+          <AuthSheet open={authSheetOpen} onClose={() => setAuthSheetOpen(false)} auth={auth} startAt={authSheetStart} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} />
         )}
         {pinModalOpen && (
           <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>

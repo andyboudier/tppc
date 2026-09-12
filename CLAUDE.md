@@ -51,6 +51,12 @@ When touching gated UI: management → `captainMode`; live-scoring entry →
 `canScore`; the raw PIN state is `pinUnlocked` and should not gate anything
 else directly.
 
+A signed-in member is matched to the player database on email (`myPlayer`).
+Player records carry a free-text `team`; a member may book themselves or
+anyone sharing their team (`teammates`), never a typed name (`memberBooking`).
+Roster and waiting-list entries then carry `playerId` and, for a teammate,
+`bookedBy`; `canRemoveEntry` decides who may take an entry off.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**; the three clubs run with `window.auth` at its default (off).

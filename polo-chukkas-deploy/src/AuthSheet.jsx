@@ -38,8 +38,11 @@ const AppleMark = () => (
 );
 
 // `auth` is the React snapshot (state only — user, role, profile, methods);
-// the actions are called on window.auth itself.
-export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, -1, 0, 1, 2, 3, 4], startAt }) {
+// the actions are called on window.auth itself. `linkedPlayer` is the
+// signed-in member's record in the club's player database, when their email
+// is on one: the profile then starts from it, and a first sign-in is not
+// asked for details the club already has.
+export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, -1, 0, 1, 2, 3, 4], startAt, linkedPlayer = null }) {
   // 'signin' | 'create' | 'link' | 'reset' | 'profile'
   const [step, setStep] = useState('signin');
   const [email, setEmail] = useState('');
@@ -59,10 +62,11 @@ export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, 
     setError(''); setNotice(''); setBusy(false);
     if (profileIncomplete || startAt === 'profile') {
       const p = auth.profile || {};
+      const src = (profileIncomplete && linkedPlayer) ? linkedPlayer : p;
       setProf({
-        name: p.name || (auth.user && auth.user.displayName) || '',
-        handicap: p.handicap == null ? '' : String(p.handicap),
-        mobile: p.mobile || '',
+        name: src.name || (auth.user && auth.user.displayName) || '',
+        handicap: src.handicap == null ? '' : String(src.handicap),
+        mobile: src.mobile || '',
         hpa: p.hpa || '',
       });
       setStep('profile');
@@ -77,7 +81,9 @@ export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, 
   useEffect(() => {
     if (!open || !signedIn) return;
     if (step === 'signin' || step === 'create' || step === 'link') {
-      if (profileIncomplete) {
+      // Known to the club already: the app fills the profile in from the
+      // player database, so there is nothing to ask.
+      if (profileIncomplete && !linkedPlayer) {
         setProf({ name: (auth.user && auth.user.displayName) || '', handicap: '', mobile: '', hpa: '' });
         setStep('profile');
       } else {
@@ -232,6 +238,11 @@ export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, 
           {step === 'profile' && (
             <>
               <p style={S.p}>This is what goes on the chukka list when you book. You can change it any time.</p>
+              {linkedPlayer && (
+                <p style={S.p}>
+                  Your account is linked to the club&rsquo;s record for <strong>{linkedPlayer.name}</strong>{linkedPlayer.team ? <> ({linkedPlayer.team})</> : null}, so you book as that player{linkedPlayer.team ? ' and can book your teammates in' : ''}.
+                </p>
+              )}
               <label style={S.label} htmlFor="prof-name">Name</label>
               <input id="prof-name" className="input-field" type="text" autoComplete="name" value={prof.name}
                 onChange={(e) => setProf({ ...prof, name: e.target.value })} placeholder="As it should appear on the list" />
