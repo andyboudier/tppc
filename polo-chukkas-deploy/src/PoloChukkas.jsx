@@ -12,6 +12,7 @@ import {
 } from './trophyStore';
 import { useAuth } from './auth';
 import AuthSheet, { AdminsPanel } from './AuthSheet';
+import EntryContact from './EntryContact';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
 // loaded on demand. Same signature as before, so call sites are unchanged apart
@@ -1437,6 +1438,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // noon, everything else 24 hours before throw-in.
   // Captain mode always bypasses the cutoff.
   const CONTACT_EMAIL = 'info@tedworthparkpolo.com';
+  // How a team enters a tournament from the fixtures list.
+  //   'form'     the full registration on the fixture card — team, contact,
+  //              squad per day, and a register-interest list. The clubs' way.
+  //   'contact'  a short note to the office (EntryContact.jsx), sent to
+  //              `endpoint` as a JSON POST, or by a mail link to `email` if
+  //              there is no endpoint or the send fails. The office builds
+  //              the team board from it; captains keep the entry tools.
+  const TOURNAMENT_ENTRY = { mode: 'form', endpoint: '', email: CONTACT_EMAIL };
+  const entryContact = TOURNAMENT_ENTRY.mode === 'contact';
+  // Named on the entry email so the office knows which club it came from.
+  const CLUB_NAME_FOR_ENTRIES = 'Tedworth Park Polo Club';
 
   // Thursday ladies and Friday instructional are small sessions with a hard
   // capacity: the arena only takes 6, anywhere else 8. Days with no capOther in
@@ -7117,7 +7129,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   <span className="ornament-line" />
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
-                  Tap a fixture to enter a team or register your interest, and see who else has signed up.
+                  {entryContact ? 'Tap a fixture for the draw, teams and results — or to enter a team.' : 'Tap a fixture to enter a team or register your interest, and see who else has signed up.'}
                 </div>
                 {totalRegistrations > 0 && (
                   <div style={{ fontSize: '12px', color: 'var(--burgundy)', marginTop: '8px', fontWeight: 500 }}>
@@ -7835,6 +7847,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               })()}
 
                               {/* ── Tournament team sign-up ── */}
+                              {entryContact && !captainMode && !isPast && (
+                                <div style={{ paddingTop: '10px' }}>
+                                  <EntryContact
+                                    fixture={fx}
+                                    club={CLUB_NAME_FOR_ENTRIES}
+                                    endpoint={TOURNAMENT_ENTRY.endpoint}
+                                    email={TOURNAMENT_ENTRY.email}
+                                    contactPrefill={auth.enabled && auth.user ? {
+                                      name: (auth.profile && auth.profile.name) || auth.user.displayName || '',
+                                      email: auth.user.email || '',
+                                      mobile: (auth.profile && auth.profile.mobile) || '',
+                                    } : null}
+                                  />
+                                </div>
+                              )}
+                              {(!entryContact || captainMode) && (<>
                               <div style={{ paddingTop: '10px' }}>
                                 <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '6px' }}>Teams Entered</div>
                                 {teamsHere.length === 0 ? (
@@ -7983,6 +8011,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                   </button>
                                 ))}
                               </div>
+                              </>)}
 
                               {registered.length > 0 ? (
                                 <div style={{ paddingTop: '10px' }}>
@@ -8021,7 +8050,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
                               {/* Past fixtures no longer take sign-ups: the whole
                                   register-interest form is hidden once the fixture is over. */}
-                              {isPast ? null : !isTournamentActive(fx) ? (
+                              {isPast || (entryContact && !captainMode) ? null : !isTournamentActive(fx) ? (
                               <div className="register-form">
                                 <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Register your interest</div>
                                 {(() => {
