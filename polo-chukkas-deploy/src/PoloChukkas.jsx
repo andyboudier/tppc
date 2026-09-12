@@ -10,6 +10,8 @@ import {
   trophyKeyFor, loadTrophyIndex, loadTrophyImage, saveTrophyImage,
   deleteTrophyImage, prepareTrophyImage,
 } from './trophyStore';
+import { useAuth } from './auth';
+import AuthSheet, { AdminsPanel } from './AuthSheet';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
 // loaded on demand. Same signature as before, so call sites are unchanged apart
@@ -1295,9 +1297,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [editingAvailId, setEditingAvailId] = useState(null); // player id whose avail window is being edited
   const [scheduleView, setScheduleView] = useState('cards'); // 'cards' | 'table'
   const [confirmModal, setConfirmModal] = useState(null);   // { title, message, confirmLabel, onConfirm } | null
-  const [captainMode, setCaptainMode] = useState(() => {
+  // The captain PIN. With sign-in off (the default for the clubs) it is the
+  // only key to the club and opens everything. With sign-in on it opens live
+  // scoring only, and the management side belongs to admins — see auth.js.
+  const [pinUnlocked, setPinUnlocked] = useState(() => {
     try { return sessionStorage.getItem('tppc-captain') === '1'; } catch (e) { return false; }
   });
+  const auth = useAuth();
+  const isAdmin = auth.enabled && auth.role === 'admin';
+  const isMember = auth.enabled && !!auth.user;
+  // "Captain mode" throughout the app means the management side: rosters,
+  // the draw, players, tournaments, shop, payments. It keeps its old name
+  // because it gates a great deal of the interface.
+  const captainMode = auth.enabled ? isAdmin : pinUnlocked;
+  // Entering scores on the live tab: the PIN, or an admin.
+  const canScore = pinUnlocked || isAdmin;
+  const [authSheetOpen, setAuthSheetOpen] = useState(false);
+  const [authSheetStart, setAuthSheetStart] = useState(undefined);
+  const openSignIn = (at) => { setAuthSheetStart(at); setAuthSheetOpen(true); };
 
   // What members are allowed to see. A fixture's match details stay private
   // until the captain publishes them, so a draw can be built without going live.
@@ -1596,7 +1613,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Check session storage on mount — captain mode persists until tab closes
   useEffect(() => {
     try {
-      if (sessionStorage.getItem('tppc-captain') === '1') setCaptainMode(true);
+      if (sessionStorage.getItem('tppc-captain') === '1') setPinUnlocked(true);
     } catch (e) {}
   }, []);
 
@@ -1608,7 +1625,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const submitPin = () => {
     if (pinInput === CAPTAIN_PIN) {
-      setCaptainMode(true);
+      setPinUnlocked(true);
       try { sessionStorage.setItem('tppc-captain', '1'); } catch (e) {}
       setPinModalOpen(false);
       setPinInput('');
@@ -1620,11 +1637,42 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   const lockCaptainMode = () => {
-    setCaptainMode(false);
+    setPinUnlocked(false);
     // Bounce off any captain-only tab back to the chukka booking pages
-    setActiveTab(prev => (['players', 'teams', 'shop'].includes(prev) ? 'chukkas' : prev));
+    if (!(auth.enabled && auth.role === 'admin')) {
+      setActiveTab(prev => (['players', 'teams', 'shop'].includes(prev) ? 'chukkas' : prev));
+    }
     try { sessionStorage.removeItem('tppc-captain'); } catch (e) {}
   };
+
+  // Losing management access — an admin signing out, or the PIN locking —
+  // must not leave someone on a management tab.
+  useEffect(() => {
+    if (!captainMode) setActiveTab(prev => (CAPTAIN_ONLY_TABS.includes(prev) ? 'chukkas' : prev));
+  }, [captainMode]);
+
+  // A signed-in member books as themselves: the form starts with what their
+  // profile says, and they can still change any of it for the day.
+  useEffect(() => {
+    if (!auth.enabled || !auth.profile) return;
+    const p = auth.profile;
+    if (!name && p.name) setName(p.name);
+    if (handicap === '' && p.handicap != null && p.handicap !== '') setHandicap(String(p.handicap));
+    if (!mobile && p.mobile) setMobile(p.mobile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.profile, auth.user && auth.user.uid]);
+
+  // First sign-in with nothing on the profile yet: ask once for a name and
+  // handicap, since that is what the chukka list needs.
+  const askedProfileFor = useRef(null);
+  useEffect(() => {
+    if (!auth.enabled || !auth.ready || !auth.user) return;
+    if (auth.profile && auth.profile.name) return;
+    if (askedProfileFor.current === auth.user.uid) return;
+    askedProfileFor.current = auth.user.uid;
+    openSignIn('profile');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.enabled, auth.ready, auth.user && auth.user.uid, auth.profile]);
 
   // Hard refresh — clears caches and busts iOS's web-clip HTML cache.
   // Used by the manual refresh button and the prolonged-hidden listener below.
@@ -2580,6 +2628,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // The roster / waiting-list entry for whoever is filling the form in.
   const signupEntry = ({ h, c, cleanedName }) => ({
     id: Date.now(),
+    // Who booked this, when sign-in is on: it lets a member take their own
+    // name off the list, and nobody else's.
+    uid: auth.enabled && auth.user ? auth.user.uid : undefined,
     name: cleanedName,
     mobile: mobile.trim() || undefined,
     handicap: h,
@@ -2625,6 +2676,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const handleAdd = () => {
     setError('');
+    if (auth.enabled && !isMember && !captainMode) { openSignIn(); return; }
     // Past the day's cutoff, or full, or closed by the captain. Captain bypasses.
     if (!captainMode && isBookingClosed()) {
       return setError(`${bookingClosedReason()} To be added, please contact the captain at ${CONTACT_EMAIL}.`);
@@ -2660,6 +2712,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const handleJoinWaitlist = () => {
     setError('');
     setBookingMsg('');
+    if (auth.enabled && !isMember && !captainMode) { openSignIn(); return; }
     if (!waitlistOpen()) return setError(bookingClosedReason());
     const v = validateSignup([
       { list: players, message: (e) => `${e.name} is already on the roster for this ${activeDayConfig.fullLabel}.` },
@@ -6317,8 +6370,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     const joinMode = !captainMode && waitlistOpen();
                     const closed = !captainMode && !joinMode && isBookingClosed();
                     const disabled = closed || !!hcpReason;
+                    // Sign-in on and nobody signed in: the button becomes the
+                    // way in, and nothing else about the form is disabled.
+                    const needsSignIn = auth.enabled && !isMember && !captainMode;
                     return (
                       <>
+                        {needsSignIn && auth.ready && (
+                          <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', lineHeight: 1.5 }}>
+                            Sign in to put your name down. Your name, handicap and mobile are remembered for next time.
+                          </div>
+                        )}
                         {/* Beginners-only notice — shown when the selected handicap is too high for this day */}
                         {hcpReason && (
                           <div
@@ -6336,11 +6397,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         )}
                         <button
                           className="btn-primary"
-                          onClick={joinMode ? handleJoinWaitlist : handleAdd}
-                          disabled={disabled}
-                          style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                          onClick={needsSignIn ? () => openSignIn() : joinMode ? handleJoinWaitlist : handleAdd}
+                          disabled={disabled && !needsSignIn}
+                          style={disabled && !needsSignIn ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                         >
-                          {closed ? 'Bookings closed · email captain'
+                          {needsSignIn ? 'Sign in to book'
+                            : closed ? 'Bookings closed · email captain'
                             : hcpReason ? 'Beginners only · handicap 0 and below'
                             : joinMode ? 'Join the waiting list'
                             : 'Add to Roster'}
@@ -6525,10 +6587,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               <button className="remove-btn" onClick={() => { removePlayer(p.id); setEditingAvailId(null); }} aria-label={`Remove ${p.name}`}>×</button>
                             </>
                           ) : (
-                            <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '6px 10px', minWidth: '60px', textAlign: 'right' }}>
-                              <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
-                              <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
-                            </div>
+                            <>
+                              <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '6px 10px', minWidth: '60px', textAlign: 'right' }}>
+                                <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
+                                <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
+                              </div>
+                              {auth.enabled && auth.user && p.uid === auth.user.uid && (
+                                <button className="remove-btn" onClick={() => removePlayer(p.id)} aria-label="Take my name off the list" title="Take my name off the list">×</button>
+                              )}
+                            </>
                           )}
                         </div>
                         {/* Inline availability editor — captain only, shown when ⏱ is tapped */}
@@ -6683,9 +6750,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             )}
                           </div>
                         </div>
-                        {captainMode && (
+                        {(captainMode || (auth.enabled && auth.user && w.uid === auth.user.uid)) && (
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <button
+                            {captainMode && <button
                               type="button"
                               onClick={() => promoteFromWaitlist(w.id)}
                               style={{
@@ -6693,7 +6760,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 borderRadius: '4px', padding: '7px 12px', fontSize: '11px',
                                 letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap',
                               }}
-                            >↑ Add to roster</button>
+                            >↑ Add to roster</button>}
                             <button
                               className="remove-btn"
                               onClick={() => removeFromWaitlist(w.id)}
@@ -8175,7 +8242,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 {Array.from({ length: nCk }).map((_, i) => {
                                   const n = i + 1;
                                   const bg = ended ? 'var(--burgundy)' : n < curCk ? 'var(--burgundy)' : n === curCk ? '#c9a24b' : '#e8e2d6';
-                                  return captainMode
+                                  return canScore
                                     ? <button key={n} onClick={() => setChukka(n === curCk && !ended ? 0 : n)} title={'Chukka ' + n} style={{ flex: 1, minWidth: '24px', maxWidth: '50px', height: '9px', borderRadius: '5px', background: bg, border: 'none', cursor: 'pointer', padding: 0 }} />
                                     : <span key={n} style={{ flex: 1, minWidth: '24px', maxWidth: '50px', height: '9px', borderRadius: '5px', background: bg }} />;
                                 })}
@@ -8183,7 +8250,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             </div>
                           </div>
 
-                          {captainMode && (
+                          {canScore && (
                             <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                               <div style={{ display: 'flex', gap: '12px' }}>
                                 {['teamA', 'teamB'].map(tk => {
@@ -8218,7 +8285,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
                           <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'center', gap: '20px', flexWrap: 'wrap' }}>
                             <button onClick={() => setLivePlayersOpen(o => !o)} style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', cursor: 'pointer', textTransform: 'uppercase' }}>{livePlayersOpen ? '▴ Hide players' : '▾ Show players'}</button>
-                            {captainMode && <button onClick={() => setLiveColoursOpen(o => !o)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', cursor: 'pointer', textTransform: 'uppercase' }}>{liveColoursOpen ? '▴ Shirt colours' : '▾ Shirt colours'}</button>}
+                            {canScore && <button onClick={() => setLiveColoursOpen(o => !o)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', cursor: 'pointer', textTransform: 'uppercase' }}>{liveColoursOpen ? '▴ Shirt colours' : '▾ Shirt colours'}</button>}
                           </div>
 
                           {/* Both line-ups side by side wherever the two columns fit, so the
@@ -8255,20 +8322,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '8px' }}>
                                       <span style={{ width: '14px', height: '14px', borderRadius: '4px', background: shirtBackground(col), border: '1px solid rgba(0,0,0,0.2)' }} />
                                       <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--burgundy)' }}>{nm}</span>
-                                      {captainMode && <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 'auto' }}>#&nbsp;=&nbsp;shirt no.</span>}
+                                      {canScore && <span style={{ fontSize: '10px', color: 'var(--muted)', marginLeft: 'auto' }}>#&nbsp;=&nbsp;shirt no.</span>}
                                     </div>
                                     {ps.length === 0 && <div style={{ fontSize: '12px', color: '#aaa' }}>No players listed.</div>}
                                     {orderedPs.map(({ p, origIdx: pi }) => (
                                       <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 0', borderBottom: '1px solid #f0ece4' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                                          {captainMode ? (
+                                          {canScore ? (
                                             <input value={p.shirtNo || ''} onChange={e => setPlayerShirt(liveFixtureId, liveDayId, liveMatchId, tk, pi, e.target.value.replace(/[^0-9A-Za-z]/g, '').slice(0, 2))} placeholder="#" maxLength={2} inputMode="numeric" style={{ width: '32px', height: '30px', textAlign: 'center', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px', fontWeight: 700, color: 'var(--ink)', padding: 0, flexShrink: 0 }} />
                                           ) : (
                                             (p.shirtNo != null && String(p.shirtNo) !== '') && <span style={{ width: '26px', height: '26px', flexShrink: 0, borderRadius: '6px', background: shirtBackground(col), color: col.text, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, border: '1px solid rgba(0,0,0,0.15)' }}>{p.shirtNo}</span>
                                           )}
                                           <span style={{ fontSize: '13px', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || 'Player ' + (pi + 1)}{Number.isFinite(Number(p.handicap)) && <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '11px' }}>{fmtH(Number(p.handicap))}</span>}</span>
                                         </div>
-                                        {captainMode ? (
+                                        {canScore ? (
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                                             <button onClick={() => bumpPlayerGoals(liveFixtureId, liveDayId, liveMatchId, tk, pi, -1)} style={{ width: '26px', height: '26px', borderRadius: '50%', border: '1px solid #ccc', background: '#f7f4ef', fontSize: '14px', cursor: 'pointer', color: '#555' }}>&minus;</button>
                                             <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>{p.goals == null ? 0 : p.goals}</span>
@@ -8285,7 +8352,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             </div>
                           )}
 
-                          {captainMode && liveColoursOpen && (
+                          {canScore && liveColoursOpen && (
                             <div style={{ marginTop: '8px', background: '#fff', border: '1px solid var(--line)', borderRadius: '8px', padding: '14px' }}>
                               {['teamA', 'teamB'].map(tk => {
                                 const remembered = teamColourKey((curMatch[tk] || {}).name);
@@ -8313,7 +8380,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   );
                 })()
               )}
-              {!captainMode && (
+              {!canScore && (
                 <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
                   <div style={{ fontSize: '12px', color: '#777', marginBottom: '10px' }}>Scores are visible to everyone. Only captains can update them.</div>
                   <button onClick={() => setPinModalOpen(true)} style={{ background: 'none', border: '1px solid var(--burgundy)', color: 'var(--burgundy)', borderRadius: '6px', padding: '9px 18px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.5px' }}>Enter Captain PIN to enter scores</button>
@@ -8384,6 +8451,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length})` : ''}</button>
                 <button onClick={() => setPlayersView('lessons')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'lessons' ? 'none' : '1px solid var(--line)', background: playersView === 'lessons' ? 'var(--burgundy)' : 'transparent', color: playersView === 'lessons' ? 'var(--cream)' : 'var(--muted)' }}>Lessons</button>
                 <button onClick={() => setPlayersView('checkout')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'checkout' ? 'none' : '1px solid var(--line)', background: playersView === 'checkout' ? 'var(--burgundy)' : 'transparent', color: playersView === 'checkout' ? 'var(--cream)' : 'var(--muted)' }}>Checkout</button>
+                {auth.enabled && isAdmin && (
+                  <button onClick={() => setPlayersView('admins')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'admins' ? 'none' : '1px solid var(--line)', background: playersView === 'admins' ? 'var(--burgundy)' : 'transparent', color: playersView === 'admins' ? 'var(--cream)' : 'var(--muted)' }}>Admins</button>
+                )}
               </div>
 
               {playersView === 'players' && (<>
@@ -8513,6 +8583,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 )
               )}
               </>)}
+
+              {playersView === 'admins' && auth.enabled && isAdmin && <AdminsPanel auth={auth} />}
 
               {playersView === 'subsidies' && (
                 <div>
@@ -9020,11 +9092,40 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               Privacy
             </button>
             <span style={{ opacity: 0.3 }}>·</span>
-            {captainMode ? (
+            {auth.enabled && auth.ready && (
+              <>
+                {auth.user ? (
+                  <>
+                    <button
+                      onClick={() => openSignIn('profile')}
+                      title="Your details"
+                      style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                    >
+                      {(auth.profile && auth.profile.name) || auth.user.email || 'Account'}{isAdmin ? ' · admin' : ''}
+                    </button>
+                    <button
+                      onClick={() => window.auth.signOut()}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: '3px' }}
+                    >
+                      Sign out
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => openSignIn()}
+                    style={{ background: 'none', border: 'none', color: 'var(--burgundy)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                  >
+                    Sign in
+                  </button>
+                )}
+                <span style={{ opacity: 0.3 }}>·</span>
+              </>
+            )}
+            {pinUnlocked ? (
               <>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--burgundy)', fontWeight: 600 }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--burgundy)', display: 'inline-block' }} />
-                  Captain mode
+                  {auth.enabled ? 'Scoring unlocked' : 'Captain mode'}
                 </span>
                 <button
                   onClick={lockCaptainMode}
@@ -9107,6 +9208,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         </button>
 
         {/* PIN modal — captain access */}
+        {auth.enabled && (
+          <AuthSheet open={authSheetOpen} onClose={() => setAuthSheetOpen(false)} auth={auth} startAt={authSheetStart} handicapOptions={HANDICAP_OPTIONS} />
+        )}
         {pinModalOpen && (
           <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>
             <div className="share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '340px' }}>
@@ -9116,7 +9220,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               </div>
               <div className="share-body">
                 <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--muted)', lineHeight: 1.55, textAlign: 'center' }}>
-                  Enter the 4-digit captain PIN to unlock team management.
+                  {auth.enabled ? 'Enter the 4-digit captain PIN to unlock live scoring.' : 'Enter the 4-digit captain PIN to unlock team management.'}
                 </p>
                 <input
                   type="password"

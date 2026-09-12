@@ -33,8 +33,27 @@ that ARE the demo — `storage.js`, `trophyStore.js`, `demoSeed.js`,
 `DemoChrome.jsx`, `main.jsx`, `index.html`, `vite.config.js` — are left alone,
 because they are the demo's browser-backed replacements for Firestore.
 
+## Sign-in and roles (switched off for the clubs)
+
+`src/auth.js` defines a small `window.auth` contract the app reads the way it
+reads `window.storage`. The default provider it installs is **sign-in off**:
+nobody logs in, anyone may book, the captain PIN opens everything — the app as
+the clubs have always run it. Keep it that way here unless the club asks.
+
+With a provider installed (the PoloACT demo does this with Firebase Auth):
+`captainMode` means *admin* (rosters, draw, players, tournaments, shop,
+payments), `canScore` (the PIN, or an admin) gates live scoring only, and a
+signed-in member books as themselves and can remove only their own entry.
+`src/AuthSheet.jsx` is the sign-in sheet and the Admins panel. Both files are
+in the demo's resync list.
+
+When touching gated UI: management → `captainMode`; live-scoring entry →
+`canScore`; the raw PIN state is `pinUnlocked` and should not gate anything
+else directly.
+
 ### Things that differ between the apps, and must not be "fixed"
 
+- Sign-in is on only in the **demo**; the three clubs run with `window.auth` at its default (off).
 - Only **TPPC** still has a programme front sheet. Druids and Vaux open straight
   onto the running order, so anything cover-page-shaped applies to TPPC alone.
 - Vaux's programme is the tournament-times card: black, Oswald, one page per day.
