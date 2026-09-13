@@ -65,7 +65,11 @@ teams (`teamNames`) with a "new team" input.
 
 Grounds can carry a location: `groundPins.js` parses a pasted Google Maps
 link or the phone's own position, and the pin is stored once per ground name
-in the shared key `ground-pins`. Members get a 📍 to directions wherever the
+in the shared key `ground-pins`. Each app also ships `DEFAULT_GROUND_PINS`
+beside its `GROUND_OPTIONS` — the club's real coordinates, built through
+`builtInPins()` — so directions work before anyone pins anything. `pinOf` is
+`pinOr(groundPins, DEFAULT_GROUND_PINS, name)`: a club-set pin wins, and
+removing it reverts to the built-in rather than to nothing. Members get a 📍 to directions wherever the
 ground is named, and the link rides along in the WhatsApp text. Captains set
 them from 📍 Locations by the ground picker. No Maps API key is involved, by
 design — there is no embedded map.

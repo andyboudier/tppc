@@ -13,7 +13,7 @@ import {
 import { useAuth, authErrorText } from './auth';
 import AuthSheet, { AdminsPanel } from './AuthSheet';
 import EntryContact from './EntryContact';
-import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, formatPin, currentPin } from './groundPins';
+import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
 // loaded on demand. Same signature as before, so call sites are unchanged apart
@@ -254,6 +254,17 @@ const defaultActiveDay = () => {
   return best;
 };
 const GROUND_OPTIONS = ['Fisher', 'Tattoo', 'Perham Down', 'Arena'];
+
+// Where the club's own grounds are. These ship with the app so a member gets
+// directions from the first day, without anyone having to stand on each field
+// with a phone. A pin set from 📍 Locations overrides the one below for that
+// ground; taking it off puts this back.
+const DEFAULT_GROUND_PINS = builtInPins({
+  'Fisher': { lat: 51.223186, lng: -1.669772 },
+  'Tattoo': { lat: 51.222537, lng: -1.673958 },
+  'Perham Down': { lat: 51.246313, lng: -1.627837 },
+  'Arena': { lat: 51.227885, lng: -1.668994 },
+});
 
 // ── Club shop (preview) ──────────────────────────────────────────────────
 // Captain-only for now. Checkout is stubbed until Stripe is wired up: each
@@ -973,7 +984,7 @@ return { chukkas, numChukkas, totalSlots: totalRequested, unplaced: [], capped, 
 // Setting where a ground is: stand on it and tap, or paste the link from
 // Google Maps. No embedded map, and so no API key or billing — see
 // groundPins.js for why.
-function GroundPinEditor({ state, setState, groundOptions, existing, pinnedCount, onSave }) {
+function GroundPinEditor({ state, setState, groundOptions, existing, clubSet, pinnedCount, onSave }) {
   const set = (patch) => setState((prev) => (prev ? { ...prev, ...patch } : prev));
   const S = {
     wrap: { margin: '10px auto 0', maxWidth: '420px', textAlign: 'left', padding: '12px 14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px' },
@@ -1033,7 +1044,8 @@ function GroundPinEditor({ state, setState, groundOptions, existing, pinnedCount
 
       {existing && (
         <div style={{ ...S.hint, marginTop: '8px', color: 'var(--ink)' }}>
-          Pinned at {formatPin(existing)} · <a href={placeUrl(existing)} target="_blank" rel="noopener noreferrer" style={S.link}>see it on the map</a>
+          {clubSet ? 'Pinned at' : 'Built in, at'} {formatPin(existing)} · <a href={placeUrl(existing)} target="_blank" rel="noopener noreferrer" style={S.link}>see it on the map</a>
+          {clubSet ? '' : ' — set your own below only if this is wrong.'}
         </div>
       )}
 
@@ -1041,9 +1053,9 @@ function GroundPinEditor({ state, setState, groundOptions, existing, pinnedCount
         <button type="button" style={S.btn} disabled={state.busy} onClick={here}>
           {state.busy ? 'Finding you…' : '📍 Pin where I am'}
         </button>
-        {existing && (
+        {clubSet && (
           <button type="button" style={{ ...S.btn, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={state.busy}
-            onClick={async () => { await onSave(null); set({ note: 'Location removed.', error: '' }); }}>
+            onClick={async () => { await onSave(null); set({ note: 'Removed — back to the built-in location if there is one.', error: '' }); }}>
             Remove
           </button>
         )}
@@ -2299,7 +2311,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // --- Where the grounds are (see groundPins.js) ---
   // One shared document for the whole club, keyed by ground name, so the pin
   // follows the name wherever it is used rather than being set per day.
-  const pinOf = (name) => pinFrom(groundPins, name);
+  // The pin a member follows: the club's own if one has been set, otherwise
+  // the built-in one for that ground.
+  const pinOf = (name) => pinOr(groundPins, DEFAULT_GROUND_PINS, name);
+  const clubPinOf = (name) => pinFrom(groundPins, name);
   const saveGroundPin = async (name, pin) => {
     const k = pinKey(name);
     if (!k) return;
@@ -6153,6 +6168,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     setState={setPinEditor}
                     groundOptions={GROUND_OPTIONS}
                     existing={pinOf(pinEditor.ground)}
+                    clubSet={!!clubPinOf(pinEditor.ground)}
                     pinnedCount={GROUND_OPTIONS.filter(g => pinOf(g)).length}
                     onSave={(pin) => saveGroundPin(pinEditor.ground, pin)}
                   />
