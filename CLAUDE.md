@@ -85,6 +85,18 @@ agrees on it. The editor is the banner itself, behind `captainMode`, so there
 is no settings screen to find. The banner hides in stage mode with the
 masthead and tabs.
 
+The three clubs' Watch apps show the notice too, above their tabs — `Notice`,
+`NoticeStore`, `NoticeBanner` and `NoticeDetail` in each
+`ios/App/<club> Watch Watch App/ContentView.swift`. No push is involved: the
+Watch already reads `shared/<key>` from the Firestore REST API, so this is one
+more fetch of the same document. Two lines with the whole notice on a tap, and
+no dismiss on the wrist. Push notifications proper are **not** wired anywhere:
+`@capacitor/push-notifications` is a dependency and `capacitor.config.ts`
+declares options, but there is no entitlement, no `aps-environment`, no
+`registerForRemoteNotifications`, and nothing stores tokens or sends. The
+Live Activity is local too (`pushType: nil`). The demo has no native project,
+so nothing Watch-shaped applies to it.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
