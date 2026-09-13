@@ -13,6 +13,8 @@ import {
 import { useAuth, authErrorText } from './auth';
 import AuthSheet, { AdminsPanel } from './AuthSheet';
 import EntryContact from './EntryContact';
+import NoticeBanner from './NoticeBanner';
+import { parseNotice } from './notices';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -1121,6 +1123,9 @@ export default function PoloChukkas() {
   // day and every fixture that names it. Captain-set; see groundPins.js.
   const [groundPins, setGroundPins] = useState({});
   const [pinEditor, setPinEditor] = useState(null); // null | { ground, draft, busy, error, note }
+  // The club notice under the tab bar — one message, normal or important.
+  // See notices.js.
+  const [notice, setNotice] = useState(null);
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
   const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -2170,9 +2175,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       // document and no live listener, so before negative caching it was a
       // guaranteed server round-trip on every single load.
       const one = (key) => window.storage.get(key, true).catch(() => null);
-      const [w, cm, m, p, s, t, gp] = await Promise.all([
+      const [w, cm, m, p, s, t, gp, nt] = await Promise.all([
         one('wa-link'), one('committee'), one('members'),
         one('players'), one('subsidies'), one('transactions'), one('ground-pins'),
+        one('notice'),
       ]);
       try {
         if (w?.value) setWaLink(w.value);
@@ -2195,6 +2201,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       try {
         if (gp?.value) { const o = JSON.parse(gp.value); if (o && typeof o === 'object') setGroundPins(o); }
       } catch (e) {}
+      // parseNotice copes with an empty, stale or malformed document itself.
+      setNotice(parseNotice(nt?.value));
       setLoaded(true);
       // Belt and braces: if an early return or a throw ever skips the call made
       // after the per-day reads, the crest must still come down.
@@ -2324,6 +2332,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setGroundPins(next);
     try { await window.storage.set('ground-pins', JSON.stringify(next), true); }
     catch (err) { setPinEditor(pe => (pe ? { ...pe, error: 'Saved on this device only — check your connection.' } : pe)); }
+  };
+
+  // --- The club notice (see notices.js) ---
+  // One shared document, so posting it puts it on every phone at once. setAt
+  // is what a member's dismissal is remembered against, so it is stamped on
+  // every edit and an amended notice shows again to someone who dismissed it.
+  const saveNotice = async (n) => {
+    const next = { text: n.text, level: n.level, until: n.until || 0, setAt: Date.now(), by: myName || '' };
+    setNotice(next);
+    try { await window.storage.set('notice', JSON.stringify(next), true); }
+    catch (err) { setError('Notice saved on this device only — check your connection.'); }
+  };
+  const clearNotice = async () => {
+    setNotice(null);
+    try { await window.storage.delete('notice', true); }
+    catch (err) { setError('Notice taken down on this device only — check your connection.'); }
   };
 
   // Captain's manual "we're full" switch, on top of the automatic 24-hour cutoff.
@@ -4665,7 +4689,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
            tab bar are hidden rather than unmounted, so leaving stage mode
            returns you exactly where you were. */
         .polo-app.stage-on .header-bg,
-        .polo-app.stage-on .tabs { display: none; }
+        .polo-app.stage-on .tabs,
+        .polo-app.stage-on .notice-banner { display: none; }
         .display { font-family: 'Fraunces', Georgia, serif; font-weight: 500; }
         .display-italic { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; }
         .label-eyebrow {
@@ -6013,6 +6038,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             </button>
           )}
         </nav>
+
+        {/* The club notice, under the tabs so it is on every tab. Captains get
+            the editor here rather than in a settings screen — see notices.js. */}
+        <NoticeBanner notice={notice} canEdit={captainMode} onSave={saveNotice} onClear={clearNotice} />
 
         <main style={{ maxWidth: '540px', margin: '0 auto', padding: '24px 16px 60px' }}>
 

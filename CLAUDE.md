@@ -74,6 +74,17 @@ ground is named, and the link rides along in the WhatsApp text. Captains set
 them from 📍 Locations by the ground picker. No Maps API key is involved, by
 design — there is no embedded map.
 
+The club notice is one shared document, `notice`, shown as a banner under the
+tab bar on every tab (`NoticeBanner.jsx`, shape and helpers in `notices.js`,
+both in the demo's resync list). Two levels: **normal** is quiet, in the club's
+colours, and a member can dismiss it (remembered per device against
+`noticeStamp`, so an edited notice shows again); **important** is red, carries
+`role="alert"` and cannot be dismissed. A notice may expire at the end of the
+day or the week — the captain's device works the moment out, so every viewer
+agrees on it. The editor is the banner itself, behind `captainMode`, so there
+is no settings screen to find. The banner hides in stage mode with the
+masthead and tabs.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
