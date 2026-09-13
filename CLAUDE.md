@@ -60,6 +60,12 @@ editor's Admin switch writes the admins list through `window.auth.setAdmins`
 (`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
 teams (`teamNames`) with a "new team" input.
 
+Outgoing email for all four apps goes through one route on the PoloACT hub
+(`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
+itself with `CLUB_ID` and the hub maps that to an office address through
+`CLUB_RECIPIENTS`; addresses never travel in the request. Adding a club is an
+entry in that map, not code.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**; the three clubs run with `window.auth` at its default (off).

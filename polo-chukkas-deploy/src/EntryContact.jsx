@@ -21,7 +21,7 @@ const S = {
   link: { color: 'var(--burgundy)', textDecoration: 'underline', textUnderlineOffset: '3px' },
 };
 
-export default function EntryContact({ fixture, club, endpoint, email: officeEmail, contactPrefill }) {
+export default function EntryContact({ fixture, club, clubId, endpoint, email: officeEmail, contactPrefill }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({
     name: (contactPrefill && contactPrefill.name) || '',
@@ -61,7 +61,8 @@ export default function EntryContact({ fixture, club, endpoint, email: officeEma
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          club, fixture: fixture.name, fixtureDate: fixture.date || '', level: fixture.level || '',
+          // clubId picks the office to mail; club is the name shown in it.
+          club, clubId: clubId || '', fixture: fixture.name, fixtureDate: fixture.date || '', level: fixture.level || '',
           team: f.team.trim(), name: f.name.trim(), email: f.email.trim(), mobile: f.mobile.trim(),
           message: f.message.trim(), company: f.company,
         }),

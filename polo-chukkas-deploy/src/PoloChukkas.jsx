@@ -1506,6 +1506,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const entryContact = TOURNAMENT_ENTRY.mode === 'contact';
   // Named on the entry email so the office knows which club it came from.
   const CLUB_NAME_FOR_ENTRIES = 'Tedworth Park Polo Club';
+  // Which club this app is, sent with the entry so the PoloACT hub knows whose
+  // office to mail. The hub holds the addresses (CLUB_RECIPIENTS), never the
+  // app: an address in the payload would let anyone mail anyone through it.
+  const CLUB_ID = 'tppc';
 
   // Thursday ladies and Friday instructional are small sessions with a hard
   // capacity: the arena only takes 6, anywhere else 8. Days with no capOther in
@@ -7985,6 +7989,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                   <EntryContact
                                     fixture={fx}
                                     club={CLUB_NAME_FOR_ENTRIES}
+                                    clubId={CLUB_ID}
                                     endpoint={TOURNAMENT_ENTRY.endpoint}
                                     email={TOURNAMENT_ENTRY.email}
                                     contactPrefill={auth.enabled && auth.user ? {
