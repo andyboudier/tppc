@@ -10,7 +10,7 @@ import {
   trophyKeyFor, loadTrophyIndex, loadTrophyImage, saveTrophyImage,
   deleteTrophyImage, prepareTrophyImage,
 } from './trophyStore';
-import { useAuth } from './auth';
+import { useAuth, authErrorText } from './auth';
 import AuthSheet, { AdminsPanel } from './AuthSheet';
 import EntryContact from './EntryContact';
 
@@ -1354,6 +1354,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const canRemoveEntry = (p) => !!(auth.enabled && auth.user && p
     && (p.uid === auth.user.uid || (myPlayer && p.playerId && p.playerId === myPlayer.id)));
 
+  // Who the admins are, for the player database's Admin switch and tag. The
+  // list lives with the sign-in provider (config/admins in Firestore), not on
+  // the player records; it is read here only by an admin, who alone may
+  // change it. Re-read whenever the Players tab changes view, so the Admins
+  // panel and the player list never disagree for long.
+  const [adminEmails, setAdminEmails] = useState(null);
+  const fixedAdminEmails = auth.fixedAdmins || [];
+  useEffect(() => {
+    if (!auth.enabled || !isAdmin) { setAdminEmails(null); return; }
+    let live = true;
+    window.auth.listAdmins()
+      .then(list => { if (live) setAdminEmails(list.map(e => String(e).toLowerCase())); })
+      .catch(() => { if (live) setAdminEmails([]); });
+    return () => { live = false; };
+  }, [auth.enabled, isAdmin, playersView]);
+  const isAdminEmail = (email) => {
+    const e = (email || '').trim().toLowerCase();
+    return !!e && (fixedAdminEmails.includes(e) || (adminEmails || []).includes(e));
+  };
+
   // What members are allowed to see. A fixture's match details stay private
   // until the captain publishes them, so a draw can be built without going live.
   // Captains always see everything.
@@ -2258,7 +2278,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const openNewPlayer = () => { setPdbError(''); setPlayerEditor(blankPlayer()); };
   const openEditPlayer = (p) => {
     setPdbError('');
-    setPlayerEditor({ ...blankPlayer(), ...p, handicap: p.handicap == null ? '' : String(p.handicap) });
+    // `isAdmin` on the draft is the Admin switch, read from the admins list —
+    // it is not a field of the record and is not saved with it.
+    setPlayerEditor({ ...blankPlayer(), ...p, handicap: p.handicap == null ? '' : String(p.handicap), isAdmin: isAdminEmail(p.email) });
   };
   const savePlayer = async () => {
     const draft = playerEditor || {};
@@ -2266,6 +2288,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!name) { setPdbError('Please enter a name.'); return; }
     const email = (draft.email || '').trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setPdbError('That email address looks off.'); return; }
+    if (draft.isAdmin && !email) { setPdbError('An admin needs an email address — it is what they sign in with.'); return; }
     const record = {
       id: draft.id || newPlayerId(),
       name,
@@ -2288,6 +2311,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     await savePlayerDb(next);
     // Keep the lightweight members autofill cache in step with the database.
     try { await upsertMember({ name: record.name, handicap: record.handicap, mobile: record.mobile }); } catch (e) {}
+    // The Admin switch: add or remove the record's email on the admins list.
+    // If the email itself changed, the old one comes off too, so admin status
+    // follows the person rather than an address they no longer use.
+    if (auth.enabled && isAdmin && adminEmails) {
+      const prev = playerDb.find(p => p.id === record.id);
+      const oldEmail = prev ? (prev.email || '').trim().toLowerCase() : '';
+      const newEmail = record.email.toLowerCase();
+      let wanted = adminEmails.filter(e => e !== newEmail && !(oldEmail && oldEmail !== newEmail && e === oldEmail));
+      if (draft.isAdmin && newEmail && !fixedAdminEmails.includes(newEmail)) wanted = [...wanted, newEmail];
+      if (JSON.stringify(wanted) !== JSON.stringify(adminEmails)) {
+        try { await window.auth.setAdmins(wanted); setAdminEmails(wanted); }
+        catch (e) { setPdbError(`Saved the player, but the admin change did not stick: ${authErrorText(e)}`); return; }
+      }
+    }
     setPlayerEditor(null);
     setPdbError('');
   };
@@ -8637,10 +8674,48 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       </div>
                     )}
                     <input className="input-field" type="tel" placeholder="Mobile" value={playerEditor.mobile} onChange={e => setPlayerEditor({ ...playerEditor, mobile: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
-                    <input className="input-field" type="text" list="playerdb-teams" placeholder="Team (optional)" value={playerEditor.team || ''} onChange={e => setPlayerEditor({ ...playerEditor, team: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
-                    <datalist id="playerdb-teams">
-                      {teamNames.map(t => <option key={t} value={t} />)}
-                    </datalist>
+                    {auth.enabled && isAdmin && (() => {
+                      const em = (playerEditor.email || '').trim().toLowerCase();
+                      const fixed = !!em && fixedAdminEmails.includes(em);
+                      return (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: fixed || !em ? 'default' : 'pointer' }}>
+                          <input type="checkbox" checked={fixed || !!playerEditor.isAdmin} disabled={fixed || !em}
+                            onChange={e => setPlayerEditor({ ...playerEditor, isAdmin: e.target.checked })} />
+                          Admin — runs the club in the app
+                          <span style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                            {fixed ? '(always — set in the deployment)' : !em ? '(needs an email)' : ''}
+                          </span>
+                        </label>
+                      );
+                    })()}
+                    {/* Team: pick an existing one, or name a new one. Players
+                        who share a team may book each other in once sign-in
+                        is on. */}
+                    {(() => {
+                      const cur = playerEditor.team || '';
+                      const known = teamNames.includes(cur);
+                      const naming = !!playerEditor.teamNew || (!!cur && !known);
+                      const sel = naming ? '__new' : (known ? cur : '');
+                      return (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <select className="input-field select-field" aria-label="Team" value={sel} style={{ flex: '1 1 160px', padding: '11px 8px', fontSize: '14px' }}
+                            onChange={e => {
+                              const v = e.target.value;
+                              if (v === '__new') setPlayerEditor({ ...playerEditor, team: '', teamNew: true });
+                              else setPlayerEditor({ ...playerEditor, team: v, teamNew: false });
+                            }}>
+                            <option value="">No team</option>
+                            {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+                            <option value="__new">＋ New team…</option>
+                          </select>
+                          {naming && (
+                            <input className="input-field" type="text" placeholder="New team name" autoFocus={!!playerEditor.teamNew} value={cur}
+                              onChange={e => setPlayerEditor({ ...playerEditor, team: e.target.value, teamNew: true })}
+                              style={{ flex: '1 1 160px', padding: '11px 13px', fontSize: '14px' }} />
+                          )}
+                        </div>
+                      );
+                    })()}
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={!!playerEditor.military} onChange={e => setPlayerEditor({ ...playerEditor, military: e.target.checked })} />
                       Military (eligible for subsidies)
@@ -8701,6 +8776,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.name}</span>
                           {p.handicap != null && <span style={{ fontSize: '13px', color: 'var(--muted)' }}>({p.handicap > 0 ? `+${p.handicap}` : p.handicap})</span>}
                           <span style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                            {auth.enabled && isAdminEmail(p.email) && <span title="Admin — runs the club in the app" style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--burgundy)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Admin</span>}
                             {p.team && <span title={`Team: ${p.team}`} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--burgundy)', border: '1px solid var(--burgundy)', padding: '2px 6px', borderRadius: '3px', maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.team}</span>}
                             {!membershipById(p.membership || 'none').chukkasIncluded && <span title="Pays per chukka — no chukka-inclusive membership" style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px' }}>£/chukka</span>}
                             {p.military && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--gold)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Mil</span>}

@@ -83,6 +83,8 @@ export const authSnapshot = () => {
     user: a.user || null,
     role: a.role || 'anon',
     profile: a.profile || null,
+    // Admins fixed by the deployment's configuration, never removable in-app.
+    fixedAdmins: (a.fixedAdmins || []).map((e) => String(e).toLowerCase()),
   };
 };
 

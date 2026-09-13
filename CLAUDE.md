@@ -55,7 +55,10 @@ A signed-in member is matched to the player database on email (`myPlayer`).
 Player records carry a free-text `team`; a member may book themselves or
 anyone sharing their team (`teammates`), never a typed name (`memberBooking`).
 Roster and waiting-list entries then carry `playerId` and, for a teammate,
-`bookedBy`; `canRemoveEntry` decides who may take an entry off.
+`bookedBy`; `canRemoveEntry` decides who may take an entry off. The player
+editor's Admin switch writes the admins list through `window.auth.setAdmins`
+(`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
+teams (`teamNames`) with a "new team" input.
 
 ### Things that differ between the apps, and must not be "fixed"
 
