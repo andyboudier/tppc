@@ -63,6 +63,13 @@ editor's Admin switch writes the admins list through `window.auth.setAdmins`
 (`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
 teams (`teamNames`) with a "new team" input.
 
+Grounds can carry a location: `groundPins.js` parses a pasted Google Maps
+link or the phone's own position, and the pin is stored once per ground name
+in the shared key `ground-pins`. Members get a 📍 to directions wherever the
+ground is named, and the link rides along in the WhatsApp text. Captains set
+them from 📍 Locations by the ground picker. No Maps API key is involved, by
+design — there is no embedded map.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
