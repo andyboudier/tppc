@@ -55,7 +55,10 @@ A signed-in member is matched to the player database on email (`myPlayer`).
 Player records carry a free-text `team`; a member may book themselves or
 anyone sharing their team (`teammates`), never a typed name (`memberBooking`).
 Roster and waiting-list entries then carry `playerId` and, for a teammate,
-`bookedBy`; `canRemoveEntry` decides who may take an entry off. The player
+`bookedBy`; `canRemoveEntry` decides who may take an entry off — the member
+themselves and their teammates, however the entry got there, matched on
+`playerId` or, for older and captain-typed entries, on name. Taking a
+teammate off asks first (`removeWithCare`); taking yourself off does not. The player
 editor's Admin switch writes the admins list through `window.auth.setAdmins`
 (`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
 teams (`teamNames`) with a "new team" input.

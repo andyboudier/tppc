@@ -1351,8 +1351,36 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
   // A member may take off a list what they put on it — themselves, or a
   // teammate they booked — and their own entry whoever put it there.
-  const canRemoveEntry = (p) => !!(auth.enabled && auth.user && p
-    && (p.uid === auth.user.uid || (myPlayer && p.playerId && p.playerId === myPlayer.id)));
+  // A member may take off a list anyone they could have put on it: themselves
+  // and their teammates, however the entry got there — booked by them, booked
+  // by the player themselves, or added by the captain. Plans change on the
+  // morning and a team should not have to find an admin to drop a name.
+  //
+  // Entries booked since sign-in carry a playerId; older ones, and anything a
+  // captain typed, do not, so those fall back to matching the name against the
+  // club's own record of the team.
+  const sameName = (a, b) => {
+    const n = (s) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    return !!n(a) && n(a) === n(b);
+  };
+  const entryIsMe = (p) => !!(p && myPlayer && (p.playerId === myPlayer.id || (!p.playerId && sameName(p.name, myPlayer.name))));
+  const entryIsTeammate = (p) => !!(p && teammates.some(t => p.playerId === t.id || (!p.playerId && sameName(p.name, t.name))));
+  const canRemoveEntry = (p) => {
+    if (!auth.enabled || !auth.user || !p) return false;
+    if (p.uid === auth.user.uid) return true;   // whoever put it there may take it off
+    return entryIsMe(p) || entryIsTeammate(p);
+  };
+  // Taking your own name off is unremarkable; taking a teammate's off is worth
+  // a moment's pause, since they are not the one tapping.
+  const removeWithCare = (p, remove) => {
+    if (!p || entryIsMe(p) || sameName(p.name, myName)) return remove();
+    setConfirmModal({
+      title: `Take ${p.name} off?`,
+      message: `This removes ${p.name} from the ${activeDayConfig.fullLabel} list. They are in your team, so you can put them back on afterwards.`,
+      confirmLabel: 'Take them off',
+      onConfirm: remove,
+    });
+  };
 
   // Who the admins are, for the player database's Admin switch and tag. The
   // list lives with the sign-in provider (config/admins in Firestore), not on
@@ -6738,11 +6766,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{p.chukkas}</span>
                                 <span style={{ marginLeft: '4px' }}>chukka{p.chukkas === 1 ? '' : 's'}</span>
                               </div>
-                              {canRemoveEntry(p) && (
-                                <button className="remove-btn" onClick={() => removePlayer(p.id)}
-                                  aria-label={p.bookedBy && p.name !== myName ? `Take ${p.name} off the list` : 'Take my name off the list'}
-                                  title={p.bookedBy && p.name !== myName ? `Take ${p.name} off the list` : 'Take my name off the list'}>×</button>
-                              )}
+                              {canRemoveEntry(p) && (() => {
+                                const mine = entryIsMe(p) || sameName(p.name, myName);
+                                const label = mine ? 'Take my name off the list' : `Take ${p.name} off the list`;
+                                return (
+                                  <button className="remove-btn" onClick={() => removeWithCare(p, () => removePlayer(p.id))}
+                                    aria-label={label} title={label}>×</button>
+                                );
+                              })()}
                             </>
                           )}
                         </div>
@@ -6912,7 +6943,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             >↑ Add to roster</button>}
                             <button
                               className="remove-btn"
-                              onClick={() => removeFromWaitlist(w.id)}
+                              onClick={() => (captainMode ? removeFromWaitlist(w.id) : removeWithCare(w, () => removeFromWaitlist(w.id)))}
                               aria-label={`Remove ${w.name} from the waiting list`}
                             >×</button>
                           </div>
