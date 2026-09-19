@@ -97,6 +97,29 @@ declares options, but there is no entitlement, no `aps-environment`, no
 Live Activity is local too (`pushType: nil`). The demo has no native project,
 so nothing Watch-shaped applies to it.
 
+Coaching lessons live behind a captain-only **Lessons** tab (`lessons.js` for
+the model, `LessonsBoard.jsx` for the diary; both in the demo's resync list,
+shared key `lesson-slots`). A slot is a *window* — "the coach is free 13:00 to
+15:00" — and a booking claims a sub-range of it, so a two-hour window offers
+1hr, 2hr or the second 1hr. Individual bookings own their range; group ones
+stack in the same range up to `maxGroup`, and below `minGroup` (4) are shown as
+not yet viable rather than blocked. Captains add or amend windows, copy last
+week forward (times only, never bookings) and book people in by hand.
+
+Each club prices from its **own** rate card, so `LESSON_SLOT_RATES` maps
+(kind, hours) → that club's lesson id and lives in each app, not in
+`lessons.js`: Druids sells `lesson-1hr` and `semi-private` where TPPC and Vaux
+sell `ind-1hr`/`grp-1hr`, and a shared map would quietly bill the wrong lesson.
+A length the card does not price is not offered at all. Pony hire is charged
+per hour, as it is per chukka, and is ticked by default.
+
+Payment is a token wallet that falls back to an invoice: `tokens` on the player
+record (one token buys an hour) is spent when the player has enough, otherwise
+the cash price raises the same `'due'` transaction the Payments tab already
+settles. Cancelling returns the token, or removes the invoice if it is still
+unpaid. Note `savePlayer` builds an **explicit whitelist** — a field not named
+there is dropped on every save.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
