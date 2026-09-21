@@ -135,7 +135,7 @@ const LESSON_TYPES_2026 = [
   { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75, mil: 65 },
   { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 100, mil: 95 },
   { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 180, mil: 170 },
-  { id: 'inst-chukka',     label: 'Instructional Chukka',           civ: 110, mil: 105 },
+  { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110, mil: 105 },
   { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160 },
 ];
 // Which of this club's coaching rates a booked lesson slot is charged at.
@@ -2764,10 +2764,28 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (mil) return mem.id === 'none' ? 20 : 11;   // military: non-member £20 vs member £11
     return mem.id === 'civ-day' ? 16 : 26;          // civilian: day member £16 vs non-member £26
   };
-  const priceBooking = (player, chukkas, ponyLevel) => {
+  const priceBooking = (player, chukkas, ponyLevel, dayKey = activeDay) => {
     const n = Math.max(0, parseInt(chukkas, 10) || 0);
     const mem = membershipById((player && player.membership) || 'none');
     const wantsPony = !!ponyLevel && ponyLevel !== 'none';
+    // An instructional session (Friday) is coached teaching sold as ONE thing,
+    // not a bag of chukkas: one flat price covering the coaching and the pony,
+    // whatever the session happens to contain. It used to fall through to the
+    // club tariff below, which charged the per-chukka fee AND pony hire twice
+    // over — £252 for a civilian guest against the £110 on the rate card.
+    // Membership does not discount it; the card prices it by civilian/military
+    // alone, so the military rate already has the difference in it and the
+    // per-chukka military pony delta must not be applied on top.
+    if (DAY_CONFIG[dayKey] && DAY_CONFIG[dayKey].instructional && n > 0) {
+      const lt = lessonById('inst-chukka');
+      const mil = !!(player && player.military);
+      const total = mil ? lt.mil : lt.civ;
+      return {
+        freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony,
+        instructional: true, lessonLabel: lt.label,
+        ponyHire: 0, chukkaFee: 0, gross: total, militaryDiscount: 0, total,
+      };
+    }
     const ponyHire = wantsPony ? (PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club) : 0;
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
     if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
@@ -2805,6 +2823,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
       playerId: player.id, playerName: player.name, chukkas: bd.chukkas, ponyLevel: bd.ponyLevel,
       ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
+      instructional: !!bd.instructional, lessonLabel: bd.lessonLabel || '',
       subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
       total: bd.total, status: 'paid', day: o.day || null, method: o.method || 'manual', note: (o.note || '').trim(), paidDate: Date.now(),
     };
@@ -2968,7 +2987,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const pl = playerDb.find(p => p.id === checkout.playerId);
     if (!pl) { setCoError('Pick a player first.'); return; }
     const dayUp = (checkout.day || 'wed').toUpperCase();
-    const bd = priceBooking(pl, checkout.chukkas, checkout.ponyLevel);
+    const bd = priceBooking(pl, checkout.chukkas, checkout.ponyLevel, checkout.day);
     if (bd.freeToRoster) {
       const added = await addPlayerToRoster(checkout.day, pl, checkout.chukkas);
       setCoError(added ? `${pl.name} added to ${dayUp} roster — no charge.` : `${pl.name} is already on the ${dayUp} roster.`);
@@ -3079,20 +3098,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const chargeForBooking = (cleanedName, c, wantsPony, dayKey = activeDay) => {
     const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
     const subject = rec || { membership: 'none', military: false, subsidies: [] };
-    const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none');
+    const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none', dayKey);
     if (bd.total <= 0) return '';
     const dueTx = {
       id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
       playerId: rec ? rec.id : null, playerName: cleanedName, day: dayKey,
       chukkas: c, ponyLevel: wantsPony ? 'club' : 'none',
       ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
+      instructional: !!bd.instructional, lessonLabel: bd.lessonLabel || '',
       subsidyDeductions: [],
       total: bd.total, status: 'due', method: '', note: '',
     };
     const nextTx = [dueTx, ...transactions];
     setTransactions(nextTx);
     window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
-    return `\u00a3${fmtMoney(bd.total)} due${wantsPony ? ' (incl. pony hire)' : ''}`;
+    return `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}`;
   };
 
   const handleAdd = () => {
@@ -6905,7 +6925,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     />
                     <div>
                       <span style={{ fontWeight: 600 }}>Hire a pony</span>
-                      <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>Adds pony hire to your cost. Leave unticked if you bring your own.</span>
+                      {/* On an instructional day the pony is inside the session
+                          price, so the tick tells the yard what to have ready
+                          rather than changing what is owed. */}
+                      <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>
+                        {activeDayConfig.instructional
+                          ? 'Included in the session price. Leave unticked if you bring your own.'
+                          : 'Adds pony hire to your cost. Leave unticked if you bring your own.'}
+                      </span>
                     </div>
                   </label>
 
@@ -6914,12 +6941,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     if (!name.trim() || !c || c < 1) return null;
                     const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === name.trim().toLowerCase());
                     const subject = rec || { membership: 'none', military: false, subsidies: [] };
-                    const bd = priceBooking(subject, c, ponyHire ? 'club' : 'none');
+                    const bd = priceBooking(subject, c, ponyHire ? 'club' : 'none', activeDay);
                     return (
                       <div style={{ fontSize: '12px', color: bd.freeToRoster ? 'var(--burgundy)' : 'var(--ink)', padding: '10px 14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '4px', lineHeight: 1.5 }}>
                         {bd.freeToRoster
                           ? `No charge for ${c} chukka${c === 1 ? '' : 's'}${ponyHire ? '' : ' (own pony)'} — you'll be added to the roster.`
-                          : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable to the Captain.</>}
+                          : bd.instructional
+                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable to the Captain.</>
+                            : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable to the Captain.</>}
                         {!rec && <span style={{ color: 'var(--muted)' }}> (estimate assumes non-member rates)</span>}
                       </div>
                     );
@@ -9358,7 +9387,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
               {playersView === 'checkout' && (() => {
                 const pl = playerDb.find(p => p.id === checkout.playerId) || null;
-                const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel) : null;
+                const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel, checkout.day) : null;
                 const n = bd ? bd.chukkas : 0;
                 const dayLabels = { wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
                 const ponyOpts = [['none', 'No pony hire (own pony)'], ['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
@@ -9394,7 +9423,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                       <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
                                     </div>
                                     <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                      {t.chukkas} chukka{t.chukkas === 1 ? '' : 's'}{t.ponyLevel === 'none' ? ' · own pony' : ' · pony hire'}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
+                                      {t.instructional
+                                        ? `${t.lessonLabel || 'Instructional chukkas'} · one session, pony included`
+                                        : `${t.chukkas} chukka${t.chukkas === 1 ? '' : 's'}${t.ponyLevel === 'none' ? ' · own pony' : ' · pony hire'}`}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
                                       <select value={dueMethod[t.id] || 'cash'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
@@ -9510,6 +9541,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         ) : (
                           <>
                             <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
+                              {bd.instructional && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>{bd.lessonLabel} (pony included)</span><span>£{fmtMoney(bd.total)}</span></div>}
                               {bd.ponyHire > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>}
                               {bd.chukkaFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Chukka fee × {n}</span><span>£{fmtMoney(bd.chukkaFee * n)}</span></div>}
                               {bd.militaryDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)' }}><span>Military discount × {n}</span><span>−£{fmtMoney(bd.militaryDiscount)}</span></div>}
@@ -9548,7 +9580,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : tx.kind === 'entry' ? `${tx.fixtureName ? tx.fixtureName + ' · ' : ''}entry` : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
+                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : tx.kind === 'entry' ? `${tx.fixtureName ? tx.fixtureName + ' · ' : ''}entry` : tx.instructional ? (tx.lessonLabel || 'Instructional chukkas') : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
                               {tx.subsidyDeductions && tx.subsidyDeductions.length ? ` · ${tx.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
                             </div>
                           </div>
