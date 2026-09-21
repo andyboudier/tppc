@@ -120,6 +120,21 @@ settles. Cancelling returns the token, or removes the invoice if it is still
 unpaid. Note `savePlayer` builds an **explicit whitelist** — a field not named
 there is dropped on every save.
 
+The tab strip is three member tabs — Chukkas, Fixtures, Live Game — plus
+**More**, which holds the captain area (Lessons, Players, Payments, Teams,
+Shop). `CAPTAIN_ONLY_TABS` are the tabs a captain alone may sit on, so a
+restore or a locked PIN bounces off them; `CAPTAIN_TABS` adds `'more'`, which
+a member may open to find the PIN, and is what keeps More lit inside an area.
+Add a captain area to both. Payments deep-links to Players with
+`playersView = 'checkout'`.
+
+On a phone (`max-width: 640px`) the same nav markup is restyled into a fixed
+bottom bar with icons — one nav, one state, no second copy to keep in step.
+Anything else fixed to the bottom must clear it: `.app-main` and `.app-footer`
+carry the padding (the footer is outside `main`), and `.refresh-fab` is lifted,
+or it sits on top of the More tab and makes it untappable. Vaux's active tab is
+`--cream` where the others are `--gold`.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
