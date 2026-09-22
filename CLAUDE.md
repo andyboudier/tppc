@@ -51,6 +51,42 @@ the app at large still has sign-in off. Going live is that one constant plus
 enabling the providers in the club's Firebase console — until then a method
 returns `auth/operation-not-allowed`, which `authErrorText` renders plainly.
 
+The clubs offer **Google, Apple and an emailed sign-in link** — no password,
+which is one fewer thing for a member to forget and for the club to reset.
+`SIGN_IN_METHODS` should name only what is switched on in that club's Firebase
+console; a button for a method that is off is a dead end.
+
+`accountLink.js` joins a signed-in account to the club's own player record, and
+is pure so it can be tested directly. The cascade is **linked account → email →
+mobile → name**, strongest first. The link (`uid` on the player record) is
+written down the first time a match is found, together with `authProviders` and
+`linkedBy` — the rung it was originally matched on, kept because every later
+match reads as "the linked account" and a captain checking a doubtful one wants
+to know whether it began as an email or as a name. A rung that matches two
+players picks neither and reports both: guessing is how one member books under
+another's name. Match against the account **and the profile**, because Google
+gives an email and a name but never a number, and Apple's Hide My Email gives an
+address the club has never seen — without the profile the mobile and name rungs
+reach nobody.
+
+`savePlayer` is an explicit whitelist, so `uid`, `authProviders` and `linkedBy`
+are named there or a captain's next save wipes the link. The player editor's
+**Sign-in account** panel is where a captain unlinks, relinks to the account
+signed in now, and merges a duplicate. `mergePlayers` keeps the primary's id
+because rosters, waiting lists, lesson bookings and transactions all point at
+it — and `mergePlayerInto` re-points whatever the duplicate had collected, or
+the merge would quietly detach somebody's chukkas and their invoices. The merge
+is field-agnostic on purpose: TPPC has `military` and `team`, Druids has
+`student` and neither, and naming fields would drop one or invent another.
+Druids and Vaux have **no waiting list**, so that step is TPPC's alone.
+
+Firebase keeps one account per email, so a member who signed up with Google and
+later taps Apple is refused. The sheet answers with the way they used the first
+time; `fetchSignInMethodsForEmail` returns nothing on a project with
+email-enumeration protection on, so the club's own `authProviders` is the
+fallback and is usually the better source. `linkProvider` is the fix — adding
+the second way to the same account, never a second account.
+
 The auth SDK is ~37 kB gzipped, so nothing loads it on a member's cold start:
 `SignInTest` imports `authFirebase` dynamically (a static import also breaks the
 demo, whose `firebase.js` may have no project configured), `vite.config.js`
