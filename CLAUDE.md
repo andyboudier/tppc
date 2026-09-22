@@ -41,8 +41,7 @@ nobody logs in, anyone may book, the captain PIN opens everything — the app as
 the clubs have always run it. Keep it that way here unless the club asks.
 
 All three clubs now also ship `src/authFirebase.js`, a real Firebase Auth
-provider on the club's own project — email and password, an emailed sign-in
-link, Google, Facebook and Apple. It is **dormant**: `SIGN_IN_LIVE` is false, so
+provider on the club's own project. It is **dormant**: `SIGN_IN_LIVE` is false, so
 it reports `enabled: false` and every `auth.enabled` gate in the app behaves
 exactly as before. `src/SignInTest.jsx` is the bench that exercises it, sitting
 above the diary on the captain-only **Lessons** tab; it hands `AuthSheet` a
@@ -199,7 +198,9 @@ entry in that map, not code.
 
 ### Things that differ between the apps, and must not be "fixed"
 
-- Sign-in is on only in the **demo**; the three clubs run with `window.auth` at its default (off).
+- Sign-in is on only in the **demo**. The three clubs ship the real provider
+  but dormant (`SIGN_IN_LIVE` false), so they behave exactly as `window.auth`
+  at its default does; only the captain's bench on Lessons drives it.
 - Only **TPPC** still has a programme front sheet. Druids and Vaux open straight
   onto the running order, so anything cover-page-shaped applies to TPPC alone.
 - Vaux's programme is the tournament-times card: black, Oswald, one page per day.
