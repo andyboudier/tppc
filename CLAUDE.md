@@ -89,6 +89,29 @@ email-enumeration protection on, so the club's own `authProviders` is the
 fallback and is usually the better source. `linkProvider` is the fix — adding
 the second way to the same account, never a second account.
 
+A member's profile and the club's player record are kept in step both ways.
+The player record seeds the profile on a first sign-in; a profile the member
+then edits is pushed back to the record — name, handicap and mobile, never the
+email, which is the account's and is what the match runs on. **Last edit wins**,
+compared on `profile.updated` against the record's `updatedAt`: without that
+comparison a stale profile would overwrite a captain's correction the moment
+the member next signed in. And `SignInTest`'s Edit profile must pass
+`startAt="profile"` — AuthSheet only jumps there by itself when the profile has
+no name yet, so without it an already signed-in captain is asked to sign in
+again.
+
+**Sign-in links and password resets are sent by Firebase, not by the app** —
+there is no code path here to change who sends them. They go through Resend
+from `hello@poloact.co.uk` by setting **custom SMTP** in each club's Firebase
+console (Authentication → Templates → Customize SMTP settings):
+`smtp.resend.com`, port 587 with STARTTLS (465 for implicit SSL), username
+`resend`, password a Resend API key, sender `hello@poloact.co.uk`. It is per
+project, so it is done three times. poloact.co.uk is already verified in Resend
+for the hub's own mail (`lib/mail.ts`, `MAIL_FROM`), so no new DNS is needed.
+Doing it instead through the hub would mean the Admin SDK generating the links
+and `sendMail` posting them — more control over the HTML, and a service-account
+key per club in Vercel.
+
 The auth SDK is ~37 kB gzipped, so nothing loads it on a member's cold start:
 `SignInTest` imports `authFirebase` dynamically (a static import also breaks the
 demo, whose `firebase.js` may have no project configured), `vite.config.js`
