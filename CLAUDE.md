@@ -50,10 +50,13 @@ the app at large still has sign-in off. Going live is that one constant plus
 enabling the providers in the club's Firebase console — until then a method
 returns `auth/operation-not-allowed`, which `authErrorText` renders plainly.
 
-The clubs offer **Google, Apple and an emailed sign-in link** — no password,
-which is one fewer thing for a member to forget and for the club to reset.
-`SIGN_IN_METHODS` should name only what is switched on in that club's Firebase
-console; a button for a method that is off is a dead end.
+The clubs offer **Google, Apple, email and password, and an emailed sign-in
+link** — email either way, a password for those who want one and a link for
+those who would rather not keep one. Password and link are the *same* provider
+in the Firebase console (Email/Password, with "Email link" a second switch
+beneath it), so enabling one does not enable the other. `SIGN_IN_METHODS`
+should name only what is switched on in that club's console; a button for a
+method that is off is a dead end.
 
 `accountLink.js` joins a signed-in account to the club's own player record, and
 is pure so it can be tested directly. The cascade is **linked account → email →
