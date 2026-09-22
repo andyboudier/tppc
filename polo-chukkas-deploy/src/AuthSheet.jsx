@@ -31,6 +31,12 @@ const GoogleMark = () => (
   </svg>
 );
 
+const FacebookMark = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <path fill="currentColor" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/>
+  </svg>
+);
+
 const AppleMark = () => (
   <svg width="16" height="18" viewBox="0 0 170 210" aria-hidden="true">
     <path fill="currentColor" d="M141 111c0-27 22-40 23-41-13-19-32-21-39-21-17-2-32 10-41 10-8 0-21-10-35-9-18 0-34 10-43 26-19 32-5 80 13 106 9 13 19 27 33 26 13 0 18-8 34-8s21 8 35 8c14 0 23-13 32-26 10-15 14-29 14-30 0 0-27-10-27-41zM115 31c7-9 12-21 11-33-10 0-23 7-30 16-7 8-13 20-11 32 11 1 23-6 30-15z"/>
@@ -128,11 +134,16 @@ export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, 
           {step === 'signin' && (
             <>
               <p style={S.p}>Sign in to put your name down for chukkas. Your name, handicap and mobile are remembered for next time.</p>
-              {(has('google') || has('apple')) && (
+              {(has('google') || has('facebook') || has('apple')) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {has('google') && (
                     <button type="button" style={S.provider} disabled={busy} onClick={() => run(() => window.auth.signInWithGoogle())}>
                       <GoogleMark /> Continue with Google
+                    </button>
+                  )}
+                  {has('facebook') && (
+                    <button type="button" style={{ ...S.provider, background: '#1877F2', color: '#fff', borderColor: '#1877F2' }} disabled={busy} onClick={() => run(() => window.auth.signInWithFacebook())}>
+                      <FacebookMark /> Continue with Facebook
                     </button>
                   )}
                   {has('apple') && (
@@ -142,7 +153,7 @@ export default function AuthSheet({ open, onClose, auth, handicapOptions = [-2, 
                   )}
                 </div>
               )}
-              {(has('google') || has('apple')) && (has('password') || has('link')) && (
+              {(has('google') || has('facebook') || has('apple')) && (has('password') || has('link')) && (
                 <div style={S.or}><span style={S.rule} />or<span style={S.rule} /></div>
               )}
               {(has('password') || has('link')) && (

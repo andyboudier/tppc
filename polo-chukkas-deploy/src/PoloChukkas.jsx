@@ -12,6 +12,7 @@ import {
 } from './trophyStore';
 import { useAuth, authErrorText } from './auth';
 import AuthSheet, { AdminsPanel } from './AuthSheet';
+import SignInTest from './SignInTest';
 import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import { parseNotice } from './notices';
@@ -9662,6 +9663,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           )}
 
           {activeTab === 'lessons' && captainMode && (
+            <>
+            {/* Logins are being wired up here first, behind the PIN, so each
+                way in can be tried before members see any of it. Sign-in stays
+                switched off for the app at large — see authFirebase.js. */}
+            <SignInTest auth={auth} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} />
             <LessonsBoard
               slots={lessonSlots}
               onSaveSlots={saveLessonSlots}
@@ -9675,6 +9681,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
             />
+            </>
           )}
 
           {activeTab === 'teams' && captainMode && (() => {

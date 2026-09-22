@@ -40,6 +40,26 @@ reads `window.storage`. The default provider it installs is **sign-in off**:
 nobody logs in, anyone may book, the captain PIN opens everything — the app as
 the clubs have always run it. Keep it that way here unless the club asks.
 
+All three clubs now also ship `src/authFirebase.js`, a real Firebase Auth
+provider on the club's own project — email and password, an emailed sign-in
+link, Google, Facebook and Apple. It is **dormant**: `SIGN_IN_LIVE` is false, so
+it reports `enabled: false` and every `auth.enabled` gate in the app behaves
+exactly as before. `src/SignInTest.jsx` is the bench that exercises it, sitting
+above the diary on the captain-only **Lessons** tab; it hands `AuthSheet` a
+snapshot with `enabled: true`, which is what makes the real sheet usable while
+the app at large still has sign-in off. Going live is that one constant plus
+enabling the providers in the club's Firebase console — until then a method
+returns `auth/operation-not-allowed`, which `authErrorText` renders plainly.
+
+The auth SDK is ~37 kB gzipped, so nothing loads it on a member's cold start:
+`SignInTest` imports `authFirebase` dynamically (a static import also breaks the
+demo, whose `firebase.js` may have no project configured), `vite.config.js`
+gives `firebase/auth` its own `firebaseAuth` chunk, and `main.jsx` only pulls it
+in early when `signInReturning()` says this load is the tail of a redirect or an
+emailed link. Import named functions from `firebase/firestore`, never a
+namespace — `import * as` there put 36 kB gzipped back into the chunk everyone
+loads.
+
 With a provider installed (the PoloACT demo does this with Firebase Auth):
 `captainMode` means *admin* (rosters, draw, players, tournaments, shop,
 payments), `canScore` (the PIN, or an admin) gates live scoring only, and a

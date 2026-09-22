@@ -25,7 +25,8 @@
 //   enabled   true when sign-in is on
 //   ready     false until the first sign-in state is known (so the app does not
 //             flash "sign in" at someone who is already signed in)
-//   methods   which buttons to offer: 'password', 'link', 'google', 'apple'
+//   methods   which buttons to offer: 'password', 'link', 'google', 'facebook',
+//             'apple'
 //   user      null | { uid, email, displayName }
 //   role      'anon' | 'member' | 'admin'
 //   profile   null | { name, handicap, mobile, hpa } — what the member plays as
@@ -34,7 +35,7 @@
 //   createAccount(email, password)
 //   sendPasswordReset(email)
 //   sendSignInLink(email)          the link lands back on the app and signs in
-//   signInWithGoogle() / signInWithApple()
+//   signInWithGoogle() / signInWithFacebook() / signInWithApple()
 //   signOut()
 //   saveProfile({ name, handicap, mobile, hpa })
 //   listAdmins() → [email]         admins only
@@ -61,6 +62,7 @@ export const noAuth = {
   sendPasswordReset: notEnabled,
   sendSignInLink: notEnabled,
   signInWithGoogle: notEnabled,
+  signInWithFacebook: notEnabled,
   signInWithApple: notEnabled,
   signOut: async () => {},
   saveProfile: notEnabled,
@@ -111,6 +113,13 @@ export const authErrorText = (err) => {
     'auth/popup-blocked': 'Your browser blocked the sign-in window. Allow pop-ups for this site, or use email.',
     'auth/network-request-failed': 'No connection — check your signal and try again.',
     'auth/operation-not-allowed': 'That sign-in method is not switched on yet.',
+    // Firebase keeps one account per email. Whoever signed up first owns it,
+    // so the second provider has to be linked rather than used on its own —
+    // the common case being a Google account and a Facebook one sharing an
+    // address.
+    'auth/account-exists-with-different-credential': 'You already have an account with that email, made a different way. Sign in the way you did the first time.',
+    'auth/credential-already-in-use': 'Those details already belong to another account.',
+    'auth/unauthorized-domain': 'This address is not on the sign-in allow list for the club\u2019s Firebase project.',
   };
   if (table[code]) return table[code];
   const msg = err && err.message ? String(err.message) : '';
