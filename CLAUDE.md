@@ -203,6 +203,25 @@ sell `ind-1hr`/`grp-1hr`, and a shared map would quietly bill the wrong lesson.
 A length the card does not price is not offered at all. Pony hire is charged
 per hour, as it is per chukka, and is ticked by default.
 
+TPPC also sells its own **club sessions** from the Lessons tab — Ladies Only
+and Instructional Chukkas, one hour, two chukkas, eight places. A slot with a
+`kind` is a session rather than a coaching window: it is booked whole, never
+sliced by the hour, and `normaliseSlot` switches its individual/group flags off
+so the window machinery cannot sell sub-ranges of it. Nothing ties a session to
+a weekday — the captain adds one on any date and can run several — and Copy
+last week carries sessions forward without their riders. The catalogue,
+`CLUB_SESSIONS`, lives in the app beside `LESSON_SLOT_RATES` and for the same
+reason. Each entry names the chukka day it **is** (`dayKey`), and the price goes
+through `priceBooking` with that day, so a session costs exactly what the same
+evening costs on the Chukkas tab: Instructional is the rate card's flat
+£110/£105 with the pony in it, Ladies Only is the ordinary tariff for two
+chukkas. No session price is restated anywhere. The day's `maxHandicap` gate
+applies too. Sessions are invoice-only — a token buys an hour of *coaching*, and
+spending one on chukkas unasked is not the app's call. `CLUB_SESSIONS` must stay
+below `DAY_CONFIG`: it reads the start-time constants at load. Druids and Vaux
+ship the same `lessons.js` and `LessonsBoard.jsx` but pass no catalogue, and
+with none the board is exactly as it was.
+
 Payment is a token wallet that falls back to an invoice: `tokens` on the player
 record (one token buys an hour) is spent when the player has enough, otherwise
 the cash price raises the same `'due'` transaction the Payments tab already

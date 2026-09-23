@@ -18,7 +18,7 @@ import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -246,6 +246,38 @@ const DAY_CONFIG = {
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
 const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
+
+// The club's own fixed sessions, bookable from the Lessons tab. Unlike a
+// coaching window these are sold whole: one hour, two chukkas, eight places,
+// one price. They are the same two evenings the club has always run, but
+// nothing here is tied to a weekday — the captain puts one on whatever date
+// suits and can run more than one in a week, which is the point of having them
+// here rather than only as fixed day tabs.
+//
+// `dayKey` is the chukka day each session IS, and it does the pricing: the
+// quote goes through priceBooking with that day, so a session booked here
+// costs exactly what the same session booked on the Chukkas tab costs. That is
+// why Instructional Chukkas comes out at the rate card's one flat price with
+// the pony in it (DAY_CONFIG.fri.instructional), while Ladies Only is the
+// ordinary club tariff for two chukkas — which is what Thursday has always
+// been charged at. No new price is invented here; if the tariff moves, both
+// routes into the same evening move with it.
+//
+// Club-specific on purpose, beside the rate card and for the same reason: the
+// names and the prices are one club's, and a shared list would put another
+// club's evening on somebody's invoice.
+//
+// `start` is only where the captain's editor opens: the club's usual time for
+// that evening, taken from the same constants as the day tabs. It sits here, below
+// DAY_CONFIG, because it reads those constants at load and a const is not
+// there to read until its line has run.
+const CLUB_SESSIONS = [
+  { id: 'ladies', label: 'Ladies Only', dayKey: 'thu', start: fmtHM(CHUKKA_START_MIN_THU),
+    blurb: 'Ladies only · one hour, two chukkas', hours: 1, chukkas: 2, places: 8 },
+  { id: 'instructional', label: 'Instructional Chukkas', dayKey: 'fri', start: fmtHM(CHUKKA_START_MIN_FRI),
+    blurb: 'Beginners only · one hour, two chukkas', hours: 1, chukkas: 2, places: 8 },
+];
+const clubSessionById = (id) => CLUB_SESSIONS.find(k => k.id === id) || null;
 
 // Which day tab to open on when there is no recent saved view (see
 // readViewState — it deliberately expires after 12h so the app opens fresh the
@@ -2507,6 +2539,69 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return { lessonId: lt.id, lessonLabel: lt.label, base: priced.base, pony,
              subsidyDeductions: priced.subsidyDeductions || [], total,
              money: fmtMoney(total), detail: bits.join(' · ') };
+  };
+
+  // What a place in a club session costs. It goes through priceBooking, the
+  // same function the Chukkas tab uses, with the session's own day — so
+  // Instructional Chukkas gets the rate card's flat price with the pony inside
+  // it, and Ladies Only gets the club tariff for its two chukkas. Neither
+  // price is restated here, which is what keeps the two ways of booking the
+  // same evening from ever disagreeing.
+  const quoteClubSession = (player, kindId, ponyHire, ponyLevel) => {
+    const kind = clubSessionById(kindId);
+    if (!kind) return { blocked: 'Unknown session.', money: '—', total: 0, detail: '' };
+    const level = ponyHire ? (ponyLevel || 'club') : 'none';
+    const bd = priceBooking(player, kind.chukkas, level, kind.dayKey);
+    const bits = [];
+    if (bd.instructional) bits.push(`${bd.lessonLabel} £${fmtMoney(bd.total)} — one price, pony included`);
+    else {
+      if (bd.chukkaFee) bits.push(`${kind.chukkas} chukkas £${fmtMoney(bd.chukkaFee * kind.chukkas)}`);
+      if (bd.ponyHire) bits.push(`pony hire £${fmtMoney(bd.ponyHire * kind.chukkas)}`);
+      if (bd.militaryDiscount) bits.push(`military −£${fmtMoney(bd.militaryDiscount)}`);
+    }
+    return { ...bd, kindId: kind.id, kindLabel: kind.label, chukkas: kind.chukkas,
+             money: fmtMoney(bd.total), detail: bits.join(' · ') || 'Nothing to pay.' };
+  };
+
+  // Book a place in a club session. Deliberately invoice-only, with no token
+  // path: a token buys an hour of COACHING, and these are chukkas priced off
+  // the club tariff. Spending somebody's coaching tokens on a chukka session
+  // without being asked is not a thing to do quietly.
+  const bookClubSession = async ({ slot, player, ponyHire }) => {
+    const kind = clubSessionById(slot.kind);
+    if (!kind) return { error: 'That session is no longer offered.' };
+    const cfg = DAY_CONFIG[kind.dayKey] || {};
+    // The same handicap gate the day tab applies — beginners-only means
+    // beginners-only whichever way somebody reaches the session.
+    if (cfg.maxHandicap != null && Number(player.handicap) > cfg.maxHandicap) {
+      return { error: `${kind.label} is for handicap ${cfg.maxHandicap} and below; ${player.name} is ${player.handicap}.` };
+    }
+    const bd = quoteClubSession(player, kind.id, ponyHire);
+    let txId = '';
+    if (bd.total > 0) {
+      txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const dueTx = {
+        id: txId, date: Date.now(), kind: 'lesson', playerId: player.id, playerName: player.name, day: null,
+        lessonId: bd.lessonId || '', lessonLabel: kind.label, base: bd.gross, militaryRate: !!player.military,
+        ponyHire: bd.ponyHire * (bd.instructional ? 0 : kind.chukkas),
+        chukkas: kind.chukkas, instructional: !!bd.instructional,
+        subsidyDeductions: [],
+        total: bd.total, status: 'due', method: '', note: `${kind.label} ${slot.date} ${slot.start}`,
+      };
+      const nextTx = [dueTx, ...transactions];
+      setTransactions(nextTx);
+      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    }
+    const res = addClubSessionBooking(slot, {
+      playerId: player.id, name: player.name, ponyHire: !!ponyHire,
+      paid: bd.total > 0 ? 'invoice' : 'free', tokensSpent: 0, txId,
+      uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
+    });
+    if (!res.ok) return { error: res.error };
+    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
+    return { message: bd.total > 0
+      ? `Booked for ${player.name} — £${bd.money} added to their invoices.`
+      : `Booked for ${player.name}.` };
   };
 
   // Book a lesson. Tokens first where the player has enough, otherwise the
@@ -9906,6 +10001,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               tokensOf={tokensOf}
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
+              clubSessions={CLUB_SESSIONS}
+              quoteSession={quoteClubSession}
+              onBookSession={bookClubSession}
             />
             </>
           )}
