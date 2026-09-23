@@ -89,13 +89,22 @@ email-enumeration protection on, so the club's own `authProviders` is the
 fallback and is usually the better source. `linkProvider` is the fix — adding
 the second way to the same account, never a second account.
 
-A member's profile and the club's player record are kept in step both ways.
-The player record seeds the profile on a first sign-in; a profile the member
-then edits is pushed back to the record — name, handicap and mobile, never the
-email, which is the account's and is what the match runs on. **Last edit wins**,
-compared on `profile.updated` against the record's `updatedAt`: without that
-comparison a stale profile would overwrite a captain's correction the moment
-the member next signed in. And `SignInTest`'s Edit profile must pass
+A member's profile and the club's player record are kept in step by **one
+reconcile** that runs in whichever direction was edited last — both halves
+matter, and for a while only one of them was there. A member's edit has to
+reach the record or the change looks accepted while the draw never hears about
+it; a captain's correction has to reach the profile or the member opens Edit
+profile on a stale handicap and saving from there puts the old value back.
+**Last edit wins**, compared on `profile.updated` against the record's
+`updatedAt`, and the copy is written with the **source's** timestamp so the two
+end up equal — stamping it with the time of day instead would make every sync
+look like a fresh edit and bounce the two forever. That is why `saveProfile`
+takes an optional `updated` rather than always using `Date.now()`, in
+`authFirebase.js` and in the demo's `authLocal.js` alike. Only what the member
+owns travels: name, handicap and mobile, never the email, which is the
+account's and is what the match runs on. The record seeding the profile is the
+same reconcile, so a member the club already knows is never asked for details —
+the first-sign-in prompt is for strangers only. And `SignInTest`'s Edit profile must pass
 `startAt="profile"` — AuthSheet only jumps there by itself when the profile has
 no name yet, so without it an already signed-in captain is asked to sign in
 again.
