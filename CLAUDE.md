@@ -250,6 +250,31 @@ itself with `CLUB_ID` and the hub maps that to an office address through
 `CLUB_RECIPIENTS`; addresses never travel in the request. Adding a club is an
 entry in that map, not code.
 
+## TPPC-Dev: the design clone
+
+`andyboudier/tppc-dev` is a clone of this repo, with TPPC's full history,
+served at **tppc-dev.poloact.co.uk** by its own Vercel project (`tppc-dev`) on
+its own Firebase project. It exists for significant design work that is then
+brought back here and mirrored to Druids, Vaux and the demo as usual. Because
+the histories are shared, bringing it back is a git merge — add tppc-dev as a
+remote here and merge its branch — not a copy of files.
+
+One source, two databases: `firebase.js` takes its config from
+`VITE_FIREBASE_*` when a build sets them and falls back to the live project
+when it does not, so the club's own build is unchanged and the file is identical
+in both repos. `appEnv.js` decides whether this copy is the dev one
+(`VITE_APP_ENV=dev`, or a `tppc-dev` host), and the dev copy says DEV on every
+screen and asks not to be indexed. A dev build pointed at the live project
+**refuses to start** and says so on the screen — the one mistake that must be
+impossible is design work clearing a real roster. Keep that guard.
+
+The dev database was seeded once from the live `shared` collection. Nothing
+flows back: never copy dev data to the live project. TPPC's tournament entry is
+in form mode with no hub endpoint, so the dev app emails no club office. There
+is no dev iOS or Android build — Xcode Cloud is connected to this repo only, and
+the Android workflow runs by hand. None of this applies to Druids or Vaux, which
+have no dev clone.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider

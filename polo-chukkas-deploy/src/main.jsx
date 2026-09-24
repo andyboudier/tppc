@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import './storage'; // attaches window.storage backed by Firestore
 import { signInReturning, installClubAuth } from './authFirebase';
 import PoloChukkas from './PoloChukkas.jsx';
+import { markDev } from './appEnv';
 
 // Sign-in is dormant for the club, and the auth SDK is only fetched when a
 // captain opens the Lessons tab (see SignInTest.jsx). The one load that cannot
@@ -11,6 +12,9 @@ import PoloChukkas from './PoloChukkas.jsx';
 // redirect, or opening an emailed sign-in link. signInReturning() answers that
 // without touching firebase/auth, so the ordinary cold start is unchanged.
 if (signInReturning()) installClubAuth();
+
+// TPPC-Dev labels itself on every screen; the club's own app is untouched.
+markDev();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
