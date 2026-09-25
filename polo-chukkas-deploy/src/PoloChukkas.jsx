@@ -5120,6 +5120,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     photo: photoOf(auth.user, auth.profile),
     ownPhoto: (auth.profile && auth.profile.photo) || '',
     providerPhoto: auth.user.photoURL || '',
+    providers: auth.user.providers || [],
+    team: (homePlayer && homePlayer.team) || '',
     ambiguous: !myPlayer && !!(myMatch.candidates && myMatch.candidates.length > 1),
   } : null;
   const homeMoney = (n) => {
@@ -5272,6 +5274,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     handicapText: homePlayer.handicap === '' || homePlayer.handicap == null || isNaN(Number(homePlayer.handicap)) ? null : fmtH(Number(homePlayer.handicap)),
     membershipText: membershipShort(membershipById(homePlayer.membership || 'none').label, homePlayer.membership),
     tokens: Math.max(0, Number(homePlayer.tokens) || 0),
+    handicapRaw: homePlayer.handicap === '' || homePlayer.handicap == null ? null : homePlayer.handicap,
+    mobile: homePlayer.mobile || '',
     owed: homeOwed,
     owedText: homeMoney(homeOwed),
   } : null;
@@ -6786,6 +6790,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onSignIn={(at) => setHomeAuth(at || 'signin')}
               onSignOut={() => { if (window.auth && window.auth.signOut) window.auth.signOut().catch(() => {}); }}
               onSavePhoto={(v) => window.auth.savePhoto(v)}
+              profile={auth.profile}
+              handicapOptions={HANDICAP_OPTIONS}
+              onSaveProfile={(p) => window.auth.saveProfile(p)}
+              onChangePassword={(pw) => window.auth.changePassword(pw)}
+              onResetEmail={() => window.auth.sendPasswordReset(auth.user.email)}
+              onLinkProvider={(w) => window.auth.linkProvider(w)}
               sessions={homeSessions}
               fixtures={homeFixtures}
               captain={homeCaptain}

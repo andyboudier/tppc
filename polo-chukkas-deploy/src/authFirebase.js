@@ -148,6 +148,25 @@ const provider = {
     provider.user = snapshotUser(fbAuth.currentUser);
     announceAuthChange();
   },
+  // Set a new password, or add one to an account that began with Google or
+  // Apple so the member can also sign in with their email. Firebase asks for
+  // a recent sign-in before either; the caller shows authErrorText for
+  // auth/requires-recent-login and offers the reset email instead.
+  async changePassword(newPassword) {
+    needAuth();
+    const u = fbAuth.currentUser;
+    if (!u) throw new Error('Sign in first.');
+    const pw = String(newPassword || '');
+    if (pw.length < 8) throw new Error('Use at least 8 characters.');
+    const hasPassword = (u.providerData || []).some((d) => d && d.providerId === 'password');
+    if (hasPassword) await FA.updatePassword(u, pw);
+    else {
+      if (!u.email) throw new Error('This account has no email address to set a password on.');
+      await FA.linkWithCredential(u, FA.EmailAuthProvider.credential(u.email, pw));
+    }
+    provider.user = snapshotUser(fbAuth.currentUser);
+    announceAuthChange();
+  },
   // Which ways in this account already has. Firebase's own answer is the
   // authoritative one; it is empty when the project has email-enumeration
   // protection on, which is why the club's player record keeps its own copy
