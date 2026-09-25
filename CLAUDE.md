@@ -269,6 +269,15 @@ brought back here and mirrored to Druids, Vaux and the demo as usual. Because
 the histories are shared, bringing it back is a git merge — add tppc-dev as a
 remote here and merge its branch — not a copy of files.
 
+**A request that starts with `TPPC-DEV` is for the dev app only.** Apply it to
+`andyboudier/tppc-dev` (deployed to tppc-dev.poloact.co.uk) and nowhere else —
+do not mirror it to TPPC, Druids, Vaux or the demo, and do not touch the live
+clubs' repos, Vercel projects or Firebase — unless that same request says
+otherwise. The mirroring rule above does not reach into the dev app, and dev
+work reaches the live apps only when the owner asks for it to be brought back;
+then it is merged into TPPC and mirrored to the others as usual. A request
+without the prefix follows the normal rules.
+
 One source, two databases: `firebase.js` takes its config from
 `VITE_FIREBASE_*` when a build sets them and falls back to the live project
 when it does not, so the club's own build is unchanged and the file is identical
