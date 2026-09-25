@@ -380,6 +380,25 @@ default: it emails only `REMINDERS_ALLOW` (Andy's address on dev) unless
 Resend with `RESEND_API_KEY`. The two secrets are the owner's to set in Vercel;
 `?dry=1` and `?date=YYYY-MM-DD` help a manual test.
 
+**Links from emails open in the app.** A password reset, an address to
+confirm or restore, and a sign-in link opened on another device are finished
+on the app's own screen (`AuthActionPage.jsx`; `emailAction.js` reads the link
+without loading the SDK). For the emails themselves to point at the app, the
+tppc-dev Firebase console's action URL (Authentication → Templates → any
+template → Edit → Customize action URL) must be
+`https://tppc-dev.poloact.co.uk/` — until then the link opens Firebase's page
+first. Reset signs the member straight in with the new password.
+
+**Google and Apple under the app's own address.** `vercel.json` proxies
+`/__/auth/*` and `/__/firebase/*` to tppc-dev.firebaseapp.com, so the sign-in
+handler can live at tppc-dev.poloact.co.uk. It takes effect only when
+`VITE_FIREBASE_AUTH_DOMAIN` becomes `tppc-dev.poloact.co.uk`, and that must
+wait until `https://tppc-dev.poloact.co.uk/__/auth/handler` is an authorised
+redirect URI on the Google OAuth client and a return URL on the Apple
+Services ID — switch it first and Google sign-in fails with
+redirect_uri_mismatch. The rewrites and crons in vercel.json name the dev
+project; bringing them back to TPPC means pointing them at the club's own.
+
 When this is brought back to TPPC it applies to Druids and Vaux too, but
 Druids always suffixes day keys and has no waiting list, each club's day names,
 crest and palette differ (the theme's gold and burgundy would need each club's

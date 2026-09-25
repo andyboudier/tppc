@@ -17,6 +17,8 @@ import { matchPlayer, duplicatesOf, mergePlayers, mergeConflicts, providerUnion,
 import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import HomeDashboard from './HomeDashboard';
+import AuthActionPage from './AuthActionPage';
+import { emailAction as readEmailAction, clearEmailAction } from './emailAction';
 import { LUX_CSS } from './luxTheme';
 import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
@@ -5088,6 +5090,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [authLoad, setAuthLoad] = useState(''); // '' | 'loading' | 'ok' | 'failed'
   const authInstalled = authLoad === 'ok';
   const [homeAuth, setHomeAuth] = useState(null); // AuthSheet start step | null
+  // A link from one of the club's emails (reset, confirm, sign-in), finished
+  // on the app's own screen. A sign-in link whose address was remembered on
+  // this device completes by itself; it only needs the screen when the
+  // address has to be asked for, or the link has gone stale.
+  const [emailAct, setEmailAct] = useState(readEmailAction);
+  const actionPage = emailAct && emailAct.mode !== 'signIn' ? emailAct
+    : (auth.pendingLink || auth.linkError) ? { mode: 'signIn', code: '', pending: auth.pendingLink, error: auth.linkError } : null;
+  const closeActionPage = (next) => {
+    clearEmailAction();
+    setEmailAct(null);
+    if (window.auth && (window.auth.pendingLink || window.auth.linkError)) {
+      window.auth.pendingLink = false; window.auth.linkError = '';
+    }
+    setActiveTab('home');
+    if (next) setHomeAuth(next);
+  };
   useEffect(() => {
     if (authLoad || !(activeTab === 'home' || hadSignIn())) return;
     setAuthLoad('loading');
@@ -10658,6 +10676,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         {homeAuth && authInstalled && (
           <AuthSheet open onClose={() => setHomeAuth(null)} auth={{ ...auth, enabled: true }} startAt={homeAuth}
             handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} providerHintFor={providerHintFor} />
+        )}
+        {actionPage && (
+          <AuthActionPage action={actionPage}
+            ready={(auth.methods || []).length > 0 && !!(window.auth && window.auth.checkResetCode)}
+            onDone={() => closeActionPage(null)}
+            onRequestNew={() => closeActionPage(actionPage.mode === 'resetPassword' ? 'reset' : 'signin')} />
         )}
         {pinModalOpen && (
           <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>

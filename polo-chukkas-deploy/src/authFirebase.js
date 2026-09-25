@@ -52,6 +52,7 @@ import { app, db } from './firebase';
 // would buy nothing anyway — storage.js has already loaded this module.
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { announceAuthChange } from './auth';
+import { emailAction, clearEmailAction } from './emailAction';
 
 const LINK_EMAIL_KEY = 'polo-signin-link-email';
 const ADMINS_DOC = ['config', 'admins'];
@@ -92,9 +93,44 @@ const provider = {
     needAuth();
     await FA.createUserWithEmailAndPassword(fbAuth, email, password);
   },
+  // The link comes back to the app, which sets the new password on its own
+  // screen (see emailAction and AuthActionPage.jsx). Where the Firebase
+  // console's action URL still points at Firebase's page, `url` is where its
+  // "Continue" button returns.
   async sendPasswordReset(email) {
     needAuth();
-    await FA.sendPasswordResetEmail(fbAuth, email);
+    await FA.sendPasswordResetEmail(fbAuth, email, { url: window.location.origin + '/' });
+  },
+
+  // ── Links from emails, finished inside the app ───────────────────────────
+  // A reset link: who it is for (and whether it is still good).
+  async checkResetCode(code) {
+    needAuth();
+    return FA.verifyPasswordResetCode(fbAuth, code);
+  },
+  // Set the new password, then sign straight in with it — the member asked to
+  // get back in, not to be sent to a sign-in screen to type it again.
+  async finishReset(code, newPassword, email) {
+    needAuth();
+    await FA.confirmPasswordReset(fbAuth, code, newPassword);
+    if (email) await FA.signInWithEmailAndPassword(fbAuth, email, newPassword);
+  },
+  // Confirm or restore an email address.
+  async applyEmailCode(code) {
+    needAuth();
+    await FA.applyActionCode(fbAuth, code);
+    if (fbAuth.currentUser) await fbAuth.currentUser.reload().catch(() => {});
+  },
+  // A sign-in link opened on a different device from the one that asked for
+  // it: the address was not remembered here, so the app asks for it on its
+  // own screen and finishes the sign-in with it.
+  async finishLinkSignIn(email) {
+    needAuth();
+    await FA.signInWithEmailLink(fbAuth, String(email || '').trim(), window.location.href);
+    try { localStorage.removeItem(LINK_EMAIL_KEY); } catch (e) { /* ignore */ }
+    provider.pendingLink = false;
+    clearEmailAction();
+    announceAuthChange();
   },
   // The link brings the visitor back to this same page; completeLinkSignIn()
   // finishes the job on the way back in. The email is kept on the device so
@@ -259,8 +295,7 @@ const clearRedirect = () => { try { sessionStorage.removeItem(REDIRECT_KEY); } c
 // anything.
 export function signInReturning() {
   try { if (sessionStorage.getItem(REDIRECT_KEY)) return true; } catch (e) { /* ignore */ }
-  const s = String(window.location.href || '');
-  return s.includes('mode=signIn') && s.includes('oobCode=');
+  return !!emailAction();
 }
 
 // The fields the app renders from, plus the providers this account can sign
@@ -311,15 +346,18 @@ async function completeLinkSignIn() {
   if (!FA.isSignInWithEmailLink(fbAuth, window.location.href)) return;
   let email = '';
   try { email = localStorage.getItem(LINK_EMAIL_KEY) || ''; } catch (e) { /* ignore */ }
-  if (!email) email = window.prompt('Confirm the email address the sign-in link was sent to') || '';
-  if (!email) return;
+  // Opened on another device: no address was kept here. The app asks for it
+  // on its own screen (AuthActionPage.jsx) rather than a browser prompt.
+  if (!email) { provider.pendingLink = true; announceAuthChange(); return; }
   try {
     await FA.signInWithEmailLink(fbAuth, email, window.location.href);
     try { localStorage.removeItem(LINK_EMAIL_KEY); } catch (e) { /* ignore */ }
     // Drop the one-time code from the address bar.
-    window.history.replaceState({}, '', window.location.origin + window.location.pathname);
+    clearEmailAction();
   } catch (e) {
     console.error('Sign-in link failed', e);
+    provider.linkError = (e && e.code) || 'auth/invalid-action-code';
+    announceAuthChange();
   }
 }
 
