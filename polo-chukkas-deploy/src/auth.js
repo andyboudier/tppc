@@ -101,6 +101,10 @@ export const authSnapshot = () => {
     profile: a.profile || null,
     // Admins fixed by the deployment's configuration, never removable in-app.
     fixedAdmins: (a.fixedAdmins || []).map((e) => String(e).toLowerCase()),
+    // A sign-in link waiting for its address, or one that failed — the app
+    // finishes both on its own screen (AuthActionPage.jsx).
+    pendingLink: !!a.pendingLink,
+    linkError: a.linkError || '',
   };
 };
 
