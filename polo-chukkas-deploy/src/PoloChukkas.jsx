@@ -17,7 +17,7 @@ import { matchPlayer, duplicatesOf, mergePlayers, mergeConflicts, providerUnion,
 import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import HomeDashboard from './HomeDashboard';
-import { readMe, writeMe, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, normName } from './home';
+import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
 import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek } from './lessons';
@@ -341,9 +341,13 @@ const fmtPence = (p) => `£${(p / 100).toFixed(2)}`;
 const VIEW_STATE_KEY = 'tppc-view';
 const VIEW_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
 // Tabs only a captain may sit on: a restore or a locked PIN bounces off these
-// back to Home. 'lessons' belongs here too — without it, locking the PIN
-// while in the lessons diary left you there.
-const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams', 'lessons'];
+// back to Home.
+const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams'];
+// Tabs that appear once a member has signed in (or the captain PIN is on):
+// signed out, the bar is Home, Fixtures, Live and More, and Home is the
+// sign-in screen. Lessons is the diary for a captain and a booking page for
+// a member.
+const MEMBER_TABS = ['chukkas', 'lessons'];
 // More itself is not captain-only — a member opens it to find the PIN — but it
 // stays lit while you are inside any captain area.
 const CAPTAIN_TABS = ['more', ...CAPTAIN_ONLY_TABS];
@@ -5074,19 +5078,46 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // goes through the same roster, waiting list and due-invoice paths as the
   // Chukkas tab's form, so the captain sees a Home booking exactly as any other.
   //
-  // Who the phone is for: the signed-in member's record when sign-in is on,
-  // otherwise whoever was picked on this phone (remembered on the phone only).
-  const [homeMe, setHomeMe] = useState(readMe);
-  const homeSignedIn = auth.enabled && !!myPlayer;
-  const homePicked = homeMe && homeMe !== 'guest' ? playerDb.find(p => p.id === homeMe.id) || null : null;
-  const homePlayer = homeSignedIn ? myPlayer : homePicked;
-  // A pick whose record has since gone (merged, deleted) asks again.
-  const homeMeState = homeMe === 'guest' ? 'guest' : homePicked ? homeMe : null;
-  const chooseHomeMe = (v) => {
-    const next = v === 'guest' ? 'guest' : v ? { id: v.id } : null;
-    writeMe(next);
-    setHomeMe(next);
-  };
+  // Who is signed in. Home is the sign-in screen, so it wakes the provider
+  // (authFirebase.js) when it is shown, and so does any load on a device where
+  // somebody has signed in before. Sign-in stays DORMANT for the app at large
+  // (auth.enabled is false, so the captain PIN and every existing gate behave
+  // as before); a signed-in account is matched to the club's player list by
+  // accountLink.js, and that record is who Home books for.
+  const [authLoad, setAuthLoad] = useState(''); // '' | 'loading' | 'ok' | 'failed'
+  const authInstalled = authLoad === 'ok';
+  const [homeAuth, setHomeAuth] = useState(null); // AuthSheet start step | null
+  useEffect(() => {
+    if (authLoad || !(activeTab === 'home' || hadSignIn())) return;
+    setAuthLoad('loading');
+    import('./authFirebase').then(m => m.installClubAuth())
+      .then(() => setAuthLoad('ok'))
+      .catch(() => setAuthLoad('failed'));
+  }, [activeTab, authLoad]);
+  // Known either way: the provider has reported who (if anyone) is signed in.
+  // Until its first report the snapshot is still the dormant default, whose
+  // method list is empty — that is what tells the two apart. If the SDK could
+  // not load at all, Home shows the sign-in screen rather than spinning.
+  const authSettled = authLoad === 'failed' || (authInstalled && auth.ready && (auth.methods || []).length > 0);
+  useEffect(() => { if (authSettled && authInstalled) noteSignIn(!!auth.user); }, [authSettled, auth.user && auth.user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const homeSignedIn = !!auth.user;
+  const homePlayer = homeSignedIn ? myPlayer : null;
+  // Chukkas and Lessons join the bar once somebody is signed in, or the
+  // captain PIN is on.
+  const loggedOn = homeSignedIn || captainMode;
+  // A restore onto Chukkas or Lessons by someone signed out goes to Home —
+  // but only once it is known they are signed out, or a member returning to
+  // the app would be bounced off their own page while sign-in wakes.
+  useEffect(() => {
+    if (!loaded || loggedOn || !MEMBER_TABS.includes(activeTab)) return;
+    if (hadSignIn() && !authSettled) return;
+    setActiveTab('home');
+  }, [loaded, loggedOn, activeTab, authSettled]);
+  const homeAccount = homeSignedIn ? {
+    name: (auth.profile && auth.profile.name) || auth.user.displayName || '',
+    email: auth.user.email || '',
+    ambiguous: !myPlayer && !!(myMatch.candidates && myMatch.candidates.length > 1),
+  } : null;
   const homeMoney = (n) => {
     const v = Math.round((Number(n) || 0) * 100) / 100;
     return `£${Number.isInteger(v) ? v.toLocaleString('en-GB') : fmtMoney(v)}`;
@@ -5144,8 +5175,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const homeBook = async (k, n, pony, waitlist) => {
     const rec = homePlayer;
-    if (!rec) return { error: 'Pick who this phone is for first.' };
-    if (auth.enabled && !isMember && !captainMode) { openSignIn(); return { error: 'Please sign in to book.' }; }
+    if (!rec) return { error: 'Sign in to book.' };
     const cfg = DAY_CONFIG[k];
     const block = bookingBlock(k);
     if (!captainMode) {
@@ -5164,7 +5194,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const cleanedName = String(rec.name || '').trim().replace(/\s+/g, ' ');
     const entry = {
       id: Date.now(),
-      uid: auth.enabled && auth.user ? auth.user.uid : undefined,
+      uid: auth.user ? auth.user.uid : undefined,
       playerId: rec.id,
       name: cleanedName,
       mobile: rec.mobile || undefined,
@@ -6681,9 +6711,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           <button className={`tab-btn ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
             <span className="tab-icon" aria-hidden="true">🏠</span><span>Home</span>
           </button>
-          <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
-            <span className="tab-icon" aria-hidden="true">🏇</span><span>Chukkas</span>
-          </button>
+          {loggedOn && (
+            <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
+              <span className="tab-icon" aria-hidden="true">🏇</span><span>Chukkas</span>
+            </button>
+          )}
+          {loggedOn && (
+            <button className={`tab-btn ${activeTab === 'lessons' ? 'active' : ''}`} onClick={() => setActiveTab('lessons')}>
+              <span className="tab-icon" aria-hidden="true">🎓</span><span>Lessons</span>
+            </button>
+          )}
           <button className={`tab-btn ${activeTab === 'fixtures' ? 'active' : ''}`} onClick={() => setActiveTab('fixtures')}>
             <span className="tab-icon" aria-hidden="true">📅</span><span>Fixtures</span>
           </button>
@@ -6711,13 +6748,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           {/* ─── HOME — the member's dashboard ─────────────────────────────── */}
           {activeTab === 'home' && (
             <HomeDashboard
-              ready={loaded}
-              meState={homeMeState}
+              ready={loaded && authSettled}
+              account={homeAccount}
               me={homeMeView}
-              signedIn={homeSignedIn}
-              people={playerDb}
-              onChooseMe={chooseHomeMe}
-              onSignIn={auth.enabled ? () => openSignIn() : null}
+              onSignIn={(at) => setHomeAuth(at || 'signin')}
+              onSignOut={() => { if (window.auth && window.auth.signOut) window.auth.signOut().catch(() => {}); }}
               sessions={homeSessions}
               fixtures={homeFixtures}
               captain={homeCaptain}
@@ -6725,6 +6760,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               book={homeBook}
               undo={homeUndo}
               openChukkas={homeOpenChukkas}
+              openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
+              openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}
               openFixture={homeOpenFixture}
               openLive={() => setActiveTab('live')}
               goCaptain={homeGoCaptain}
@@ -6741,7 +6778,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <div className="reveal" style={{ maxWidth: '460px', margin: '0 auto' }}>
               {captainMode ? (
                 <>
-                  <div className="label-eyebrow" style={{ fontSize: '11px', marginBottom: '12px' }}>Captain area</div>
+                  <div className="label-eyebrow" style={{ fontSize: '11px', marginBottom: '12px' }}>{auth.enabled ? 'Admin area' : 'Captain area'}</div>
                   {[
                     { id: 'lessons', icon: '🎓', label: 'Lessons',  blurb: 'Coaching slots and who is booked in', go: () => setActiveTab('lessons') },
                     { id: 'players', icon: '👥', label: 'Players',  blurb: 'The player database, handicaps and tokens', go: () => { setPlayersView('players'); setActiveTab('players'); } },
@@ -6766,6 +6803,33 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     Subsidies and Admins sit inside Players.
                   </div>
                 </>
+              ) : auth.enabled ? (
+                // Sign-in live: the club is run by its admins, signed in; the
+                // captain PIN only unlocks live scoring.
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '16px', lineHeight: 1.6 }}>
+                    {auth.user
+                      ? <>The admin area &mdash; players, the draw, teams, payments and the lessons diary &mdash; is for the club&rsquo;s admins. An admin can add you from Players &rarr; Admins.</>
+                      : <>Running the club? Sign in with your admin account for players, the draw, teams, payments and the lessons diary.</>}
+                  </div>
+                  {!auth.user && (
+                    <button onClick={() => { setActiveTab('home'); setHomeAuth('signin'); }} style={{
+                      background: 'var(--burgundy)', border: '1px solid var(--burgundy)', color: 'var(--cream)',
+                      borderRadius: '6px', padding: '11px 20px', fontSize: '12px', fontWeight: 600,
+                      cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'inherit', marginBottom: '18px',
+                    }}>Sign in</button>
+                  )}
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.6, borderTop: '1px solid var(--line)', paddingTop: '14px' }}>
+                    {canScore ? 'Live scoring is unlocked on this device.' : 'Scoring a match? The captain PIN unlocks live scoring.'}
+                  </div>
+                  {!canScore && (
+                    <button onClick={() => setPinModalOpen(true)} style={{
+                      background: 'none', border: '1px solid var(--burgundy)', color: 'var(--burgundy)',
+                      borderRadius: '6px', padding: '9px 18px', fontSize: '12px', fontWeight: 600, marginTop: '10px',
+                      cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'inherit',
+                    }}>Enter scoring PIN</button>
+                  )}
+                </div>
               ) : (
                 <div style={{ textAlign: 'center', padding: '16px 0' }}>
                   <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '16px', lineHeight: 1.6 }}>
@@ -6788,7 +6852,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <button onClick={() => setActiveTab('more')} style={{
               background: 'transparent', border: 0, color: 'var(--muted)', fontSize: '12px',
               cursor: 'pointer', fontFamily: 'inherit', padding: '0 0 12px', letterSpacing: '0.5px',
-            }}>‹ Captain area</button>
+            }}>‹ {auth.enabled ? 'Admin area' : 'Captain area'}</button>
           )}
 
           {/* ─── CHUKKAS TAB — day menu + the selected day's booking page ─── */}
@@ -10219,18 +10283,28 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             </div>
           )}
 
-          {activeTab === 'lessons' && captainMode && (
+          {activeTab === 'lessons' && loggedOn && (
             <>
-            {/* Logins are being wired up here first, behind the PIN, so each
-                way in can be tried before members see any of it. Sign-in stays
-                switched off for the app at large — see authFirebase.js. */}
-            <SignInTest auth={auth} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} match={myMatch} providerHintFor={providerHintFor} />
+            {/* The captain's diary, with the sign-in bench above it. */}
+            {captainMode && <SignInTest auth={auth} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} match={myMatch} providerHintFor={providerHintFor} />}
+            {/* A signed-in member books themselves: the same board with the
+                captain's tools off, booking as their own record. */}
+            {!captainMode && (
+              <div style={{ maxWidth: '520px', margin: '0 auto 14px', textAlign: 'center' }}>
+                <div className="label-eyebrow" style={{ marginBottom: '6px' }}>Lessons</div>
+                <div style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.55 }}>
+                  {homePlayer
+                    ? 'Pick a day and a time with the coach. Your lesson tokens are used first; otherwise it goes on your invoice.'
+                    : 'We haven\u2019t matched your sign-in to the club\u2019s player list yet, so you can see the diary but not book from it. The captain can link you from Players.'}
+                </div>
+              </div>
+            )}
             <LessonsBoard
               slots={lessonSlots}
               onSaveSlots={saveLessonSlots}
               captainMode={captainMode}
-              canBookAsSelf={auth.enabled && !!myPlayer}
-              myPlayer={myPlayer}
+              canBookAsSelf={!!(myPlayer || homePlayer)}
+              myPlayer={homePlayer || myPlayer}
               players={playerDb.filter(p => p.active !== false)}
               rates={LESSON_SLOT_RATES}
               quote={quoteLesson}
@@ -10514,6 +10588,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         {/* PIN modal — captain access */}
         {auth.enabled && (
           <AuthSheet open={authSheetOpen} onClose={() => setAuthSheetOpen(false)} auth={auth} startAt={authSheetStart} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} providerHintFor={providerHintFor} />
+        )}
+        {/* Home's sign-in. enabled: true makes the real sheet usable while
+            sign-in stays dormant for the app at large — the same trick as the
+            captain's bench (SignInTest.jsx). */}
+        {homeAuth && authInstalled && (
+          <AuthSheet open onClose={() => setHomeAuth(null)} auth={{ ...auth, enabled: true }} startAt={homeAuth}
+            handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} providerHintFor={providerHintFor} />
         )}
         {pinModalOpen && (
           <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>

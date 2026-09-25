@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { greeting, firstName, initials, searchPeople, readUsual, writeUsual, icsFor } from './home';
+import React, { useEffect, useRef, useState } from 'react';
+import { greeting, firstName, readUsual, writeUsual, icsFor } from './home';
 
 // The Home tab: who you are to the club at a glance, your next chukka, and
 // booking in two taps — Book, then Confirm. The model is in home.js and every
@@ -96,51 +96,45 @@ const I = {
   share: 'M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M12 3v12M8 7l4-4 4 4',
   tick: 'M5 12.5l4.5 4.5L19 7.5',
   lock: 'M8 10V7a4 4 0 018 0v3M6 10h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z',
+  live: 'M20 13a8 8 0 11-16 0 8 8 0 0116 0zM12 9v4l2.5 2.5M10 2h4',
+  cap: 'M2 9l10-5 10 5-10 5L2 9zM6 11v5c3 2 9 2 12 0v-5',
 };
 
-const Crest = ({ size = 42 }) => (
-  <div aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', border: '1.5px solid var(--hd-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Fraunces',Georgia,serif", fontSize: size * 0.31, letterSpacing: '1px', color: 'var(--hd-gold2)', flexShrink: 0 }}>TP</div>
+// The club's own badge, cut from the app icon as a round (public/tppc-crest.png)
+// and set in a thin gold ring so it sits on the dark ground like a medal.
+const Crest = ({ size = 44 }) => (
+  <img src="/tppc-crest.png" alt="Tedworth Park Polo Club" width={size} height={size}
+    style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'block', background: '#fff',
+      boxShadow: '0 0 0 1.5px var(--hd-gold), 0 6px 18px -6px rgba(0,0,0,.6)' }} />
 );
 
-// ── First open: "Who's this phone for?" ─────────────────────────────────────
-function WhoIsThis({ people, onChoose, onSignIn, onCancel }) {
-  const [q, setQ] = useState('');
-  const matches = useMemo(() => searchPeople(people, q), [people, q]);
+// ── Logged out: the sign-in screen ──────────────────────────────────────────
+// Home is the way in. Booking chukkas and lessons, your draw and what you owe
+// need you signed in; the fixtures and the live scores are open to anyone, and
+// their tabs stay in the bar for exactly that.
+function Logon({ onSignIn, openFixtures, openLive }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', paddingTop: '6px' }}>
       <div className="hd-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px' }}>
-        <Crest size={60} />
-        <div className="hd-eyebrow">Tedworth Park Polo Club</div>
-        <h2 className="hd-serif" style={{ fontSize: '30px', fontWeight: 500, lineHeight: 1.15, margin: 0 }}>Who&rsquo;s this phone for?</h2>
-        <p style={{ fontSize: '14px', color: 'var(--hd-muted)', maxWidth: '320px', lineHeight: 1.5, margin: 0 }}>
-          Pick yourself once and Home shows your chukkas, your fixtures and what you owe. It&rsquo;s remembered on this phone only, and you can change it any time.
+        <Crest size={120} />
+        <div className="hd-eyebrow" style={{ marginTop: '8px' }}>Tedworth Park Polo Club</div>
+        <h2 className="hd-serif" style={{ fontSize: '32px', fontWeight: 500, lineHeight: 1.12, margin: 0 }}>Welcome back</h2>
+        <p style={{ fontSize: '14px', color: 'var(--hd-muted)', maxWidth: '320px', lineHeight: 1.55, margin: 0 }}>
+          Sign in to book chukkas and lessons, see your team when the draw is out, and keep track of what you owe.
         </p>
       </div>
-      <div className="hd-in" style={{ '--d': '.12s', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-        <label htmlFor="hd-who" className="hd-eyebrow">Your name</label>
-        <input id="hd-who" className="hd-input" type="search" autoComplete="off" value={q} onChange={e => setQ(e.target.value)} placeholder="Start typing your name" />
-        {matches.map(p => (
-          <button key={p.id} type="button" className="hd-choice hd-row" onClick={() => onChoose(p)} style={{ minHeight: '56px', padding: '0 14px' }}>
-            <span style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--hd-card2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', color: 'var(--hd-gold2)', flexShrink: 0 }}>{initials(p.name)}</span>
-            <span style={{ flex: 1, fontSize: '15px' }}>{p.name}</span>
-            <Icon d={I.chev} stroke="var(--hd-muted)" />
-          </button>
-        ))}
-        {q.trim() && !matches.length && (
-          <div style={{ fontSize: '13px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>
-            Nobody by that name in the club&rsquo;s list yet. Book from the Chukkas tab as usual and the captain will add you.
-          </div>
-        )}
+      <div className="hd-in" style={{ '--d': '.12s', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+        <button type="button" className="hd-primary hd-shimmer" onClick={() => onSignIn('signin')}><span>Sign in</span></button>
+        <button type="button" className="hd-btn" onClick={() => onSignIn('create')} style={{ minHeight: '52px', fontSize: '15px' }}>
+          <Icon d={I.lock} stroke="var(--hd-gold2)" />New here? Create an account
+        </button>
+        <div style={{ fontSize: '12px', color: 'var(--hd-dim)', textAlign: 'center', lineHeight: 1.5 }}>
+          Google, Apple or your email. Use the email the club has for you and we&rsquo;ll find your record.
+        </div>
       </div>
-      <div className="hd-in" style={{ '--d': '.24s', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-        {onSignIn && (
-          <>
-            <div className="hd-row" style={{ fontSize: '12px', color: 'var(--hd-dim)', gap: '10px' }}><span style={{ flex: 1, height: 1, background: 'var(--hd-line)' }} />or<span style={{ flex: 1, height: 1, background: 'var(--hd-line)' }} /></div>
-            <button type="button" className="hd-btn" onClick={onSignIn}><Icon d={I.lock} stroke="var(--hd-gold2)" />Sign in with Google, Apple or email</button>
-          </>
-        )}
-        <button type="button" className="hd-link" onClick={() => onChoose('guest')} style={{ minHeight: '44px', fontSize: '14px' }}>I&rsquo;m just looking</button>
-        {onCancel && <button type="button" className="hd-link" onClick={onCancel} style={{ minHeight: '40px', fontSize: '13px', color: 'var(--hd-muted)' }}>Cancel</button>}
+      <div className="hd-in" style={{ '--d': '.24s', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px' }}>
+        <button type="button" className="hd-btn" onClick={openFixtures}><Icon d={I.cal} stroke="var(--hd-gold2)" />Fixtures</button>
+        <button type="button" className="hd-btn" onClick={openLive}><Icon d={I.live} stroke="var(--hd-gold2)" />Live scores</button>
       </div>
     </div>
   );
@@ -473,12 +467,11 @@ function CaptainPanel({ c, go }) {
 // ── Home ────────────────────────────────────────────────────────────────────
 export default function HomeDashboard(props) {
   const {
-    ready, meState, me, signedIn, people, onChooseMe, onSignIn,
+    ready, account, me, onSignIn, onSignOut,
     sessions, fixtures, captain, quote, book, undo,
-    openChukkas, openFixture, openLive, goCaptain, directions,
+    openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
-  const [choosing, setChoosing] = useState(false);
 
   if (!ready) {
     return (
@@ -491,26 +484,26 @@ export default function HomeDashboard(props) {
     );
   }
 
-  const nextOpen = sessions.find(s => s.status === 'open') || sessions.find(s => s.status === 'full') || null;
-  const mine = sessions.filter(s => s.status === 'booked' || s.status === 'waitlisted');
-  const next = mine[0] || null;
-  const later = mine.slice(1);
-
-  if ((!meState && !signedIn) || choosing) {
+  if (!account) {
     return (
       <div className="hd">
         <style>{CSS}</style>
         <div className="hd-dots" />
-        {captain && !choosing && <div style={{ position: 'relative', marginBottom: '18px' }}><CaptainPanel c={captain} go={goCaptain} /></div>}
-        <WhoIsThis people={people} onSignIn={onSignIn} onCancel={choosing ? () => setChoosing(false) : null}
-          onChoose={(v) => { setChoosing(false); onChooseMe(v); }} />
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {captain && <CaptainPanel c={captain} go={goCaptain} />}
+          <Logon onSignIn={onSignIn} openFixtures={openFixtures} openLive={openLive} />
+        </div>
       </div>
     );
   }
 
+  const nextOpen = sessions.find(s => s.status === 'open') || sessions.find(s => s.status === 'full') || null;
+  const mine = sessions.filter(s => s.status === 'booked' || s.status === 'waitlisted');
+  const next = mine[0] || null;
+  const later = mine.slice(1);
   const now = new Date();
   const dateLine = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  const guest = !me;
+  const shownName = (me && me.name) || account.name || '';
 
   return (
     <div className="hd">
@@ -520,16 +513,16 @@ export default function HomeDashboard(props) {
         {captain && <CaptainPanel c={captain} go={goCaptain} />}
 
         <header className="hd-row hd-in" style={{ gap: '12px' }}>
-          <Crest />
+          <Crest size={48} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="hd-eyebrow">{dateLine}</div>
             <h2 className="hd-serif" style={{ fontSize: '24px', fontWeight: 500, lineHeight: 1.2, margin: 0 }}>
-              {guest ? 'Welcome to Tedworth Park' : `${greeting(now)}, ${firstName(me.name)}`}
+              {shownName ? `${greeting(now)}, ${firstName(shownName)}` : greeting(now)}
             </h2>
           </div>
         </header>
 
-        {!guest && (
+        {me ? (
           <div className="hd-card hd-in" style={{ '--d': '.06s', padding: '18px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg,#2a1a17 0%,#1f1714 55%,#1a1311 100%)' }}>
             <div aria-hidden="true" style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle,rgba(212,168,90,.18),transparent 70%)' }} />
             <div className="hd-row" style={{ alignItems: 'flex-start', position: 'relative' }}>
@@ -538,7 +531,7 @@ export default function HomeDashboard(props) {
                 <div style={{ fontSize: '13px', color: 'var(--hd-muted)', marginTop: '2px' }}>{me.membershipText}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div className="hd-serif" style={{ fontSize: '42px', lineHeight: 1, color: 'var(--hd-gold2)' }}>{me.handicapText ?? '—'}</div>
+                <div className="hd-serif" style={{ fontSize: '42px', lineHeight: 1, color: 'var(--hd-gold2)' }}>{me.handicapText ?? '\u2014'}</div>
                 <div className="hd-eyebrow" style={{ fontSize: '10px', marginTop: '4px' }}>Handicap</div>
               </div>
             </div>
@@ -548,21 +541,32 @@ export default function HomeDashboard(props) {
               <div className="hd-stat"><b style={{ color: me.owed > 0 ? '#e8c47e' : undefined }}>{me.owedText}</b><span>{me.owed > 0 ? 'To settle' : 'Owed'}</span></div>
             </div>
           </div>
+        ) : (
+          <div className="hd-card hd-in" style={{ '--d': '.06s', padding: '16px 18px', fontSize: '14px', color: 'var(--hd-muted)', lineHeight: 1.55 }}>
+            <div style={{ color: 'var(--hd-cream)', marginBottom: '4px' }}>You&rsquo;re signed in{account.email ? ` as ${account.email}` : ''}.</div>
+            {account.ambiguous
+              ? 'More than one player on the club\u2019s list matches your details, so we haven\u2019t guessed. The captain can link you to the right one from Players.'
+              : 'We haven\u2019t matched you to the club\u2019s player list yet. If the club has a different email for you, the captain can link your account from Players. Until then you can book from the Chukkas tab.'}
+          </div>
         )}
 
-        <div className="hd-in" style={{ '--d': '.12s' }}>
+        <div className="hd-in" style={{ '--d': '.12s', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <button type="button" className="hd-primary hd-shimmer" disabled={!nextOpen}
-            onClick={() => (guest ? openChukkas(nextOpen && nextOpen.key) : setBooking(nextOpen.key))}>
+            onClick={() => (me ? setBooking(nextOpen.key) : openChukkas(nextOpen && nextOpen.key))}>
             <span>{nextOpen ? 'Book a chukka' : 'Nothing open to book'}</span>
             {nextOpen && <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: '13px', opacity: .8 }}>&middot; {nextOpen.dow.charAt(0) + nextOpen.dow.slice(1).toLowerCase()} {nextOpen.dayNum}</span>}
+          </button>
+          <button type="button" className="hd-btn" onClick={openLessons}
+            style={{ minHeight: '52px', borderRadius: '16px', border: '1px solid var(--hd-gold)', fontFamily: "'Fraunces',Georgia,serif", fontSize: '18px' }}>
+            <Icon d={I.cap} size={20} stroke="var(--hd-gold2)" />Book a lesson
           </button>
         </div>
 
         {next && <NextChukka s={next} directions={directions} onOpen={() => openChukkas(next.key)} />}
 
-        {!guest && !next && (
+        {me && !next && (
           <div className="hd-card hd-in" style={{ '--d': '.18s', padding: '16px 18px', fontSize: '14px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>
-            Nothing booked this week yet. {nextOpen ? `${nextOpen.name} on ${nextOpen.fullDay} is open — Book takes two taps.` : ''}
+            Nothing booked this week yet. {nextOpen ? `${nextOpen.name} on ${nextOpen.fullDay} is open \u2014 Book takes two taps.` : ''}
           </div>
         )}
 
@@ -577,28 +581,13 @@ export default function HomeDashboard(props) {
           </div>
         )}
 
-        {guest && (
-          <div className="hd-in" style={{ '--d': '.18s', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <h3 className="hd-serif" style={{ fontSize: '19px', fontWeight: 500, margin: '4px 0' }}>Coming sessions</h3>
-            {sessions.map(s => (
-              <button key={s.key} type="button" className="hd-choice hd-row" onClick={() => openChukkas(s.key)} style={{ padding: '12px 14px', minHeight: '52px' }}>
-                <span style={{ flex: 1 }}>{s.name} &middot; <span style={{ color: 'var(--hd-muted)' }}>{s.dateLabel}, {s.time}</span></span>
-                <Icon d={I.chev} stroke="var(--hd-muted)" />
-              </button>
-            ))}
-          </div>
-        )}
-
         <Fixtures items={fixtures} onOpen={openFixture} onLive={openLive} delay=".28s" />
 
-        {!signedIn && (
-          <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--hd-dim)', paddingTop: '4px' }}>
-            {guest ? 'Is this your phone? ' : 'Not you? '}
-            <button type="button" className="hd-link" onClick={() => setChoosing(true)} style={{ fontSize: '12px', minHeight: '40px' }}>
-              {guest ? 'Pick yourself' : 'Change who this phone is for'}
-            </button>
-          </div>
-        )}
+        <div className="hd-row" style={{ justifyContent: 'center', gap: '16px', fontSize: '12px', color: 'var(--hd-dim)', paddingTop: '4px', flexWrap: 'wrap' }}>
+          <button type="button" className="hd-link" onClick={() => onSignIn('profile')} style={{ fontSize: '12px', minHeight: '40px' }}>Your details</button>
+          <span aria-hidden="true">&middot;</span>
+          <button type="button" className="hd-link" onClick={onSignOut} style={{ fontSize: '12px', minHeight: '40px' }}>Sign out</button>
+        </div>
       </div>
 
       {booking && me && (

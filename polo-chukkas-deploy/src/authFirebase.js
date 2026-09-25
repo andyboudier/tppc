@@ -17,12 +17,20 @@
 // console, the providers under Authentication → Sign-in method. Until one is
 // enabled there its button returns auth/operation-not-allowed, which
 // authErrorText renders as "That sign-in method is not switched on yet."
-export const SIGN_IN_LIVE = false;
+//
+// A build can switch it on without touching this file: VITE_SIGN_IN_LIVE=1.
+// That is how TPPC-Dev runs with sign-in live while the club's own build,
+// which sets nothing, stays dormant — the same pattern as VITE_FIREBASE_* in
+// firebase.js, so this file stays identical in both repos.
+const env = import.meta.env || {};
+export const SIGN_IN_LIVE = env.VITE_SIGN_IN_LIVE === '1';
 
 // Emails that are admins whatever the config/admins document says — the way
 // back in if the document is ever emptied by accident. The club fills this in
-// when sign-in goes live.
-export const FIXED_ADMIN_EMAILS = [];
+// when sign-in goes live; a build may name them in VITE_FIXED_ADMIN_EMAILS,
+// comma-separated, so the addresses live in the deployment and not the code.
+export const FIXED_ADMIN_EMAILS = String(env.VITE_FIXED_ADMIN_EMAILS || '')
+  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
 // Which buttons the sheet offers, and it should name only what is switched on
 // in the club's Firebase console — a button for a method that is off is a dead
