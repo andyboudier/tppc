@@ -320,7 +320,11 @@ plus `config/admins`, which an admin edits in Players → Admins) are
 `captainMode` and run everything; the captain PIN is `canScore` and opens live
 scoring only; More tells a signed-in member the admin area is for admins and
 offers the scoring PIN. Google, Apple and email/password are switched on in the
-tppc-dev Firebase console.
+tppc-dev Firebase console. `captainMode` reads `signInBuild` (sign-in enabled,
+or `VITE_SIGN_IN_LIVE` set), not just `auth.enabled`: the provider is only
+installed once the auth chunk has loaded, and until then `auth.enabled` is
+false — which, with the PIN unlocked, used to hand a member the admin side for
+the first seconds of every load (every player in a lesson's "Who is it for").
 
 **Home** (`HomeDashboard.jsx`, model in `home.js`) is first in the bar and is
 the sign-in screen: signed out, the bar is Home, Fixtures, Live and More;

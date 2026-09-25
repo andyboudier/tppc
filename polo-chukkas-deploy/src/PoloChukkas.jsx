@@ -1496,7 +1496,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // "Captain mode" throughout the app means the management side: rosters,
   // the draw, players, tournaments, shop, payments. It keeps its old name
   // because it gates a great deal of the interface.
-  const captainMode = auth.enabled ? isAdmin : pinUnlocked;
+  //
+  // A build with sign-in switched on never lets the PIN stand in for an
+  // admin — not even for the moment before the sign-in code has loaded,
+  // when `auth.enabled` still reads false. Without this, a member who had
+  // opened live scoring with the PIN got the admin side (every player in
+  // "Who is it for") until their sign-in caught up. The clubs' builds leave
+  // VITE_SIGN_IN_LIVE unset, so for them the PIN still opens everything.
+  const signInBuild = auth.enabled || import.meta.env.VITE_SIGN_IN_LIVE === '1';
+  const captainMode = signInBuild ? isAdmin : pinUnlocked;
   // Entering scores on the live tab: the PIN, or an admin.
   const canScore = pinUnlocked || isAdmin;
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
@@ -6926,7 +6934,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <div className="reveal" style={{ maxWidth: '460px', margin: '0 auto' }}>
               {captainMode ? (
                 <>
-                  <div className="label-eyebrow" style={{ fontSize: '11px', marginBottom: '12px' }}>{auth.enabled ? 'Admin area' : 'Captain area'}</div>
+                  <div className="label-eyebrow" style={{ fontSize: '11px', marginBottom: '12px' }}>{signInBuild ? 'Admin area' : 'Captain area'}</div>
                   {[
                     { id: 'lessons', icon: '🎓', label: 'Lessons',  blurb: 'Coaching slots and who is booked in', go: () => setActiveTab('lessons') },
                     { id: 'players', icon: '👥', label: 'Players',  blurb: 'The player database, handicaps and tokens', go: () => { setPlayersView('players'); setActiveTab('players'); } },
@@ -6951,7 +6959,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     Subsidies and Admins sit inside Players.
                   </div>
                 </>
-              ) : auth.enabled ? (
+              ) : signInBuild ? (
                 // Sign-in live: the club is run by its admins, signed in; the
                 // captain PIN only unlocks live scoring.
                 <div style={{ textAlign: 'center', padding: '16px 0' }}>
@@ -7000,7 +7008,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <button onClick={() => setActiveTab('more')} style={{
               background: 'transparent', border: 0, color: 'var(--muted)', fontSize: '12px',
               cursor: 'pointer', fontFamily: 'inherit', padding: '0 0 12px', letterSpacing: '0.5px',
-            }}>‹ {auth.enabled ? 'Admin area' : 'Captain area'}</button>
+            }}>‹ {signInBuild ? 'Admin area' : 'Captain area'}</button>
           )}
 
           {/* ─── CHUKKAS TAB — day menu + the selected day's booking page ─── */}
@@ -10653,7 +10661,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               <>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--burgundy)', fontWeight: 600 }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--burgundy)', display: 'inline-block' }} />
-                  {auth.enabled ? 'Scoring unlocked' : 'Captain mode'}
+                  {signInBuild ? 'Scoring unlocked' : 'Captain mode'}
                 </span>
                 <button
                   onClick={lockCaptainMode}
@@ -10764,7 +10772,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               </div>
               <div className="share-body">
                 <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--muted)', lineHeight: 1.55, textAlign: 'center' }}>
-                  {auth.enabled ? 'Enter the 4-digit captain PIN to unlock live scoring.' : 'Enter the 4-digit captain PIN to unlock team management.'}
+                  {signInBuild ? 'Enter the 4-digit captain PIN to unlock live scoring.' : 'Enter the 4-digit captain PIN to unlock team management.'}
                 </p>
                 <input
                   type="password"
