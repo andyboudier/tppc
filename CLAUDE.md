@@ -219,10 +219,11 @@ Each club prices from its **own** rate card, so `LESSON_SLOT_RATES` maps
 (kind, hours) → that club's lesson id and lives in each app, not in
 `lessons.js`: Druids sells `lesson-1hr` and `semi-private` where TPPC and Vaux
 sell `ind-1hr`/`grp-1hr`, and a shared map would quietly bill the wrong lesson.
-A length the card does not price is not offered at all. Pony hire is charged
-per hour, as it is per chukka, and is **never chosen for the rider**: the
-booking sheet asks Club pony or My own pony, and Book stays disabled until one
-is picked.
+A length the card does not price is not offered at all. The lesson prices
+**include the pony**, as Instructional Chukkas' does, so a club pony adds
+nothing to a lesson (`quoteLesson`). The rider still chooses Club pony or My
+own pony — it is never chosen for them, and Book stays disabled until one is
+picked — because the yard needs to know which to have ready.
 
 TPPC also sells its own **club sessions** from the Lessons tab — Ladies Only
 and Instructional Chukkas, one hour, two chukkas, eight places. A slot with a

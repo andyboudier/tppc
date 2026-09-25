@@ -72,15 +72,19 @@ function PonyChoice({ value, onChange, withPony, without }) {
     background: on ? 'var(--cream-warm)' : 'transparent', color: 'var(--ink)',
     border: on ? '1.5px solid var(--gold)' : '1px solid var(--line)',
   });
+  // A lesson's price includes the pony, so both choices cost the same and
+  // the choice only tells the yard what to have ready; a session that
+  // charges pony hire shows the two prices.
+  const same = withPony.total === without.total;
   return (
     <div role="radiogroup" aria-label="Pony" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
       <button type="button" role="radio" aria-checked={value === true} style={opt(value === true)} onClick={() => onChange(true)}>
         <span style={{ display: 'block', fontSize: '13px', fontWeight: 600 }}>Club pony</span>
-        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>£{withPony.money}</span>
+        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>{same ? 'Included in the price' : `£${withPony.money}`}</span>
       </button>
       <button type="button" role="radio" aria-checked={value === false} style={opt(value === false)} onClick={() => onChange(false)}>
         <span style={{ display: 'block', fontSize: '13px', fontWeight: 600 }}>My own pony</span>
-        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>£{without.money}</span>
+        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>{same ? 'I’ll bring my own' : `£${without.money}`}</span>
       </button>
     </div>
   );

@@ -2530,22 +2530,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const tokensOf = (player) => Math.max(0, Number(player && player.tokens) || 0);
 
-  // What a lesson costs, with and without a pony. Pony hire is charged per
-  // hour, as it is per chukka elsewhere: a lesson needs a fresh pony the same
-  // way a chukka does. Subsidy pots come off the coaching, not the pony.
-  const quoteLesson = (player, type, hours, ponyHire, ponyLevel) => {
+  // What a lesson costs. The rate card's lesson prices include the pony, as
+  // Instructional Chukkas' does, so a club pony adds nothing: the rider still
+  // says which they want (`ponyHire` on the booking) so the yard knows what to
+  // have ready. Subsidy pots come off the coaching.
+  const quoteLesson = (player, type, hours, ponyHire) => {
     const h = Math.max(1, Number(hours) || 1);
     const rateId = (LESSON_SLOT_RATES[type] || LESSON_SLOT_RATES.individual)[h];
     if (!rateId) return { blocked: `No ${h}-hour ${type} rate.`, money: '—', total: 0, detail: '' };
     const lt = lessonById(rateId);
     const priced = player ? priceLesson(player, lt.id) : { lessonLabel: lt.label, base: lt.civ, subsidyDeductions: [], total: lt.civ };
-    const level = ponyLevel || 'club';
-    const pony = ponyHire ? (PONY_HIRE_2026[level] != null ? PONY_HIRE_2026[level] : PONY_HIRE_2026.club) * h : 0;
-    const total = Math.max(0, priced.total + pony);
+    const total = Math.max(0, priced.total);
     const bits = [`${lt.label} £${fmtMoney(priced.base)}`];
-    if (pony) bits.push(`pony hire £${fmtMoney(pony)} (${h} hr)`);
+    if (ponyHire) bits.push('club pony included');
     (priced.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
-    return { lessonId: lt.id, lessonLabel: lt.label, base: priced.base, pony,
+    return { lessonId: lt.id, lessonLabel: lt.label, base: priced.base, pony: 0,
              subsidyDeductions: priced.subsidyDeductions || [], total,
              money: fmtMoney(total), detail: bits.join(' · ') };
   };
