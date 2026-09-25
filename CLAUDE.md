@@ -211,8 +211,10 @@ admin settles it on the card: **run as a smaller group** (`runAsSmallerGroup`,
 min becomes the count), **make it individual** (`groupToIndividual`, one rider
 only; an unpaid invoice is re-priced at the individual rate) or **cancel the
 group** (`cancelLessonBookings` — tokens back, unpaid invoices dropped, in one
-write). A member only sees what they could book and what they are already in;
-an admin sees every slot. Captains add or amend lessons, copy last week
+write). A member books a lesson or a session for themselves or a teammate
+(`teammates`, the same rule as chukkas; `mayBookFor` checks it again at
+booking), and sees what they could book plus anything they or their team are
+already in; an admin books anyone and sees every slot. Captains add or amend lessons, copy last week
 forward (times only, never bookings) and book people in by hand.
 
 Each club prices from its **own** rate card, so `LESSON_SLOT_RATES` maps

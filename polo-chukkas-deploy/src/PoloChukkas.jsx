@@ -2575,7 +2575,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // path: a token buys an hour of COACHING, and these are chukkas priced off
   // the club tariff. Spending somebody's coaching tokens on a chukka session
   // without being asked is not a thing to do quietly.
+  // Who a member may book a lesson or a session for: themselves or a teammate.
+  const mayBookFor = (player) => captainMode || (!!player && (
+    (myPlayer && player.id === myPlayer.id) || teammates.some(t => t.id === player.id)));
   const bookClubSession = async ({ slot, player, ponyHire }) => {
+    if (!mayBookFor(player)) return { error: 'You can book yourself or someone on your team.' };
     const kind = clubSessionById(slot.kind);
     if (!kind) return { error: 'That session is no longer offered.' };
     const cfg = DAY_CONFIG[kind.dayKey] || {};
@@ -2616,6 +2620,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // cash price goes on their invoice — the same 'due' transaction the
   // Payments tab already settles, so Stripe later has one thing to pay off.
   const bookLesson = async ({ slot, session, player, ponyHire }) => {
+    if (!mayBookFor(player)) return { error: 'You can book yourself or someone on your team.' };
     const hours = Math.max(1, Number(session.hours) || 1);
     const bd = quoteLesson(player, session.type, hours, ponyHire);
     const cost = tokenCost(hours);
@@ -5685,7 +5690,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         .input-field:focus {
           outline: none;
           border-color: var(--burgundy);
-          background: white;
+          /* background-color, not background: the shorthand would wipe a
+             select's arrow, or with the dark theme tile it across the box. */
+          background-color: white;
           box-shadow: 0 0 0 3px rgba(107, 31, 42, 0.10);
         }
         .input-field::placeholder { color: #b8ad8e; }
@@ -10448,6 +10455,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               canBookAsSelf={!!(myPlayer || homePlayer)}
               myPlayer={homePlayer || myPlayer}
               players={playerDb.filter(p => p.active !== false)}
+              teammates={teammates}
               rates={LESSON_SLOT_RATES}
               quote={quoteLesson}
               tokensOf={tokensOf}

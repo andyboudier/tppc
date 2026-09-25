@@ -66,6 +66,10 @@ export const LUX_CSS = `
 .polo-app.lux .input-field { background-color: var(--lux-card2); border-color: var(--line); color: var(--ink); border-radius: 12px; }
 .polo-app.lux .input-field:focus { background-color: var(--lux-card2); border-color: var(--lux-gold); box-shadow: 0 0 0 3px rgba(212, 168, 90, 0.18); }
 .polo-app.lux .input-field::placeholder { color: #7d6f5c; }
+/* The arrow is drawn once, at the right. Kept here as well as on the base
+   .select-field because .input-field:focus is the stronger rule: without
+   these the arrow tiled across the whole box the moment it was tapped. */
+.polo-app.lux .select-field, .polo-app.lux .select-field:focus { background-repeat: no-repeat; background-position: right 16px center; }
 .polo-app.lux .select-field { background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3e%3cpath fill='none' stroke='%23b3a48c' stroke-width='1.5' d='M1 1.5l5 5 5-5'/%3e%3c/svg%3e"); }
 .polo-app.lux select option { background: var(--lux-card); color: var(--ink); }
 /* Controls styled inline rather than with .input-field (Live's pickers, the

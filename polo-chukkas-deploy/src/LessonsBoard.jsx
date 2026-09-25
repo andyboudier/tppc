@@ -134,8 +134,8 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
           <select id="lesson-who" className="input-field select-field" value={playerId}
             onChange={(e) => { setPlayerId(e.target.value); setError(''); }}
             style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
-            <option value="">— pick a player —</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {!who && <option value="">— pick a player —</option>}
+            {players.map(p => <option key={p.id} value={p.id}>{who && p.id === who.id ? `${p.name} (me)` : p.name}</option>)}
           </select>
         </>
       )}
@@ -210,8 +210,8 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
           <select id="sess-who" className="input-field select-field" value={playerId}
             onChange={(e) => { setPlayerId(e.target.value); setError(''); }}
             style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
-            <option value="">— pick a player —</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {!who && <option value="">— pick a player —</option>}
+            {players.map(p => <option key={p.id} value={p.id}>{who && p.id === who.id ? `${p.name} (me)` : p.name}</option>)}
           </select>
         </>
       )}
@@ -607,6 +607,9 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
 
 export default function LessonsBoard({
   slots, onSaveSlots, captainMode, canBookAsSelf, myPlayer, players, rates,
+  // A member may book themselves or anyone on their team — the same rule as
+  // chukkas. An admin may book anyone.
+  teammates = [],
   quote, tokensOf, onBook, onCancelBooking, onResolveGroup, grounds = [],
   clubSessions = [], quoteSession, onBookSession,
   // Open the board on one date, showing club sessions, and bring one slot
@@ -636,18 +639,23 @@ export default function LessonsBoard({
   const [note, setNote] = useState('');
   const kindOf = (slot) => clubSessions.find(k => k.id === slot.kind) || null;
 
+  const bookable = captainMode ? players : (myPlayer ? [myPlayer, ...teammates] : []);
+  const canPick = captainMode || (!!myPlayer && teammates.length > 0);
   const days = weekDays(monday);
   // A member sees what they could book and what they are already in; the rest
   // — someone else's individual lesson, a full group or session — is only
   // clutter for them. An admin sees every slot, because they run them all.
+  // "Mine" includes the team: a lesson booked for a teammate stays in view.
+  const ourIds = new Set([myPlayer, ...teammates].filter(Boolean).map(p => p.id));
+  const ourNames = new Set([myPlayer, ...teammates].filter(Boolean).map(p => String(p.name || '').trim().toLowerCase()));
   const isMineIn = (sl) => !!myPlayer && (sl.bookings || []).some(b => (
-    (b.playerId != null && b.playerId === myPlayer.id)
-    || String(b.name || '').trim().toLowerCase() === String(myPlayer.name || '').trim().toLowerCase()
+    (b.playerId != null && ourIds.has(b.playerId))
+    || ourNames.has(String(b.name || '').trim().toLowerCase())
   ));
   const visible = (sl) => captainMode || isMineIn(sl) || (isClubSession(sl)
     ? clubSessionSpots(sl) > 0
     : slotOptions(sl, rates).some(o => !o.blocked));
-  const onDay = useMemo(() => slotsOn(slots, day).filter(visible), [slots, day, captainMode, myPlayer, rates]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onDay = useMemo(() => slotsOn(slots, day).filter(visible), [slots, day, captainMode, myPlayer, teammates, rates]); // eslint-disable-line react-hooks/exhaustive-deps
   // The filter picks which SLOTS appear: a coaching filter hides the club
   // sessions outright rather than showing an empty card for each.
   const shown = useMemo(() => onDay.filter(sl => (
@@ -780,7 +788,7 @@ export default function LessonsBoard({
       {taking && (
         <SessionSheet
           slot={taking} kind={kindOf(taking)}
-          who={myPlayer} canPickPlayer={captainMode} players={players}
+          who={myPlayer} canPickPlayer={canPick} players={bookable}
           quote={quoteSession}
           onCancel={() => setTaking(null)} onConfirm={confirmPlace} />
       )}
@@ -788,7 +796,7 @@ export default function LessonsBoard({
       {picking && (
         <BookSheet
           slot={picking.slot} session={picking.session}
-          who={myPlayer} canPickPlayer={captainMode} players={players}
+          who={myPlayer} canPickPlayer={canPick} players={bookable}
           quote={quote} tokensOf={tokensOf}
           onCancel={() => setPicking(null)} onConfirm={confirmBooking} />
       )}
