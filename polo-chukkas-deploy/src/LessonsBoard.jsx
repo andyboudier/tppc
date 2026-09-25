@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   MIN_GROUP, MAX_GROUP,
   addDays, availableSessions, blankSlot, blockedReason, bookingsFor, bySlotTime,
@@ -407,7 +407,7 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
   const left = clubSessionSpots(slot);
 
   return (
-    <div style={{ ...S.card, borderColor: left ? 'var(--gold)' : 'var(--line)' }}>
+    <div data-slot-id={slot.id} style={{ ...S.card, borderColor: left ? 'var(--gold)' : 'var(--line)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div>
           <div style={{ fontSize: '13px', color: 'var(--muted)' }}>{slot.start}–{slot.end}</div>
@@ -539,11 +539,27 @@ export default function LessonsBoard({
   slots, onSaveSlots, captainMode, canBookAsSelf, myPlayer, players, rates,
   quote, tokensOf, onBook, onCancelBooking,
   clubSessions = [], quoteSession, onBookSession,
+  // Open the board on one date, showing club sessions, and bring one slot
+  // into view — how Thursday and Friday on the Chukkas tab land here.
+  // { date: 'YYYY-MM-DD', slotId?, at } — `at` makes a repeat tap re-apply.
+  focus = null,
 }) {
   const today = isoOf(new Date());
   const [monday, setMonday] = useState(() => mondayOf(today));
   const [day, setDay] = useState(() => today);
   const [filter, setFilter] = useState('all');
+  useEffect(() => {
+    if (!focus || !focus.date) return;
+    setMonday(mondayOf(focus.date));
+    setDay(focus.date);
+    setFilter(clubSessions.length ? 'session' : 'all');
+    setEditing(null); setPicking(null); setTaking(null); setNote('');
+    const t = setTimeout(() => {
+      const el = focus.slotId && document.querySelector(`[data-slot-id="${focus.slotId}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [focus && focus.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState(null);   // slot draft | null
   const [picking, setPicking] = useState(null);   // { slot, session } | null
   const [taking, setTaking] = useState(null);    // a club session slot | null
