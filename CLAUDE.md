@@ -358,6 +358,28 @@ carries `playerId` and `bookedBy`, as the form's do.
 With sign-in live the captain's sign-in bench on Lessons is hidden — Home is
 the way in.
 
+**Your profile** (Home → Your profile) is Home's own sheet, not AuthSheet:
+picture, name, handicap, HPA number and mobile (saved with `saveProfile`, so
+the reconcile carries them to the club's record), the email read-only (it is
+what the match runs on), a password — `changePassword` updates it, or adds one
+to a Google or Apple account with `linkWithCredential` — and Add Google/Apple.
+AuthSheet is only the way in now: opening it at 'profile' for someone already
+signed in closed itself straight away (its two opening effects race).
+
+**Reminder emails** (`api/_reminders.js`, run by Vercel Cron from
+`vercel.json`): the evening before at 17:00 UTC (`reminders-evening`) and the
+morning of at 07:00 UTC (`reminders-morning`) — 18:00 and 08:00 in summer, an
+hour earlier in winter, and Vercel may run a daily job any time in that hour.
+One email per person listing their chukkas (session, time, ground, chukkas,
+pony, and their chukkas and shirt once the draw is published) and lessons.
+It reads `shared/<key>` over the Firestore REST API like the Watch apps, and
+counts a chukka roster only when `roster-week` is stamped for that very date.
+The day table in it mirrors DAY_CONFIG — keep the two in step. Safe by
+default: it emails only `REMINDERS_ALLOW` (Andy's address on dev) unless
+`REMINDERS_LIVE=1`, refuses any call without `CRON_SECRET`, and sends through
+Resend with `RESEND_API_KEY`. The two secrets are the owner's to set in Vercel;
+`?dry=1` and `?date=YYYY-MM-DD` help a manual test.
+
 When this is brought back to TPPC it applies to Druids and Vaux too, but
 Druids always suffixes day keys and has no waiting list, each club's day names,
 crest and palette differ (the theme's gold and burgundy would need each club's

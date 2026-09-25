@@ -47,6 +47,7 @@
 //   signOut()
 //   saveProfile({ name, handicap, mobile, hpa })
 //   savePhoto(dataUrl | 'none' | '')   '' goes back to the sign-in's photo
+//   changePassword(pw)             sets it, or adds one to a Google/Apple account
 //   listAdmins() → [email]         admins only
 //   setAdmins([email])             admins only
 //
@@ -78,6 +79,7 @@ export const noAuth = {
   signOut: async () => {},
   saveProfile: notEnabled,
   savePhoto: notEnabled,
+  changePassword: notEnabled,
   listAdmins: async () => [],
   setAdmins: notEnabled,
 };
@@ -120,6 +122,8 @@ export const authErrorText = (err) => {
     'auth/invalid-credential': 'Wrong email or password — try again, or send yourself a sign-in link.',
     'auth/email-already-in-use': 'There is already an account with that email. Sign in instead.',
     'auth/weak-password': 'Please choose a password of at least 6 characters.',
+    'auth/requires-recent-login': 'For your security, that needs a fresh sign-in. Sign out and back in, then try again — or use the reset email.',
+    'auth/provider-already-linked': 'This account already has a password.',
     'auth/too-many-requests': 'Too many attempts — wait a minute and try again.',
     'auth/popup-closed-by-user': 'The sign-in window was closed before finishing.',
     'auth/popup-blocked': 'Your browser blocked the sign-in window. Allow pop-ups for this site, or use email.',

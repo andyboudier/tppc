@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { greeting, firstName, readUsual, writeUsual, icsFor, initialsOf } from './home';
+import { authErrorText } from './auth';
 
 // The Home tab: who you are to the club at a glance, your next chukka, and
 // booking in two taps — Book, then Confirm. The model is in home.js and every
@@ -197,6 +198,133 @@ function PhotoSheet({ account, name, onSave, onClose }) {
         )}
         {error && <div role="alert" style={{ fontSize: '13px', color: '#f0b9b9' }}>{error}</div>}
         <button type="button" className="hd-link" onClick={onClose} disabled={busy} style={{ minHeight: '40px', fontSize: '14px' }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Your profile ────────────────────────────────────────────────────────────
+// Everything a member keeps about themselves, in one place: picture, name,
+// handicap, mobile and HPA number (these travel to the club's record through
+// the profile ↔ record reconcile), the email they sign in with (read-only —
+// the club matches on it), their password, and the ways they sign in.
+const PROVIDER_NAMES = { 'google.com': 'Google', 'apple.com': 'Apple', password: 'Email and password', emailLink: 'Email link' };
+const fld = { width: '100%', minHeight: 48, padding: '0 14px', borderRadius: 12, background: 'var(--hd-card2)', border: '1px solid var(--hd-line)', color: 'var(--hd-cream)', fontSize: 16, fontFamily: 'inherit', outline: 'none' };
+const lbl = { display: 'block', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--hd-muted)', margin: '14px 0 6px' };
+
+function ProfileSheet({ account, profile, me, handicapOptions, onSave, onChangePassword, onResetEmail, onLinkProvider, onSignOut, onPhoto, onClose }) {
+  const p = profile || {};
+  const [draft, setDraft] = useState({
+    name: p.name || (me && me.name) || account.name || '',
+    handicap: p.handicap != null && p.handicap !== '' ? String(p.handicap) : (me && me.handicapRaw != null ? String(me.handicapRaw) : ''),
+    mobile: p.mobile || (me && me.mobile) || '',
+    hpa: p.hpa || '',
+  });
+  const [pw, setPw] = useState({ a: '', b: '' });
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState({ kind: '', text: '' });
+  const headRef = useRef(null);
+  const providers = account.providers || [];
+  const hasPassword = providers.includes('password');
+  const set = (k) => (e) => setDraft(d => ({ ...d, [k]: e.target.value }));
+
+  useEffect(() => {
+    headRef.current && headRef.current.focus();
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('hd-sheet-open');
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; document.body.classList.remove('hd-sheet-open'); window.removeEventListener('keydown', onKey); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const run = async (what, fn, ok) => {
+    setBusy(what); setMsg({ kind: '', text: '' });
+    try { await fn(); setMsg({ kind: 'ok', text: ok }); return true; }
+    catch (e) { setMsg({ kind: 'err', text: authErrorText(e) || String((e && e.message) || e) }); return false; }
+    finally { setBusy(''); }
+  };
+  const save = () => {
+    if (!draft.name.trim()) { setMsg({ kind: 'err', text: 'Please give your name.' }); return; }
+    run('save', () => onSave({ name: draft.name.trim(), handicap: draft.handicap === '' ? null : Number(draft.handicap), mobile: draft.mobile.trim(), hpa: draft.hpa.trim() }),
+      'Saved. The club\u2019s list is updated too.');
+  };
+  const changePw = async () => {
+    if (pw.a.length < 8) { setMsg({ kind: 'err', text: 'Use at least 8 characters.' }); return; }
+    if (pw.a !== pw.b) { setMsg({ kind: 'err', text: 'The two passwords don\u2019t match.' }); return; }
+    if (await run('pw', () => onChangePassword(pw.a), hasPassword ? 'Password changed.' : 'Password added \u2014 you can now sign in with your email too.')) setPw({ a: '', b: '' });
+  };
+
+  return (
+    <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-labelledby="hd-prof-title">
+      <div className="hd-sheet-inner hd-row" style={{ padding: '18px 20px 8px' }}>
+        <button type="button" onClick={onClose} aria-label="Back to Home" className="hd-btn" style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)' }}>
+          <Icon d={I.back} size={20} />
+        </button>
+        <h2 id="hd-prof-title" ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: 24, fontWeight: 500, margin: 0, outline: 'none' }}>Your profile</h2>
+      </div>
+      <div className="hd-sheet-body">
+        <div className="hd-sheet-inner">
+          <div className="hd-row" style={{ gap: 16, padding: '8px 0 6px' }}>
+            <Avatar src={account.photo} name={draft.name} size={72} onClick={onPhoto} />
+            <div style={{ minWidth: 0 }}>
+              <div className="hd-serif" style={{ fontSize: 20 }}>{draft.name || 'Your name'}</div>
+              <div style={{ fontSize: 13, color: 'var(--hd-muted)' }}>{account.email}</div>
+              {account.team ? <div style={{ fontSize: 13, color: 'var(--hd-muted)' }}>Team: {account.team}</div> : null}
+            </div>
+          </div>
+
+          <label style={lbl} htmlFor="pf-name">Name</label>
+          <input id="pf-name" style={fld} value={draft.name} onChange={set('name')} autoComplete="name" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={lbl} htmlFor="pf-hcp">Handicap</label>
+              <select id="pf-hcp" style={fld} value={draft.handicap} onChange={set('handicap')}>
+                <option value="">Not set</option>
+                {handicapOptions.map(h => <option key={h} value={String(h)}>{h < 0 ? `\u2212${Math.abs(h)}` : h}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl} htmlFor="pf-hpa">HPA number</label>
+              <input id="pf-hpa" style={fld} value={draft.hpa} onChange={set('hpa')} placeholder="Optional" />
+            </div>
+          </div>
+          <label style={lbl} htmlFor="pf-mob">Mobile</label>
+          <input id="pf-mob" style={fld} type="tel" value={draft.mobile} onChange={set('mobile')} autoComplete="tel" placeholder="07…" />
+          <label style={lbl} htmlFor="pf-email">Email</label>
+          <input id="pf-email" style={{ ...fld, opacity: .7 }} value={account.email} readOnly />
+          <div style={{ fontSize: 12, color: 'var(--hd-dim)', marginTop: 6 }}>Your email is how you sign in and how the club finds your record, so it can only be changed by the club.</div>
+          <button type="button" className="hd-primary" style={{ marginTop: 18 }} disabled={!!busy} onClick={save}><span>{busy === 'save' ? 'Saving\u2026' : 'Save details'}</span></button>
+
+          <div style={{ borderTop: '1px solid var(--hd-line)', margin: '26px 0 4px' }} />
+          <div className="hd-serif" style={{ fontSize: 19, marginTop: 14 }}>{hasPassword ? 'Change password' : 'Add a password'}</div>
+          <div style={{ fontSize: 13, color: 'var(--hd-muted)', marginTop: 4, lineHeight: 1.5 }}>
+            {hasPassword ? 'At least 8 characters.' : 'You sign in with ' + (providers.map(x => PROVIDER_NAMES[x] || x).join(' and ') || 'another method') + '. Add a password to sign in with your email as well.'}
+          </div>
+          <label style={lbl} htmlFor="pf-pw1">New password</label>
+          <input id="pf-pw1" style={fld} type="password" autoComplete="new-password" value={pw.a} onChange={e => setPw(v => ({ ...v, a: e.target.value }))} />
+          <label style={lbl} htmlFor="pf-pw2">Again</label>
+          <input id="pf-pw2" style={fld} type="password" autoComplete="new-password" value={pw.b} onChange={e => setPw(v => ({ ...v, b: e.target.value }))} />
+          <div style={{ display: 'grid', gridTemplateColumns: hasPassword ? '1fr 1fr' : '1fr', gap: 10, marginTop: 14 }}>
+            <button type="button" className="hd-btn" disabled={!!busy || !pw.a} onClick={changePw} style={{ borderColor: 'var(--hd-gold)' }}>{busy === 'pw' ? 'Saving\u2026' : hasPassword ? 'Change password' : 'Add password'}</button>
+            {hasPassword && <button type="button" className="hd-btn" disabled={!!busy} onClick={() => run('reset', onResetEmail, `We\u2019ve emailed a reset link to ${account.email}.`)}>Email me a reset link</button>}
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--hd-line)', margin: '26px 0 4px' }} />
+          <div className="hd-serif" style={{ fontSize: 19, marginTop: 14 }}>How you sign in</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            {providers.map(x => <span key={x} className="hd-pill hd-pill-ok" style={{ fontSize: 12, padding: '6px 12px' }}>{PROVIDER_NAMES[x] || x}</span>)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+            {!providers.includes('google.com') && <button type="button" className="hd-btn" disabled={!!busy} onClick={() => run('google', () => onLinkProvider('google'), 'Google added \u2014 either will sign you in.')}>Add Google</button>}
+            {!providers.includes('apple.com') && <button type="button" className="hd-btn" disabled={!!busy} onClick={() => run('apple', () => onLinkProvider('apple'), 'Apple added \u2014 either will sign you in.')}>Add Apple</button>}
+          </div>
+
+          {msg.text && <div role={msg.kind === 'err' ? 'alert' : 'status'} style={{ marginTop: 16, fontSize: 14, lineHeight: 1.5, color: msg.kind === 'err' ? '#f0b9b9' : '#cfe3b8' }}>{msg.text}</div>}
+
+          <div style={{ borderTop: '1px solid var(--hd-line)', margin: '26px 0 12px' }} />
+          <button type="button" className="hd-btn" style={{ width: '100%', marginBottom: 24 }} onClick={() => { onClose(); onSignOut(); }}>Sign out</button>
+        </div>
       </div>
     </div>
   );
@@ -403,6 +531,11 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
               </div>
             </div>
           )}
+          {people.length <= 1 && (
+            <div style={{ fontSize: '12px', color: 'var(--hd-dim)', lineHeight: 1.5 }}>
+              Booking for your team too? Once the club puts you and your teammates in the same team (Players &rarr; Team), you can book them from here.
+            </div>
+          )}
           <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>When</legend>
             {sessions.map(s => {
@@ -590,11 +723,13 @@ function CaptainPanel({ c, go }) {
 export default function HomeDashboard(props) {
   const {
     ready, account, me, onSignIn, onSignOut, onSavePhoto, people, sessionsFor,
+    profile, handicapOptions = [], onSaveProfile, onChangePassword, onResetEmail, onLinkProvider,
     sessions, fixtures, captain, quote, book, undo,
     openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   if (!ready) {
     return (
@@ -708,13 +843,20 @@ export default function HomeDashboard(props) {
         <Fixtures items={fixtures} onOpen={openFixture} onLive={openLive} delay=".28s" />
 
         <div className="hd-row" style={{ justifyContent: 'center', gap: '16px', fontSize: '12px', color: 'var(--hd-dim)', paddingTop: '4px', flexWrap: 'wrap' }}>
-          <button type="button" className="hd-link" onClick={() => onSignIn('profile')} style={{ fontSize: '12px', minHeight: '40px' }}>Your details</button>
+          <button type="button" className="hd-link" onClick={() => setProfileOpen(true)} style={{ fontSize: '12px', minHeight: '40px' }}>Your profile</button>
           <span aria-hidden="true">&middot;</span>
           <button type="button" className="hd-link" onClick={() => setPhotoOpen(true)} style={{ fontSize: '12px', minHeight: '40px' }}>Your picture</button>
           <span aria-hidden="true">&middot;</span>
           <button type="button" className="hd-link" onClick={onSignOut} style={{ fontSize: '12px', minHeight: '40px' }}>Sign out</button>
         </div>
       </div>
+
+      {profileOpen && (
+        <ProfileSheet account={account} profile={profile} me={me} handicapOptions={handicapOptions}
+          onSave={onSaveProfile} onChangePassword={onChangePassword} onResetEmail={onResetEmail}
+          onLinkProvider={onLinkProvider} onSignOut={onSignOut} onPhoto={() => setPhotoOpen(true)}
+          onClose={() => setProfileOpen(false)} />
+      )}
 
       {photoOpen && (
         <PhotoSheet account={account} name={shownName} onSave={onSavePhoto} onClose={() => setPhotoOpen(false)} />
