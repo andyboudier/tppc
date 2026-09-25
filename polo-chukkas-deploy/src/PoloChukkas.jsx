@@ -23,7 +23,7 @@ import { LUX_CSS } from './luxTheme';
 import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -1187,8 +1187,7 @@ export default function PoloChukkas() {
   // The club notice under the tab bar — one message, normal or important.
   // See notices.js.
   const [notice, setNotice] = useState(null);
-  // Coaching windows and their bookings — see lessons.js. Captain-only for
-  // now; the tab is gated below.
+  // Lessons and club sessions with their bookings — see lessons.js.
   const [lessonSlots, setLessonSlots] = useState([]);
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
@@ -2520,7 +2519,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   // --- Lessons (see lessons.js) ---
-  // One shared document of coaching windows. The board owns the diary; the
+  // One shared document of lessons and club sessions. The board owns the diary; the
   // money and the tokens stay here, where the rates, the military flag and
   // the subsidy pots already live.
   const saveLessonSlots = async (next) => {
@@ -2654,19 +2653,74 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Cancelling puts back whatever was taken: the token, or the unpaid
   // invoice. An invoice already settled is left alone — that is a refund,
   // and a refund is the captain's decision, not the app's.
-  const cancelLessonBooking = async (slot, booking) => {
-    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? removeLessonBooking(s, booking.id) : s)));
-    if (booking.paid === 'token' && booking.playerId) {
-      const back = Number(booking.tokensSpent) || tokenCost(booking.hours);
-      await savePlayerDb(playerDb.map(p => (p.id === booking.playerId ? { ...p, tokens: tokensOf(p) + back } : p)));
-    } else if (booking.paid === 'invoice' && booking.txId) {
-      const tx = transactions.find(t => t.id === booking.txId);
-      if (tx && tx.status === 'due') {
-        const nextTx = transactions.filter(t => t.id !== booking.txId);
-        setTransactions(nextTx);
-        try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-      }
+  //
+  // Several at once (a whole group) go through in ONE write to each store:
+  // doing them one by one would have each write start from the same stale
+  // copy, and only the last would stick.
+  const cancelLessonBookings = async (slot, bookings) => {
+    const ids = new Set(bookings.map(b => b.id));
+    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? { ...s, bookings: (s.bookings || []).filter(b => !ids.has(b.id)) } : s)));
+    const back = {};
+    bookings.forEach(b => {
+      if (b.paid === 'token' && b.playerId) back[b.playerId] = (back[b.playerId] || 0) + (Number(b.tokensSpent) || tokenCost(b.hours));
+    });
+    if (Object.keys(back).length) {
+      await savePlayerDb(playerDb.map(p => (back[p.id] ? { ...p, tokens: tokensOf(p) + back[p.id] } : p)));
     }
+    const dropTx = new Set(bookings.filter(b => b.paid === 'invoice' && b.txId).map(b => b.txId)
+      .filter(id => { const tx = transactions.find(t => t.id === id); return tx && tx.status === 'due'; }));
+    if (dropTx.size) {
+      const nextTx = transactions.filter(t => !dropTx.has(t.id));
+      setTransactions(nextTx);
+      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    }
+  };
+  const cancelLessonBooking = (slot, booking) => cancelLessonBookings(slot, [booking]);
+
+  // The admin settling a group that has not reached its minimum.
+  //   smaller     the minimum comes down to the riders it has — it goes ahead.
+  //   individual  its one rider becomes an individual lesson. A token paid
+  //               for an hour either way, so that stands; an unpaid invoice
+  //               is re-priced at the individual rate; a settled one is left,
+  //               and the admin is told the difference was not charged.
+  //   cancel      everyone off, tokens back, unpaid invoices removed.
+  const resolveShortGroup = async (slot, action) => {
+    const current = lessonSlots.find(s => s.id === slot.id) || slot;
+    const riders = lessonGroupBookings(current);
+    if (action === 'smaller') {
+      await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? runAsSmallerGroup(current) : s)));
+      return { message: `Going ahead as a group of ${riders.length}.` };
+    }
+    if (action === 'cancel') {
+      await cancelLessonBookings(current, riders);
+      return { message: `Group cancelled — ${riders.length} rider${riders.length === 1 ? '' : 's'} taken off, tokens returned and unpaid invoices removed.` };
+    }
+    if (action === 'individual') {
+      const res = groupToIndividual(current);
+      if (!res.ok) return { error: res.error };
+      const b = res.booking;
+      let message = `${b.name} now has an individual lesson.`;
+      if (b.paid === 'invoice' && b.txId) {
+        const tx = transactions.find(t => t.id === b.txId);
+        const player = playerDb.find(p => p.id === b.playerId) || { name: b.name, membership: 'none' };
+        const q = quoteLesson(player, 'individual', windowHours(current) || 1, !!b.ponyHire);
+        if (tx && tx.status === 'due') {
+          const nextTx = transactions.map(t => (t.id === tx.id ? {
+            ...t, lessonId: q.lessonId, lessonLabel: q.lessonLabel, base: q.base, ponyHire: q.pony,
+            subsidyDeductions: (q.subsidyDeductions || []).filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
+            total: q.total,
+          } : t));
+          setTransactions(nextTx);
+          try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+          message += ` Their invoice is now £${q.money}.`;
+        } else if (tx) {
+          message += ' They had already paid the group price, so the difference has not been charged.';
+        }
+      }
+      await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? res.slot : s)));
+      return { message };
+    }
+    return { error: 'Unknown action.' };
   };
 
   // Captain's manual "we're full" switch, on top of the automatic 24-hour cutoff.
@@ -10391,6 +10445,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               tokensOf={tokensOf}
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
+              onResolveGroup={resolveShortGroup}
+              grounds={GROUND_OPTIONS}
               clubSessions={CLUB_SESSIONS}
               focus={lessonsFocus}
               quoteSession={quoteClubSession}

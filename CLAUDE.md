@@ -199,25 +199,36 @@ so nothing Watch-shaped applies to it.
 
 Coaching lessons live behind a captain-only **Lessons** tab (`lessons.js` for
 the model, `LessonsBoard.jsx` for the diary; both in the demo's resync list,
-shared key `lesson-slots`). A slot is a *window* — "the coach is free 13:00 to
-15:00" — and a booking claims a sub-range of it, so a two-hour window offers
-1hr, 2hr or the second 1hr. Individual bookings own their range; group ones
-stack in the same range up to `maxGroup`, and below `minGroup` (4) are shown as
-not yet viable rather than blocked. Captains add or amend windows, copy last
-week forward (times only, never bookings) and book people in by hand.
+shared key `lesson-slots`). A slot is **one lesson, booked whole** — "10:00 to
+11:00 with Rosie on the Arena" — offered as individual, group or both. The
+first booking decides which it is (`takenAs`): an individual booking takes the
+slot and the group option disappears; a group booking does the same to the
+individual option, and further riders join up to `maxGroup`. The admin sets the
+group's minimum and maximum; the ground is the same dropdown as chukkas
+(`GROUND_OPTIONS`) and caps the group at **6 on the Arena, 8 anywhere else**
+(`groundCap`). A group below its minimum is flagged "x of min needed" and the
+admin settles it on the card: **run as a smaller group** (`runAsSmallerGroup`,
+min becomes the count), **make it individual** (`groupToIndividual`, one rider
+only; an unpaid invoice is re-priced at the individual rate) or **cancel the
+group** (`cancelLessonBookings` — tokens back, unpaid invoices dropped, in one
+write). A member only sees what they could book and what they are already in;
+an admin sees every slot. Captains add or amend lessons, copy last week
+forward (times only, never bookings) and book people in by hand.
 
 Each club prices from its **own** rate card, so `LESSON_SLOT_RATES` maps
 (kind, hours) → that club's lesson id and lives in each app, not in
 `lessons.js`: Druids sells `lesson-1hr` and `semi-private` where TPPC and Vaux
 sell `ind-1hr`/`grp-1hr`, and a shared map would quietly bill the wrong lesson.
 A length the card does not price is not offered at all. Pony hire is charged
-per hour, as it is per chukka, and is ticked by default.
+per hour, as it is per chukka, and is **never chosen for the rider**: the
+booking sheet asks Club pony or My own pony, and Book stays disabled until one
+is picked.
 
 TPPC also sells its own **club sessions** from the Lessons tab — Ladies Only
 and Instructional Chukkas, one hour, two chukkas, eight places. A slot with a
-`kind` is a session rather than a coaching window: it is booked whole, never
-sliced by the hour, and `normaliseSlot` switches its individual/group flags off
-so the window machinery cannot sell sub-ranges of it. Nothing ties a session to
+`kind` is a session rather than a lesson: it has its own places and price,
+and `normaliseSlot` switches its individual/group flags off so it can never
+also be sold as a lesson. Nothing ties a session to
 a weekday — the captain adds one on any date and can run several — and Copy
 last week carries sessions forward without their riders. The catalogue,
 `CLUB_SESSIONS`, lives in the app beside `LESSON_SLOT_RATES` and for the same
@@ -313,10 +324,13 @@ the sign-in screen: signed out, the bar is Home, Fixtures, Live and More;
 Chukkas and Lessons join it once somebody is signed in or `captainMode` is on
 (`MEMBER_TABS`, `loggedOn`), and a restore onto either while signed out goes to
 Home. The badge is `public/tppc-crest.png`, the official crest cut round from
-`icon-512.png`. Signed in, Home greets the member with their handicap, lesson
-tokens and what they owe, shows their next chukka (team and chukka numbers
+`icon-512.png`. Signed in, Home greets the member with their handicap and how many
+chukkas they have booked this week — tokens and what they owe are left off,
+because payment is heading to Stripe — shows their next chukka (team and chukka numbers
 once the draw is published) and the next three fixtures, and offers **Book a
-chukka** — two taps, the next open session preselected with what they booked
+chukka** — two taps, listing only chukka days that person can book (open, or
+full with a waiting list; never Ladies Only or Instructional, which are booked
+in Lessons), the next open one preselected with what they booked
 last time, remembered on the phone — and **Book a lesson**, which opens
 Lessons. Booking goes through the same roster, waiting list and `raiseDue`
 (split out of `chargeForBooking`) as the Chukkas form, priced by

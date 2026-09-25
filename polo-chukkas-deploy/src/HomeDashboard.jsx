@@ -363,7 +363,7 @@ function Logon({ onSignIn, openFixtures, openLive }) {
 }
 
 // ── The booking sheet ───────────────────────────────────────────────────────
-function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions, openSession }) {
+function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions }) {
   const usual = readUsual(me.id);
   // Who is being booked: 'me', or a teammate's player id. Each person has
   // their own standing — booked, blocked by handicap — so the list follows.
@@ -397,6 +397,15 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   // the confirmation rather than silence.
   useEffect(() => { headRef.current && headRef.current.focus(); }, [done]);
 
+  // Only chukka days this person can book: Ladies Only and Instructional are
+  // booked in Lessons, and a day they are already on, waiting for, closed or
+  // barred from by handicap is nothing to choose. A full day stays, because
+  // it can still be joined on the waiting list.
+  const choices = sessions.filter(s => !s.viaLessons && (s.status === 'open' || s.status === 'full'));
+  // Switching to a teammate can take the chosen day out of the list.
+  useEffect(() => {
+    if (!done && !choices.some(s => s.key === dayKey)) setDayKey(choices.length ? choices[0].key : null);
+  }, [who]); // eslint-disable-line react-hooks/exhaustive-deps
   const cur = sessions.find(s => s.key === dayKey && !s.viaLessons) || null;
   const fixed = cur && cur.fixed ? cur.fixed : null;
   const max = cur ? cur.max : 4;
@@ -538,17 +547,17 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
           )}
           <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>When</legend>
-            {sessions.map(s => {
-              const on = s.key === dayKey && !s.viaLessons;
-              // Ladies Only and Instructional are booked in Lessons: the row
-              // takes you to the session there rather than booking the day.
-              const pickable = s.viaLessons || s.status === 'open' || s.status === 'full';
-              const tag = s.viaLessons ? ['Book in Lessons \u203a', 'gold'] : s.status === 'booked' ? ['Booked', 'ok'] : s.status === 'waitlisted' ? [`Waiting #${s.waitPlace}`, 'gold']
-                : s.status === 'full' ? ['Full · waiting list', 'gold'] : s.status === 'closed' ? ['Closed', 'muted']
-                : s.status === 'blocked' ? ['Beginners only', 'muted'] : on ? ['Selected', 'gold'] : null;
+            {choices.length === 0 && (
+              <div style={{ fontSize: '14px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>
+                Nothing open for {person.me ? 'you' : first} to book right now.
+              </div>
+            )}
+            {choices.map(s => {
+              const on = s.key === dayKey;
+              const tag = s.status === 'full' ? ['Full · waiting list', 'gold'] : on ? ['Selected', 'gold'] : null;
               return (
-                <button key={s.key} type="button" className="hd-choice hd-row" aria-pressed={on} disabled={!pickable}
-                  onClick={() => { if (s.viaLessons) { onClose(); openSession(s.key); return; } setDayKey(s.key); setError(''); }} style={{ minHeight: '60px', padding: '10px 14px' }}>
+                <button key={s.key} type="button" className="hd-choice hd-row" aria-pressed={on}
+                  onClick={() => { setDayKey(s.key); setError(''); }} style={{ minHeight: '60px', padding: '10px 14px' }}>
                   <span style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
                     <span style={{ display: 'block', fontSize: '11px', letterSpacing: '1px', color: 'var(--hd-muted)' }}>{s.dow}</span>
                     <span className="hd-serif" style={{ display: 'block', fontSize: '21px' }}>{s.dayNum}</span>
@@ -797,10 +806,10 @@ export default function HomeDashboard(props) {
                 <div className="hd-eyebrow" style={{ fontSize: '10px', marginTop: '4px' }}>Handicap</div>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: '8px', marginTop: '16px', position: 'relative' }}>
+            {/* Tokens and what is owed are left off: payment is heading to
+                Stripe, and the Payments tab still has both for the club. */}
+            <div style={{ marginTop: '16px', position: 'relative' }}>
               <div className="hd-stat"><b>{mine.filter(s => s.status === 'booked').length}</b><span>Booked this week</span></div>
-              <div className="hd-stat"><b>{me.tokens}</b><span>Lesson token{me.tokens === 1 ? '' : 's'}</span></div>
-              <div className="hd-stat"><b style={{ color: me.owed > 0 ? '#e8c47e' : undefined }}>{me.owedText}</b><span>{me.owed > 0 ? 'To settle' : 'Owed'}</span></div>
             </div>
           </div>
         ) : (
@@ -866,7 +875,7 @@ export default function HomeDashboard(props) {
       )}
 
       {booking && me && (
-        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo} openSession={openChukkas}
+        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo}
           directions={directions} onClose={() => setBooking(null)} />
       )}
     </div>
