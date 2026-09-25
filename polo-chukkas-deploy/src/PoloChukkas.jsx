@@ -6854,7 +6854,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 <div style={{ textAlign: 'center', padding: '16px 0' }}>
                   <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '16px', lineHeight: 1.6 }}>
                     {auth.user
-                      ? <>The admin area &mdash; players, the draw, teams, payments and the lessons diary &mdash; is for the club&rsquo;s admins. An admin can add you from Players &rarr; Admins.</>
+                      ? <>You&rsquo;re signed in as <strong style={{ color: 'var(--ink)' }}>{auth.user.email || 'an account with no email'}</strong>, which isn&rsquo;t an admin. The admin area &mdash; players, the draw, teams, payments and the lessons diary &mdash; is for the club&rsquo;s admins: sign in with your admin email, or ask an admin to add this one in Players &rarr; Admins.</>
                       : <>Running the club? Sign in with your admin account for players, the draw, teams, payments and the lessons diary.</>}
                   </div>
                   {!auth.user && (
