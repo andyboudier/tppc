@@ -363,7 +363,7 @@ function Logon({ onSignIn, openFixtures, openLive }) {
 }
 
 // ── The booking sheet ───────────────────────────────────────────────────────
-function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions }) {
+function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions, openSession }) {
   const usual = readUsual(me.id);
   // Who is being booked: 'me', or a teammate's player id. Each person has
   // their own standing — booked, blocked by handicap — so the list follows.
@@ -397,7 +397,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   // the confirmation rather than silence.
   useEffect(() => { headRef.current && headRef.current.focus(); }, [done]);
 
-  const cur = sessions.find(s => s.key === dayKey) || null;
+  const cur = sessions.find(s => s.key === dayKey && !s.viaLessons) || null;
   const fixed = cur && cur.fixed ? cur.fixed : null;
   const max = cur ? cur.max : 4;
   const chukkas = fixed || Math.min(n, max);
@@ -539,14 +539,16 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
           <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>When</legend>
             {sessions.map(s => {
-              const on = s.key === dayKey;
-              const pickable = s.status === 'open' || s.status === 'full';
-              const tag = s.status === 'booked' ? ['Booked', 'ok'] : s.status === 'waitlisted' ? [`Waiting #${s.waitPlace}`, 'gold']
+              const on = s.key === dayKey && !s.viaLessons;
+              // Ladies Only and Instructional are booked in Lessons: the row
+              // takes you to the session there rather than booking the day.
+              const pickable = s.viaLessons || s.status === 'open' || s.status === 'full';
+              const tag = s.viaLessons ? ['Book in Lessons \u203a', 'gold'] : s.status === 'booked' ? ['Booked', 'ok'] : s.status === 'waitlisted' ? [`Waiting #${s.waitPlace}`, 'gold']
                 : s.status === 'full' ? ['Full · waiting list', 'gold'] : s.status === 'closed' ? ['Closed', 'muted']
                 : s.status === 'blocked' ? ['Beginners only', 'muted'] : on ? ['Selected', 'gold'] : null;
               return (
                 <button key={s.key} type="button" className="hd-choice hd-row" aria-pressed={on} disabled={!pickable}
-                  onClick={() => { setDayKey(s.key); setError(''); }} style={{ minHeight: '60px', padding: '10px 14px' }}>
+                  onClick={() => { if (s.viaLessons) { onClose(); openSession(s.key); return; } setDayKey(s.key); setError(''); }} style={{ minHeight: '60px', padding: '10px 14px' }}>
                   <span style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
                     <span style={{ display: 'block', fontSize: '11px', letterSpacing: '1px', color: 'var(--hd-muted)' }}>{s.dow}</span>
                     <span className="hd-serif" style={{ display: 'block', fontSize: '21px' }}>{s.dayNum}</span>
@@ -755,7 +757,8 @@ export default function HomeDashboard(props) {
     );
   }
 
-  const nextOpen = sessions.find(s => s.status === 'open') || sessions.find(s => s.status === 'full') || null;
+  const bookable = sessions.filter(s => !s.viaLessons);
+  const nextOpen = bookable.find(s => s.status === 'open') || bookable.find(s => s.status === 'full') || null;
   const mine = sessions.filter(s => s.status === 'booked' || s.status === 'waitlisted');
   const next = mine[0] || null;
   const later = mine.slice(1);
@@ -863,7 +866,7 @@ export default function HomeDashboard(props) {
       )}
 
       {booking && me && (
-        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo}
+        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo} openSession={openChukkas}
           directions={directions} onClose={() => setBooking(null)} />
       )}
     </div>

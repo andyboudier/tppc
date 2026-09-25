@@ -5133,6 +5133,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // This week's sessions in date order, each with where one player stands —
   // the member, or a teammate they are booking for.
+  // Thursday and Friday are club sessions, booked from Lessons (see openDay).
+  const clubSessionForDay = (dk) => CLUB_SESSIONS.find(k => k.dayKey === dk) || null;
   const homeSessionsFor = (homePlayer) => {
     const now = Date.now();
     return DAY_KEYS.map((k) => {
@@ -5156,6 +5158,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const showDraw = !!schedules[k] && (captainMode || drawPublished[k]);
       return {
         key: k, name: homeSessionName(cfg), fullDay: cfg.fullLabel, blurb: cfg.blurb,
+        viaLessons: !!clubSessionForDay(k),
         dow: cfg.label.toUpperCase(), dayNum: String(date.getDate()),
         dateLabel: date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
         time: fmtTime(startMin), start, ground: grounds[k] || '',
@@ -5302,11 +5305,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     };
   })() : null;
 
-  const homeOpenChukkas = (k) => {
-    if (k) setActiveDay(k);
-    setActiveTab('chukkas');
+  // Thursday and Friday ARE the club's Ladies Only and Instructional
+  // sessions, and those are booked from the Lessons diary — so a tap on
+  // either day, here or on the Chukkas tab, opens the diary on the next such
+  // session rather than the day's old chukka list. With none on the diary
+  // yet it opens on that weekday, where the session will appear.
+  const [lessonsFocus, setLessonsFocus] = useState(null);
+  const openDay = (dk) => {
+    const kind = clubSessionForDay(dk);
+    if (!kind) { setActiveDay(dk); setActiveTab('chukkas'); window.scrollTo(0, 0); return; }
+    const today = localISO(new Date());
+    const next = lessonSlots
+      .filter(sl => sl && sl.kind === kind.id && sl.date >= today)
+      .sort((x, y) => (x.date + (x.start || '')).localeCompare(y.date + (y.start || '')))[0];
+    setLessonsFocus({ date: next ? next.date : localISO(nextChukkaDate(dk)), slotId: next ? next.id : '', at: Date.now() });
+    setActiveTab('lessons');
     window.scrollTo(0, 0);
   };
+  const homeOpenChukkas = (k) => openDay(k);
   const homeOpenFixture = (id) => {
     setActiveTab('fixtures');
     if (expandedId !== id) toggleFixture(id);
@@ -6912,7 +6928,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       key={dk}
                       type="button"
                       className={`day-menu-btn ${activeDay === dk ? 'active' : ''}`}
-                      onClick={() => setActiveDay(dk)}
+                      onClick={() => openDay(dk)}
                       aria-pressed={activeDay === dk}
                     >
                       <span className="day-menu-day">{cfg.fullLabel}</span>
@@ -10358,6 +10374,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
               clubSessions={CLUB_SESSIONS}
+              focus={lessonsFocus}
               quoteSession={quoteClubSession}
               onBookSession={bookClubSession}
             />
