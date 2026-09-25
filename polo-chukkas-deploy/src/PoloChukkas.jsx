@@ -16,9 +16,11 @@ import SignInTest from './SignInTest';
 import { matchPlayer, duplicatesOf, mergePlayers, mergeConflicts, providerUnion, providerSentence, normEmail, MATCH_LABEL } from './accountLink';
 import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
+import HomeDashboard from './HomeDashboard';
+import { readMe, writeMe, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, normName } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -339,7 +341,7 @@ const fmtPence = (p) => `£${(p / 100).toFixed(2)}`;
 const VIEW_STATE_KEY = 'tppc-view';
 const VIEW_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
 // Tabs only a captain may sit on: a restore or a locked PIN bounces off these
-// back to Chukkas. 'lessons' belongs here too — without it, locking the PIN
+// back to Home. 'lessons' belongs here too — without it, locking the PIN
 // while in the lessons diary left you there.
 const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams', 'lessons'];
 // More itself is not captain-only — a member opens it to find the PIN — but it
@@ -1141,15 +1143,16 @@ export default function PoloChukkas() {
   // Read once on mount (null if absent or older than the max age).
   const [restoredView] = useState(readViewState);
 
-  // Top-level tabs: 'chukkas' | 'fixtures' | 'live' | 'shop' | 'players' | 'teams'.
+  // Top-level tabs: 'home' | 'chukkas' | 'fixtures' | 'live' | 'more' and the
+  // captain areas behind More. The app opens on Home, the member's dashboard.
   // The chukka days now live on their own menu inside the 'chukkas' tab.
   const [activeTab, setActiveTab] = useState(() => {
     const tab = restoredView && restoredView.activeTab;
-    if (!tab) return 'chukkas';
+    if (!tab) return 'home';
     // Don't restore a captain-only tab unless the captain flag is present.
     let isCaptain = false;
     try { isCaptain = sessionStorage.getItem('tppc-captain') === '1'; } catch (e) {}
-    if (CAPTAIN_ONLY_TABS.includes(tab) && !isCaptain) return 'chukkas';
+    if (CAPTAIN_ONLY_TABS.includes(tab) && !isCaptain) return 'home';
     return tab;
   });
   // Which chukka day is being viewed/booked within the Chukkas tab.
@@ -1938,7 +1941,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setPinUnlocked(false);
     // Bounce off any captain-only tab back to the chukka booking pages
     if (!(auth.enabled && auth.role === 'admin')) {
-      setActiveTab(prev => (['players', 'teams', 'shop'].includes(prev) ? 'chukkas' : prev));
+      setActiveTab(prev => (['players', 'teams', 'shop'].includes(prev) ? 'home' : prev));
     }
     try { sessionStorage.removeItem('tppc-captain'); } catch (e) {}
   };
@@ -1946,7 +1949,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Losing management access — an admin signing out, or the PIN locking —
   // must not leave someone on a management tab.
   useEffect(() => {
-    if (!captainMode) setActiveTab(prev => (CAPTAIN_ONLY_TABS.includes(prev) ? 'chukkas' : prev));
+    if (!captainMode) setActiveTab(prev => (CAPTAIN_ONLY_TABS.includes(prev) ? 'home' : prev));
   }, [captainMode]);
 
   // A signed-in member books as themselves, or a teammate: the form carries
@@ -3365,11 +3368,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // item the captain settles under Checkout. They go on the roster either way;
   // the captain can remove them later if unpaid. Returns the amount owed as
   // text, or '' when there is nothing to pay.
+  // raiseDue does the work and hands back the transaction as well, so Home's
+  // Undo can take the charge off again; chargeForBooking keeps its old shape
+  // for the booking form.
   const chargeForBooking = (cleanedName, c, wantsPony, dayKey = activeDay) => {
+    const due = raiseDue(cleanedName, c, wantsPony, dayKey);
+    return due ? due.text : '';
+  };
+  const raiseDue = (cleanedName, c, wantsPony, dayKey = activeDay) => {
     const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
     const subject = rec || { membership: 'none', military: false, subsidies: [] };
     const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none', dayKey);
-    if (bd.total <= 0) return '';
+    if (bd.total <= 0) return null;
     const dueTx = {
       id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
       playerId: rec ? rec.id : null, playerName: cleanedName, day: dayKey,
@@ -3382,7 +3392,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const nextTx = [dueTx, ...transactions];
     setTransactions(nextTx);
     window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
-    return `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}`;
+    return { tx: dueTx, total: bd.total, text: `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}` };
   };
 
   const handleAdd = () => {
@@ -5059,6 +5069,197 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     .slice(0, 8);
 
+  // ── HOME — the member's dashboard (HomeDashboard.jsx, model in home.js) ──
+  // Everything below is read from state the app already holds; the booking
+  // goes through the same roster, waiting list and due-invoice paths as the
+  // Chukkas tab's form, so the captain sees a Home booking exactly as any other.
+  //
+  // Who the phone is for: the signed-in member's record when sign-in is on,
+  // otherwise whoever was picked on this phone (remembered on the phone only).
+  const [homeMe, setHomeMe] = useState(readMe);
+  const homeSignedIn = auth.enabled && !!myPlayer;
+  const homePicked = homeMe && homeMe !== 'guest' ? playerDb.find(p => p.id === homeMe.id) || null : null;
+  const homePlayer = homeSignedIn ? myPlayer : homePicked;
+  // A pick whose record has since gone (merged, deleted) asks again.
+  const homeMeState = homeMe === 'guest' ? 'guest' : homePicked ? homeMe : null;
+  const chooseHomeMe = (v) => {
+    const next = v === 'guest' ? 'guest' : v ? { id: v.id } : null;
+    writeMe(next);
+    setHomeMe(next);
+  };
+  const homeMoney = (n) => {
+    const v = Math.round((Number(n) || 0) * 100) / 100;
+    return `£${Number.isInteger(v) ? v.toLocaleString('en-GB') : fmtMoney(v)}`;
+  };
+  const homeSessionName = (cfg) => (cfg.note ? cfg.note.split(' · ')[0] : `${cfg.fullLabel} Chukkas`);
+
+  // This week's sessions in date order, each with where the member stands.
+  const homeSessions = (() => {
+    const now = Date.now();
+    return DAY_KEYS.map((k) => {
+      const cfg = DAY_CONFIG[k];
+      const date = nextChukkaDate(k);
+      const startMin = throwInMins[k];
+      const start = new Date(date);
+      start.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
+      const roster = rosters[k] || [];
+      const wl = waitlists[k] || [];
+      const entry = homePlayer ? roster.find(e => isMine(e, homePlayer)) || null : null;
+      const wIdx = homePlayer && !entry ? wl.findIndex(e => isMine(e, homePlayer)) : -1;
+      const block = bookingBlock(k);
+      const hBlock = homePlayer && !captainMode ? handicapBlockReason(homePlayer.handicap, k) : '';
+      let status = 'open';
+      if (entry) status = 'booked';
+      else if (wIdx >= 0) status = 'waitlisted';
+      else if (hBlock) status = 'blocked';
+      else if (block === 'full' && !captainMode) status = 'full';
+      else if (block && !captainMode) status = 'closed';
+      const showDraw = !!schedules[k] && (captainMode || drawPublished[k]);
+      return {
+        key: k, name: homeSessionName(cfg), fullDay: cfg.fullLabel, blurb: cfg.blurb,
+        dow: cfg.label.toUpperCase(), dayNum: String(date.getDate()),
+        dateLabel: date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
+        time: fmtTime(startMin), start, ground: grounds[k] || '',
+        fixed: fixedChukkasFor(k), max: maxChukkasFor(k), instructional: !!cfg.instructional,
+        status, reason: hBlock || (block ? bookingClosedReason(k) : ''),
+        entry, waitPlace: wIdx + 1, slots: entry && showDraw ? mySlots(schedules[k], entry.id) : [],
+        players: roster.length, chukkasAsked: roster.reduce((sum, e) => sum + (Number(e.chukkas) || 0), 0),
+        cap: signupCap(k), block,
+      };
+    })
+      // A session drops off once it has been played (throw-in plus three hours).
+      .filter(s => s.start.getTime() + 3 * 3600000 > now)
+      .sort((a, b) => a.start - b.start);
+  })();
+
+  const homeQuote = (k, n, pony) => {
+    const bd = priceBooking(homePlayer, n, pony ? 'club' : 'none', k);
+    const mem = membershipById((homePlayer && homePlayer.membership) || 'none');
+    const note = bd.instructional ? 'One price for the session, pony included — it goes on your invoice.'
+      : bd.total <= 0 ? (mem.chukkasIncluded ? 'Chukkas are included in your membership.' : 'Nothing to pay.')
+      : mem.chukkasIncluded ? 'Chukkas are in your membership; pony hire goes on your invoice.'
+      : 'Goes on your invoice — settle with the captain.';
+    return { price: bd.total > 0 ? homeMoney(bd.total) : 'Included', note, total: bd.total };
+  };
+
+  const homeBook = async (k, n, pony, waitlist) => {
+    const rec = homePlayer;
+    if (!rec) return { error: 'Pick who this phone is for first.' };
+    if (auth.enabled && !isMember && !captainMode) { openSignIn(); return { error: 'Please sign in to book.' }; }
+    const cfg = DAY_CONFIG[k];
+    const block = bookingBlock(k);
+    if (!captainMode) {
+      if (block && !(waitlist && block === 'full')) return { error: bookingClosedReason(k) };
+      const hb = handicapBlockReason(rec.handicap, k);
+      if (hb) return { error: hb };
+    }
+    if (rec.handicap === '' || rec.handicap == null || isNaN(Number(rec.handicap))) {
+      return { error: 'The club has no handicap for you yet — ask the captain to add it, or book from the Chukkas tab.' };
+    }
+    const roster = rosters[k] || [];
+    const wl = waitlists[k] || [];
+    if (roster.some(e => isMine(e, rec))) return { error: `You’re already on the ${cfg.fullLabel} list.` };
+    if (wl.some(e => isMine(e, rec))) return { error: `You’re already on the ${cfg.fullLabel} waiting list.` };
+    const c = fixedChukkasFor(k) || Math.max(1, Math.min(maxChukkasFor(k), parseInt(n, 10) || 1));
+    const cleanedName = String(rec.name || '').trim().replace(/\s+/g, ' ');
+    const entry = {
+      id: Date.now(),
+      uid: auth.enabled && auth.user ? auth.user.uid : undefined,
+      playerId: rec.id,
+      name: cleanedName,
+      mobile: rec.mobile || undefined,
+      handicap: Number(rec.handicap),
+      chukkas: c,
+      availableFrom: fmtTime(throwInMins[k]),
+      availableTo: '',
+      vip: false,
+      noConsecutive: false,
+      ponyHire: !!pony,
+    };
+    if (waitlist && block === 'full' && !captainMode) {
+      await saveWaitlist([...wl, { ...entry, addedAt: Date.now() }], k);
+      return { day: k, entryId: entry.id, waitlisted: true, place: wl.length + 1 };
+    }
+    await saveRoster([...roster, entry], k);
+    upsertMember(entry);
+    const due = raiseDue(cleanedName, c, !!pony, k);
+    await saveSchedule(null, k);
+    return { day: k, entryId: entry.id, txId: due ? due.tx.id : null, owedText: due ? homeMoney(due.total) : '' };
+  };
+
+  // Undo straight after booking: off the list, and the charge with it if it
+  // has not been settled in the meantime.
+  const homeUndo = async (r) => {
+    if (!r || !r.day) return;
+    if (r.waitlisted) {
+      await saveWaitlist((waitlists[r.day] || []).filter(e => e.id !== r.entryId), r.day);
+      return;
+    }
+    await saveRoster((rosters[r.day] || []).filter(e => e.id !== r.entryId), r.day);
+    await saveSchedule(null, r.day);
+    if (r.txId && transactions.some(t => t.id === r.txId && t.status === 'due')) {
+      const nextTx = transactions.filter(t => t.id !== r.txId);
+      setTransactions(nextTx);
+      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
+    }
+  };
+
+  const homeOwed = homePlayer ? owedBy(transactions, homePlayer) : 0;
+  const homeMeView = homePlayer ? {
+    id: homePlayer.id,
+    name: homePlayer.name,
+    handicapText: homePlayer.handicap === '' || homePlayer.handicap == null || isNaN(Number(homePlayer.handicap)) ? null : fmtH(Number(homePlayer.handicap)),
+    membershipText: membershipShort(membershipById(homePlayer.membership || 'none').label, homePlayer.membership),
+    tokens: Math.max(0, Number(homePlayer.tokens) || 0),
+    owed: homeOwed,
+    owedText: homeMoney(homeOwed),
+  } : null;
+
+  const homeFixtures = upcomingFixtures(fixtures, parseFixtureDateRange, new Date(), 3).map(({ fx, live }) => ({
+    id: fx.id, name: fx.name, date: fx.date, where: fx.level || '',
+    entered: isEntered(fx, homePlayer, interest, teamSignups),
+    closed: isInterestClosed(fx), live,
+  }));
+
+  // The captain's first look: the next session's list, and what is waiting.
+  const homeCaptain = captainMode && homeSessions.length ? (() => {
+    const s = homeSessions[0];
+    const dueAll = transactions.filter(t => t && t.status === 'due').reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const monday = mondayOf(isoOf(new Date()));
+    const lessons = slotsInWeek(lessonSlots, monday).reduce((sum, sl) => sum + (sl.bookings || []).length, 0);
+    return {
+      sessionName: s.name, dateLabel: `${s.dateLabel}, ${s.time}`,
+      players: s.players, chukkas: s.chukkasAsked, cap: s.cap,
+      closes: s.block === 'cutoff' ? `Sign-ups closed ${cutoffLabel(s.key)}` : s.block ? 'Sign-ups closed' : `Sign-ups close ${cutoffLabel(s.key)}`,
+      owedText: homeMoney(dueAll),
+      waiting: DAY_KEYS.reduce((sum, k) => sum + (waitlists[k] || []).length, 0),
+      lessons, day: s.key,
+    };
+  })() : null;
+
+  const homeOpenChukkas = (k) => {
+    if (k) setActiveDay(k);
+    setActiveTab('chukkas');
+    window.scrollTo(0, 0);
+  };
+  const homeOpenFixture = (id) => {
+    setActiveTab('fixtures');
+    if (expandedId !== id) toggleFixture(id);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-fixture-id="${id}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  };
+  const homeGoCaptain = (area) => {
+    if (area === 'draw' && homeCaptain) { homeOpenChukkas(homeCaptain.day); return; }
+    if (area === 'payments') { setPlayersView('checkout'); setActiveTab('players'); return; }
+    if (area === 'lessons') setActiveTab('lessons');
+  };
+  const homeDirections = (ground) => {
+    const pin = pinOf(ground);
+    return pin ? directionsUrl(pin) : null;
+  };
+
   return (
     <>
       <style>{`
@@ -5096,6 +5297,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         .polo-app.stage-on .header-bg,
         .polo-app.stage-on .tabs,
         .polo-app.stage-on .notice-banner { display: none; }
+        /* Home is drawn dark (see HomeDashboard.jsx); the page around it
+           follows so it does not sit in a cream frame. */
+        .polo-app.home-on { background: #120d0b; }
+        .polo-app.home-on .app-footer { background: #120d0b !important; border-top-color: #3d2e24 !important; color: #9c8d77 !important; }
+        .polo-app.home-on .app-footer button { color: #9c8d77 !important; }
+        .polo-app.home-on .refresh-fab { background: #1f1714 !important; border-color: #b8924a !important; color: #d4a85a !important; }
+        /* The booking sheet covers the screen; nothing floats over it. */
+        body.hd-sheet-open .refresh-fab { display: none !important; }
         .display { font-family: 'Fraunces', Georgia, serif; font-weight: 500; }
         .display-italic { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; }
         .label-eyebrow {
@@ -6305,7 +6514,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         .reveal { animation: fadeInScale 0.4s ease-out; }
       `}</style>
 
-      <div className={`polo-app${stageMode ? ' stage-on' : ''}`}>
+      <div className={`polo-app${stageMode ? ' stage-on' : ''}${activeTab === 'home' ? ' home-on' : ''}`}>
         {/* Desktop fixture board. Renders only above the breakpoint and only in
             captain mode; every edit goes through the same updaters the phone
             editor uses, so the two views cannot diverge. */}
@@ -6469,6 +6678,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             posing as peers of the member ones. On a phone the same markup is
             restyled into a bottom bar — see the .tabs media query. */}
         <nav className="tabs">
+          <button className={`tab-btn ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
+            <span className="tab-icon" aria-hidden="true">🏠</span><span>Home</span>
+          </button>
           <button className={`tab-btn ${activeTab === 'chukkas' ? 'active' : ''}`} onClick={() => setActiveTab('chukkas')}>
             <span className="tab-icon" aria-hidden="true">🏇</span><span>Chukkas</span>
           </button>
@@ -6495,6 +6707,30 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           <datalist id="playerdb-names">
             {playerDb.filter(p => p.active !== false && !(p.name || '').includes('/')).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => <option key={p.id} value={p.name} />)}
           </datalist>
+
+          {/* ─── HOME — the member's dashboard ─────────────────────────────── */}
+          {activeTab === 'home' && (
+            <HomeDashboard
+              ready={loaded}
+              meState={homeMeState}
+              me={homeMeView}
+              signedIn={homeSignedIn}
+              people={playerDb}
+              onChooseMe={chooseHomeMe}
+              onSignIn={auth.enabled ? () => openSignIn() : null}
+              sessions={homeSessions}
+              fixtures={homeFixtures}
+              captain={homeCaptain}
+              quote={homeQuote}
+              book={homeBook}
+              undo={homeUndo}
+              openChukkas={homeOpenChukkas}
+              openFixture={homeOpenFixture}
+              openLive={() => setActiveTab('live')}
+              goCaptain={homeGoCaptain}
+              directions={homeDirections}
+            />
+          )}
 
           {/* ─── MORE — the captain area, and the way into it ───────────────
               Everything a captain runs is one tap from here rather than four

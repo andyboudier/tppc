@@ -294,6 +294,24 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
+**Dev-only so far: the Home dashboard.** The app opens on a **Home** tab
+(`HomeDashboard.jsx`, model in `home.js`), first in the tab strip, and a locked
+PIN or a restored captain tab now bounces to Home rather than Chukkas. It greets
+the member with their handicap, lesson tokens and what they owe, shows their
+next chukka (their team and chukka numbers once the draw is published), the
+next three fixtures, and a **Book a chukka** sheet that is two taps: the next
+open session is preselected with what they booked last time, remembered on the
+phone. Booking goes through the same roster, waiting list and `raiseDue` (split
+out of `chargeForBooking`) as the Chukkas form, priced by `priceBooking`, and
+the confirmation's Undo takes the entry and its unpaid charge off again. With
+sign-in off, the member is chosen once per phone ("Who's this phone for?",
+localStorage `tppc-home-me`) — never written to the club's data; with sign-in
+on it is `myPlayer`. A captain sees the next session's list, invoices waiting,
+waiting lists and lessons above their own card. Home is drawn dark in the club's
+colours (`.polo-app.home-on`); the working tabs are unchanged. When this is
+brought back to TPPC it applies to Druids and Vaux too, but Druids always
+suffixes day keys and has no waiting list, and each club's day names differ.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider
