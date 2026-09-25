@@ -27,12 +27,13 @@
 //             flash "sign in" at someone who is already signed in)
 //   methods   which buttons to offer: 'password', 'link', 'google', 'facebook',
 //             'apple'
-//   user      null | { uid, email, displayName, providers }
+//   user      null | { uid, email, displayName, photoURL, providers }
 //             providers are the ways this account can sign in
 //             ('google.com', 'apple.com', 'emailLink', 'password'), which is
 //             how the app can say which way someone used the first time
 //   role      'anon' | 'member' | 'admin'
-//   profile   null | { name, handicap, mobile, hpa } — what the member plays as
+//   profile   null | { name, handicap, mobile, hpa, photo } — what the member
+//             plays as; photo is their own picture (see savePhoto)
 //
 //   signInWithPassword(email, password)
 //   createAccount(email, password)
@@ -45,6 +46,7 @@
 //                                  project hides it; see accountLink.js
 //   signOut()
 //   saveProfile({ name, handicap, mobile, hpa })
+//   savePhoto(dataUrl | 'none' | '')   '' goes back to the sign-in's photo
 //   listAdmins() → [email]         admins only
 //   setAdmins([email])             admins only
 //
@@ -75,6 +77,7 @@ export const noAuth = {
   existingMethodsFor: async () => [],
   signOut: async () => {},
   saveProfile: notEnabled,
+  savePhoto: notEnabled,
   listAdmins: async () => [],
   setAdmins: notEnabled,
 };

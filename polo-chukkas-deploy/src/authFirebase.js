@@ -176,6 +176,21 @@ const provider = {
     provider.profile = clean;
     announceAuthChange();
   },
+  // The member's own picture, on their private profile: a small data URL
+  // (the app shrinks it first), or 'none' to show initials instead of the
+  // sign-in's photo, or '' to go back to the sign-in's photo. Kept apart from
+  // saveProfile on purpose — it must not move `updated`, which is what the
+  // profile ↔ player-record reconcile compares.
+  async savePhoto(photo) {
+    needAuth();
+    if (!provider.user) throw new Error('Sign in first.');
+    const value = String(photo || '');
+    if (value && value !== 'none' && !/^data:image\/(jpeg|png|webp);base64,/.test(value)) throw new Error('That is not a picture.');
+    if (value.length > 300000) throw new Error('That picture is too large.');
+    await setDoc(doc(db, 'users', provider.user.uid), { photo: value }, { merge: true });
+    provider.profile = { ...(provider.profile || {}), photo: value };
+    announceAuthChange();
+  },
   async listAdmins() {
     needAuth();
     const snap = await getDoc(doc(db, ...ADMINS_DOC));
@@ -236,6 +251,10 @@ const snapshotUser = (u) => (u ? {
   uid: u.uid,
   email: u.email || '',
   displayName: u.displayName || '',
+  // The picture the sign-in brought with it — Google gives one, Apple and a
+  // password never do. A photo the member sets is kept on their profile and
+  // wins over this; see savePhoto.
+  photoURL: u.photoURL || ((u.providerData || []).find((d) => d && d.photoURL) || {}).photoURL || '',
   providers: (u.providerData || []).map((d) => d && d.providerId).filter(Boolean),
 } : null);
 

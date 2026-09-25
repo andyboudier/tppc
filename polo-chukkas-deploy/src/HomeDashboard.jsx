@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { greeting, firstName, readUsual, writeUsual, icsFor } from './home';
+import { greeting, firstName, readUsual, writeUsual, icsFor, initialsOf } from './home';
 
 // The Home tab: who you are to the club at a glance, your next chukka, and
 // booking in two taps — Book, then Confirm. The model is in home.js and every
@@ -98,6 +98,7 @@ const I = {
   lock: 'M8 10V7a4 4 0 018 0v3M6 10h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z',
   live: 'M20 13a8 8 0 11-16 0 8 8 0 0116 0zM12 9v4l2.5 2.5M10 2h4',
   cap: 'M2 9l10-5 10 5-10 5L2 9zM6 11v5c3 2 9 2 12 0v-5',
+  camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1zM12 17a4 4 0 100-8 4 4 0 000 8z',
 };
 
 // The club's own badge, cut from the app icon as a round (public/tppc-crest.png)
@@ -107,6 +108,99 @@ const Crest = ({ size = 44 }) => (
     style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'block', background: '#fff',
       boxShadow: '0 0 0 1.5px var(--hd-gold), 0 6px 18px -6px rgba(0,0,0,.6)' }} />
 );
+
+// ── Profile picture ─────────────────────────────────────────────────────────
+// Google's photo loads from googleusercontent, which refuses some referrers,
+// hence no-referrer. A broken picture falls back to initials.
+function Avatar({ src, name, size = 56, onClick }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [src]);
+  const inner = src && !broken
+    ? <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} />
+    : <span className="hd-serif" style={{ fontSize: size * 0.38, color: 'var(--hd-gold2)' }}>{initialsOf(name) || '?'}</span>;
+  const ring = { width: size, height: size, borderRadius: '50%', flexShrink: 0, position: 'relative',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--hd-card2)',
+    boxShadow: '0 0 0 1.5px var(--hd-gold), 0 6px 18px -6px rgba(0,0,0,.6)' };
+  if (!onClick) return <div style={ring} aria-hidden="true">{inner}</div>;
+  return (
+    <button type="button" onClick={onClick} aria-label="Change your picture" style={{ ...ring, border: 0, padding: 0, cursor: 'pointer' }}>
+      {inner}
+      <span aria-hidden="true" style={{ position: 'absolute', right: -2, bottom: -2, width: 22, height: 22, borderRadius: '50%',
+        background: 'var(--hd-burg)', border: '1.5px solid var(--hd-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon d={I.camera} size={12} stroke="var(--hd-cream)" />
+      </span>
+    </button>
+  );
+}
+
+// Shrink a chosen picture to a 256px square, centre-cropped, as a JPEG data
+// URL — small enough (~20–40 kB) to keep on the member's own profile document.
+const shrinkPicture = (file) => new Promise((resolve, reject) => {
+  if (!file || !/^image\//.test(file.type)) { reject(new Error('Choose a picture.')); return; }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 256;
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+    URL.revokeObjectURL(url);
+    resolve(c.toDataURL('image/jpeg', 0.85));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That picture could not be read.')); };
+  img.src = url;
+});
+
+function PhotoSheet({ account, name, onSave, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+  const own = account.ownPhoto;              // '' | 'none' | data URL
+  const provider = account.providerPhoto;    // Google's, if any
+  const shown = own === 'none' ? '' : own || provider;
+  const run = async (value) => {
+    setBusy(true); setError('');
+    try { await onSave(value); onClose(); } catch (e) { setError(String((e && e.message) || e)); }
+    setBusy(false);
+  };
+  const pick = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { await run(await shrinkPicture(f)); } catch (err) { setError(String((err && err.message) || err)); }
+  };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="hd" role="dialog" aria-modal="true" aria-labelledby="hd-photo-title"
+      style={{ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(0,0,0,.66)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={busy ? undefined : onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="hd-card"
+        style={{ width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', padding: '22px 20px calc(22px + env(safe-area-inset-bottom,0px))',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', animation: 'hd-up .35s cubic-bezier(.2,.7,.2,1) both' }}>
+        <Avatar src={shown} name={name} size={96} />
+        <h2 id="hd-photo-title" className="hd-serif" style={{ fontSize: '22px', fontWeight: 500, margin: '6px 0 0' }}>Your picture</h2>
+        <div style={{ fontSize: '13px', color: 'var(--hd-muted)', textAlign: 'center', lineHeight: 1.5 }}>Shown on your Home screen. Kept on your own profile.</div>
+        <input ref={fileRef} type="file" accept="image/*" onChange={pick} style={{ display: 'none' }} />
+        <button type="button" className="hd-primary" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>
+          <span>{busy ? 'Saving\u2026' : shown ? 'Change picture' : 'Add a picture'}</span>
+        </button>
+        {provider && own && (
+          <button type="button" className="hd-btn" disabled={busy} onClick={() => run('')} style={{ width: '100%' }}>Use my Google picture</button>
+        )}
+        {shown && (
+          <button type="button" className="hd-btn" disabled={busy} onClick={() => run('none')} style={{ width: '100%' }}>Remove picture</button>
+        )}
+        {error && <div role="alert" style={{ fontSize: '13px', color: '#f0b9b9' }}>{error}</div>}
+        <button type="button" className="hd-link" onClick={onClose} disabled={busy} style={{ minHeight: '40px', fontSize: '14px' }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
 // ── Logged out: the sign-in screen ──────────────────────────────────────────
 // Home is the way in. Booking chukkas and lessons, your draw and what you owe
@@ -141,8 +235,14 @@ function Logon({ onSignIn, openFixtures, openLive }) {
 }
 
 // ── The booking sheet ───────────────────────────────────────────────────────
-function BookSheet({ me, sessions, initialKey, quote, book, undo, onClose, directions }) {
+function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions }) {
   const usual = readUsual(me.id);
+  // Who is being booked: 'me', or a teammate's player id. Each person has
+  // their own standing — booked, blocked by handicap — so the list follows.
+  const [who, setWho] = useState('me');
+  const sessions = who === 'me' || !sessionsFor ? mySessions : sessionsFor(who);
+  const person = people.find(p => p.id === who) || { id: 'me', name: me.name, me: true };
+  const first = firstName(person.name);
   const [dayKey, setDayKey] = useState(initialKey);
   const [n, setN] = useState(usual.chukkas);
   const [pony, setPony] = useState(usual.pony);
@@ -174,18 +274,18 @@ function BookSheet({ me, sessions, initialKey, quote, book, undo, onClose, direc
   const max = cur ? cur.max : 4;
   const chukkas = fixed || Math.min(n, max);
   const ponyOn = cur && cur.instructional ? true : pony;
-  const q = cur ? quote(cur.key, chukkas, ponyOn) : null;
+  const q = cur ? quote(cur.key, chukkas, ponyOn, who) : null;
   const waitlist = cur && cur.status === 'full';
   const canConfirm = cur && (cur.status === 'open' || waitlist) && !busy;
 
   const confirm = async () => {
     if (!canConfirm) return;
     setBusy(true); setError('');
-    const r = await book(cur.key, chukkas, ponyOn, waitlist);
+    const r = await book(cur.key, chukkas, ponyOn, waitlist, who);
     setBusy(false);
     if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); return; }
-    if (!cur.fixed) writeUsual(me.id, { chukkas, pony: ponyOn });
-    setDone({ ...r, session: cur, chukkas, pony: ponyOn, price: q });
+    if (!cur.fixed && who === 'me') writeUsual(me.id, { chukkas, pony: ponyOn });
+    setDone({ ...r, session: cur, chukkas, pony: ponyOn, price: q, person });
   };
 
   const doUndo = async () => {
@@ -221,7 +321,8 @@ function BookSheet({ me, sessions, initialKey, quote, book, undo, onClose, direc
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
-    const shareText = `${me.name} is on for ${s.name}, ${s.dateLabel} at ${s.time}${where}.`;
+    const booked = done.person || { name: me.name, me: true };
+    const shareText = `${booked.name} is on for ${s.name}, ${s.dateLabel} at ${s.time}${where}.`;
     const share = async () => {
       if (navigator.share) { try { await navigator.share({ text: shareText }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
       window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener');
@@ -238,16 +339,20 @@ function BookSheet({ me, sessions, initialKey, quote, book, undo, onClose, direc
             </div>
             <div className="hd-in" style={{ '--d': '.25s', textAlign: 'center', marginTop: '26px' }}>
               <h2 id="hd-done-title" ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: '30px', fontWeight: 500, lineHeight: 1.15, margin: 0, outline: 'none' }}>
-                {done.waitlisted ? `Number ${done.place} on the waiting list` : `You’re on ${s.fullDay}’s list`}
+                {done.waitlisted
+                  ? `${booked.me ? 'Number' : `${firstName(booked.name)} is number`} ${done.place} on the waiting list`
+                  : booked.me ? `You\u2019re on ${s.fullDay}\u2019s list` : `${firstName(booked.name)}\u2019s on ${s.fullDay}\u2019s list`}
               </h2>
               <div style={{ fontSize: '14px', color: 'var(--hd-muted)', marginTop: '8px' }}>{s.dateLabel} &middot; {s.time}{where}</div>
             </div>
             <div className="hd-card hd-in" style={{ '--d': '.4s', width: '100%', marginTop: '26px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', borderRadius: '18px' }}>
               <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Chukkas</span><span>{done.chukkas}</span></div>
               <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Pony</span><span>{done.pony ? 'Club pony' : 'My own pony'}</span></div>
-              <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>{done.waitlisted ? 'Charged' : 'On your invoice'}</span><span style={{ color: 'var(--hd-gold2)' }}>{done.waitlisted ? 'Only if a place comes up' : done.owedText || 'No charge'}</span></div>
+              <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>{done.waitlisted ? 'Charged' : booked.me ? 'On your invoice' : `On ${firstName(booked.name)}\u2019s invoice`}</span><span style={{ color: 'var(--hd-gold2)' }}>{done.waitlisted ? 'Only if a place comes up' : done.owedText || 'No charge'}</span></div>
               <div style={{ fontSize: '12px', color: 'var(--hd-muted)', borderTop: '1px solid var(--hd-line)', paddingTop: '10px', lineHeight: 1.5 }}>
-                {done.waitlisted ? 'The captain will be in touch if a place comes up.' : 'Your team and chukkas show on Home as soon as the captain publishes the draw.'}
+                {done.waitlisted ? 'The captain will be in touch if a place comes up.'
+                  : booked.me ? 'Your team and chukkas show on Home as soon as the captain publishes the draw.'
+                  : `${firstName(booked.name)}\u2019s team and chukkas show on their Home once the captain publishes the draw. You can take them off the list if plans change.`}
               </div>
             </div>
             {!done.waitlisted && (
@@ -278,9 +383,26 @@ function BookSheet({ me, sessions, initialKey, quote, book, undo, onClose, direc
 
   return (
     <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-label="Book a chukka">
-      {head({ title: 'Book a chukka', sub: `${me.name}${me.handicapText != null ? ` · ${me.handicapText}` : ''}`, onBack: onClose, backLabel: 'Back to Home' })}
+      {head({ title: 'Book a chukka', sub: who === 'me' ? `${me.name}${me.handicapText != null ? ` · ${me.handicapText}` : ''}` : `For ${person.name}`, onBack: onClose, backLabel: 'Back to Home' })}
       <div className="hd-sheet-body">
         <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {people.length > 1 && (
+            <div>
+              <div className="hd-eyebrow" style={{ marginBottom: '8px' }} id="hd-who-label">Who&rsquo;s playing</div>
+              <div role="group" aria-labelledby="hd-who-label" style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
+                {people.map(p => (
+                  <button key={p.id} type="button" className="hd-choice" aria-pressed={who === p.id}
+                    onClick={() => { setWho(p.id); setError(''); }}
+                    style={{ width: 'auto', flexShrink: 0, minHeight: '44px', padding: '0 14px', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                    {p.me ? 'Me' : p.name}{p.handicapText ? <span style={{ color: 'var(--hd-muted)', marginLeft: '6px', fontSize: '12px' }}>{p.handicapText}</span> : null}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px' }}>
+                You can book anyone on your team{people[0] && people[0].team ? ` (${people[0].team})` : ''}. Their charge goes on their own invoice.
+              </div>
+            </div>
+          )}
           <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>When</legend>
             {sessions.map(s => {
@@ -467,11 +589,12 @@ function CaptainPanel({ c, go }) {
 // ── Home ────────────────────────────────────────────────────────────────────
 export default function HomeDashboard(props) {
   const {
-    ready, account, me, onSignIn, onSignOut,
+    ready, account, me, onSignIn, onSignOut, onSavePhoto, people, sessionsFor,
     sessions, fixtures, captain, quote, book, undo,
     openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   if (!ready) {
     return (
@@ -525,7 +648,8 @@ export default function HomeDashboard(props) {
         {me ? (
           <div className="hd-card hd-in" style={{ '--d': '.06s', padding: '18px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg,#2a1a17 0%,#1f1714 55%,#1a1311 100%)' }}>
             <div aria-hidden="true" style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle,rgba(212,168,90,.18),transparent 70%)' }} />
-            <div className="hd-row" style={{ alignItems: 'flex-start', position: 'relative' }}>
+            <div className="hd-row" style={{ alignItems: 'center', position: 'relative', gap: '14px' }}>
+              <Avatar src={account.photo} name={me.name} size={58} onClick={() => setPhotoOpen(true)} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="hd-serif" style={{ fontSize: '21px' }}>{me.name}</div>
                 <div style={{ fontSize: '13px', color: 'var(--hd-muted)', marginTop: '2px' }}>{me.membershipText}</div>
@@ -586,12 +710,18 @@ export default function HomeDashboard(props) {
         <div className="hd-row" style={{ justifyContent: 'center', gap: '16px', fontSize: '12px', color: 'var(--hd-dim)', paddingTop: '4px', flexWrap: 'wrap' }}>
           <button type="button" className="hd-link" onClick={() => onSignIn('profile')} style={{ fontSize: '12px', minHeight: '40px' }}>Your details</button>
           <span aria-hidden="true">&middot;</span>
+          <button type="button" className="hd-link" onClick={() => setPhotoOpen(true)} style={{ fontSize: '12px', minHeight: '40px' }}>Your picture</button>
+          <span aria-hidden="true">&middot;</span>
           <button type="button" className="hd-link" onClick={onSignOut} style={{ fontSize: '12px', minHeight: '40px' }}>Sign out</button>
         </div>
       </div>
 
+      {photoOpen && (
+        <PhotoSheet account={account} name={shownName} onSave={onSavePhoto} onClose={() => setPhotoOpen(false)} />
+      )}
+
       {booking && me && (
-        <BookSheet me={me} sessions={sessions} initialKey={booking} quote={quote} book={book} undo={undo}
+        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo}
           directions={directions} onClose={() => setBooking(null)} />
       )}
     </div>
