@@ -330,9 +330,38 @@ early. An admin sees the next session's list, invoices waiting, waiting lists
 and lessons above their own card. Home is drawn dark in the club's colours
 (`.polo-app.home-on`); the working tabs are unchanged.
 
+**The whole app wears Home's look** (`luxTheme.js`, the `lux` class on
+.polo-app). It is an overlay on the existing colour variables rather than a
+rewrite: the variables get dark values, and the two that cannot flip —
+`--cream` (page colour *and* text on burgundy buttons) and `--burgundy` (fill
+*and* text/border colour) — are handled by setting the page ground directly
+and re-pointing burgundy text and borders at gold through attribute selectors
+on the inline style (`[style*="; color: var(--burgundy)"]`, and the rgb() the
+browser writes for inline hex). Inline white panels, ink fills and native
+controls are caught the same way. The exported draw table keeps its paper
+look. Take the class off and the app is exactly as it was.
+
+**Profile pictures.** The sign-in's photo (Google gives one; Apple and email do
+not) shows on Home by default. A member can set their own — shrunk in the
+browser to a 256px JPEG and kept on their own `users/{uid}` profile as
+`photo` — or remove it (`'none'`, initials). `savePhoto` is separate from
+`saveProfile` so it never moves `updated`, which the profile ↔ record
+reconcile compares. The photo is private to the member: it lives on their own
+profile, not the shared player list.
+
+**Booking a teammate from Home.** The booking sheet has "Who's playing": the
+member and anyone sharing their team (`teammates`, the same rule the Chukkas
+form uses). Each person's sessions are worked out for them (booked, beginners
+only), the price is theirs, the charge goes on their invoice, and the entry
+carries `playerId` and `bookedBy`, as the form's do.
+
+With sign-in live the captain's sign-in bench on Lessons is hidden — Home is
+the way in.
+
 When this is brought back to TPPC it applies to Druids and Vaux too, but
-Druids always suffixes day keys and has no waiting list, each club's day names
-and crest differ, and the clubs keep sign-in dormant unless they ask.
+Druids always suffixes day keys and has no waiting list, each club's day names,
+crest and palette differ (the theme's gold and burgundy would need each club's
+own), and the clubs keep sign-in dormant unless they ask.
 
 ### Things that differ between the apps, and must not be "fixed"
 

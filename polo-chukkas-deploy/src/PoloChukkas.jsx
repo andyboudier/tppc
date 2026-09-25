@@ -17,7 +17,8 @@ import { matchPlayer, duplicatesOf, mergePlayers, mergeConflicts, providerUnion,
 import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import HomeDashboard from './HomeDashboard';
-import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort } from './home';
+import { LUX_CSS } from './luxTheme';
+import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
 import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek } from './lessons';
@@ -5116,16 +5117,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const homeAccount = homeSignedIn ? {
     name: (auth.profile && auth.profile.name) || auth.user.displayName || '',
     email: auth.user.email || '',
+    photo: photoOf(auth.user, auth.profile),
+    ownPhoto: (auth.profile && auth.profile.photo) || '',
+    providerPhoto: auth.user.photoURL || '',
     ambiguous: !myPlayer && !!(myMatch.candidates && myMatch.candidates.length > 1),
   } : null;
   const homeMoney = (n) => {
     const v = Math.round((Number(n) || 0) * 100) / 100;
     return `£${Number.isInteger(v) ? v.toLocaleString('en-GB') : fmtMoney(v)}`;
   };
+  const firstNameOf = (n) => String(n || '').trim().split(/\s+/)[0] || '';
   const homeSessionName = (cfg) => (cfg.note ? cfg.note.split(' · ')[0] : `${cfg.fullLabel} Chukkas`);
 
-  // This week's sessions in date order, each with where the member stands.
-  const homeSessions = (() => {
+  // This week's sessions in date order, each with where one player stands —
+  // the member, or a teammate they are booking for.
+  const homeSessionsFor = (homePlayer) => {
     const now = Date.now();
     return DAY_KEYS.map((k) => {
       const cfg = DAY_CONFIG[k];
@@ -5161,11 +5167,30 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       // A session drops off once it has been played (throw-in plus three hours).
       .filter(s => s.start.getTime() + 3 * 3600000 > now)
       .sort((a, b) => a.start - b.start);
-  })();
+  };
+  const homeSessions = homeSessionsFor(homePlayer);
 
-  const homeQuote = (k, n, pony) => {
-    const bd = priceBooking(homePlayer, n, pony ? 'club' : 'none', k);
-    const mem = membershipById((homePlayer && homePlayer.membership) || 'none');
+  // Who Home may book for: the member, and anyone on their team. It is the
+  // same rule the Chukkas form applies (teammates, from the free-text team on
+  // the player record, which an admin sets), so the two never disagree.
+  const homeWhoRec = (who) => (!who || who === 'me' ? homePlayer : teammates.find(t => t.id === who) || null);
+  const homePeople = homePlayer ? [
+    { id: 'me', name: homePlayer.name, me: true, team: homePlayer.team || '' },
+    ...teammates.map(t => ({ id: t.id, name: t.name, handicapText: t.handicap == null || t.handicap === '' ? '' : fmtH(Number(t.handicap)) })),
+  ] : [];
+
+  const homeQuote = (k, n, pony, who) => {
+    const rec = homeWhoRec(who);
+    const self = !who || who === 'me';
+    const bd = priceBooking(rec, n, pony ? 'club' : 'none', k);
+    const mem = membershipById((rec && rec.membership) || 'none');
+    if (!self) {
+      const first = firstNameOf(rec && rec.name);
+      const note = bd.instructional ? `One price for the session, pony included \u2014 it goes on ${first}\u2019s invoice.`
+        : bd.total <= 0 ? (mem.chukkasIncluded ? `Chukkas are included in ${first}\u2019s membership.` : 'Nothing to pay.')
+        : `Goes on ${first}\u2019s invoice, not yours.`;
+      return { price: bd.total > 0 ? homeMoney(bd.total) : 'Included', note, total: bd.total };
+    }
     const note = bd.instructional ? 'One price for the session, pony included — it goes on your invoice.'
       : bd.total <= 0 ? (mem.chukkasIncluded ? 'Chukkas are included in your membership.' : 'Nothing to pay.')
       : mem.chukkasIncluded ? 'Chukkas are in your membership; pony hire goes on your invoice.'
@@ -5173,9 +5198,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return { price: bd.total > 0 ? homeMoney(bd.total) : 'Included', note, total: bd.total };
   };
 
-  const homeBook = async (k, n, pony, waitlist) => {
-    const rec = homePlayer;
-    if (!rec) return { error: 'Sign in to book.' };
+  const homeBook = async (k, n, pony, waitlist, who) => {
+    const self = !who || who === 'me';
+    const rec = homeWhoRec(who);
+    if (!homePlayer) return { error: 'Sign in to book.' };
+    if (!rec) return { error: 'You can book yourself or someone on your team.' };
+    const you = self ? 'You\u2019re' : `${firstNameOf(rec.name)}\u2019s`;
     const cfg = DAY_CONFIG[k];
     const block = bookingBlock(k);
     if (!captainMode) {
@@ -5184,18 +5212,21 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (hb) return { error: hb };
     }
     if (rec.handicap === '' || rec.handicap == null || isNaN(Number(rec.handicap))) {
-      return { error: 'The club has no handicap for you yet — ask the captain to add it, or book from the Chukkas tab.' };
+      return { error: self ? 'The club has no handicap for you yet — ask the captain to add it, or book from the Chukkas tab.'
+        : `The club has no handicap for ${rec.name} yet — ask the captain to add it.` };
     }
     const roster = rosters[k] || [];
     const wl = waitlists[k] || [];
-    if (roster.some(e => isMine(e, rec))) return { error: `You’re already on the ${cfg.fullLabel} list.` };
-    if (wl.some(e => isMine(e, rec))) return { error: `You’re already on the ${cfg.fullLabel} waiting list.` };
+    if (roster.some(e => isMine(e, rec))) return { error: `${you} already on the ${cfg.fullLabel} list.` };
+    if (wl.some(e => isMine(e, rec))) return { error: `${you} already on the ${cfg.fullLabel} waiting list.` };
     const c = fixedChukkasFor(k) || Math.max(1, Math.min(maxChukkasFor(k), parseInt(n, 10) || 1));
     const cleanedName = String(rec.name || '').trim().replace(/\s+/g, ' ');
     const entry = {
       id: Date.now(),
       uid: auth.user ? auth.user.uid : undefined,
       playerId: rec.id,
+      // Shown on the list beside a teammate's name, as the Chukkas form does.
+      bookedBy: self ? undefined : homePlayer.name,
       name: cleanedName,
       mobile: rec.mobile || undefined,
       handicap: Number(rec.handicap),
@@ -6544,7 +6575,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         .reveal { animation: fadeInScale 0.4s ease-out; }
       `}</style>
 
-      <div className={`polo-app${stageMode ? ' stage-on' : ''}${activeTab === 'home' ? ' home-on' : ''}`}>
+      <style>{LUX_CSS}</style>
+      <div className={`polo-app lux${stageMode ? ' stage-on' : ''}${activeTab === 'home' ? ' home-on' : ''}`}>
         {/* Desktop fixture board. Renders only above the breakpoint and only in
             captain mode; every edit goes through the same updaters the phone
             editor uses, so the two views cannot diverge. */}
@@ -6753,11 +6785,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               me={homeMeView}
               onSignIn={(at) => setHomeAuth(at || 'signin')}
               onSignOut={() => { if (window.auth && window.auth.signOut) window.auth.signOut().catch(() => {}); }}
+              onSavePhoto={(v) => window.auth.savePhoto(v)}
               sessions={homeSessions}
               fixtures={homeFixtures}
               captain={homeCaptain}
               quote={homeQuote}
               book={homeBook}
+              people={homePeople}
+              sessionsFor={(who) => homeSessionsFor(homeWhoRec(who))}
               undo={homeUndo}
               openChukkas={homeOpenChukkas}
               openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
@@ -10285,8 +10320,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
           {activeTab === 'lessons' && loggedOn && (
             <>
-            {/* The captain's diary, with the sign-in bench above it. */}
-            {captainMode && <SignInTest auth={auth} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} match={myMatch} providerHintFor={providerHintFor} />}
+            {/* The sign-in bench is for trying sign-in while it is dormant;
+                with it live, Home is the way in and the bench has no job. */}
+            {captainMode && !auth.enabled && <SignInTest auth={auth} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} match={myMatch} providerHintFor={providerHintFor} />}
             {/* A signed-in member books themselves: the same board with the
                 captain's tools off, booking as their own record. */}
             {!captainMode && (

@@ -124,3 +124,16 @@ export const icsFor = ({ title, start, minutes = 60, location = '', note = '' })
     'END:VEVENT', 'END:VCALENDAR',
   ].filter(Boolean).join('\r\n');
 };
+
+// ── Profile picture ─────────────────────────────────────────────────────────
+// What to show for the member: the picture they set, else the one their
+// sign-in brought (Google's), else nothing — the avatar then shows initials.
+// A set picture of 'none' means they chose initials over the sign-in's photo.
+export const photoOf = (user, profile) => {
+  const own = profile && profile.photo;
+  if (own === 'none') return '';
+  if (own) return own;
+  return (user && user.photoURL) || '';
+};
+export const initialsOf = (name) => String(name || '').trim().split(/\s+/).filter(Boolean)
+  .slice(0, 2).map(w => w[0].toUpperCase()).join('');
