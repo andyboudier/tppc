@@ -1,13 +1,10 @@
-// The Home dashboard's model: who this phone is for, what they have booked,
+// The Home dashboard's model: who is signed in, what they have booked,
 // what they owe, and what is coming up. Pure, so it can be checked directly —
 // the component draws it and the app supplies the data it already holds.
 //
-// Nothing here stores anything new in the club's database. Which member a
-// phone belongs to is remembered on the phone alone, because with sign-in off
-// (as the clubs run) there is no account to hang it on; when sign-in goes live
-// the signed-in member's own record takes its place.
+// Nothing here stores anything new in the club's database. Who the member is
+// comes from their sign-in, matched to the club's player list by accountLink.js.
 
-export const ME_KEY = 'tppc-home-me';
 const USUAL_KEY = 'tppc-home-usual';
 
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -18,23 +15,17 @@ export const isMine = (entry, me) => !!(entry && me) && (
   (entry.playerId != null && entry.playerId === me.id) || normName(entry.name) === normName(me.name)
 );
 
-// ── This phone's member ─────────────────────────────────────────────────────
-// { id } for a member, 'guest' for someone who said they are just looking, or
-// null when nobody has been asked yet.
-export const readMe = () => {
-  try {
-    const raw = localStorage.getItem(ME_KEY);
-    if (!raw) return null;
-    if (raw === 'guest') return 'guest';
-    const v = JSON.parse(raw);
-    return v && v.id != null ? { id: v.id } : null;
-  } catch (e) { return null; }
+// ── Whether to wake the sign-in on load ─────────────────────────────────────
+// The auth SDK is not on the cold start (see authFirebase.js). Home needs it —
+// it is the sign-in screen — and so does a member who is signed in, whichever
+// tab they land on. This flag, set once someone has signed in on this device,
+// is how a load that restores to Fixtures still knows to wake it.
+const SIGNED_IN_KEY = 'tppc-signed-in';
+export const hadSignIn = () => {
+  try { return localStorage.getItem(SIGNED_IN_KEY) === '1'; } catch (e) { return false; }
 };
-export const writeMe = (v) => {
-  try {
-    if (v == null) localStorage.removeItem(ME_KEY);
-    else localStorage.setItem(ME_KEY, v === 'guest' ? 'guest' : JSON.stringify({ id: v.id }));
-  } catch (e) { /* private window: Home asks again next time */ }
+export const noteSignIn = (on) => {
+  try { if (on) localStorage.setItem(SIGNED_IN_KEY, '1'); else localStorage.removeItem(SIGNED_IN_KEY); } catch (e) { /* asks again */ }
 };
 
 // What the member usually books, so the booking sheet opens on it. Kept per
@@ -62,9 +53,6 @@ export const greeting = (d = new Date()) => {
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
 export const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
-export const initials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean)
-  .slice(0, 2).map(w => w[0].toUpperCase()).join('');
-
 // "Civ · Full Playing (incl chukkas)" → "Full Playing member". The rate card's
 // labels are written for the captain choosing one; Home only says what it is.
 export const membershipShort = (label, id) => {
@@ -135,16 +123,4 @@ export const icsFor = ({ title, start, minutes = 60, location = '', note = '' })
     note ? `DESCRIPTION:${icsText(note)}` : null,
     'END:VEVENT', 'END:VCALENDAR',
   ].filter(Boolean).join('\r\n');
-};
-
-// Players matching what has been typed into "Who's this phone for?". Names
-// only — handicap and membership, never a mobile or an email.
-export const searchPeople = (playerDb, q, limit = 6) => {
-  const n = normName(q);
-  if (!n) return [];
-  return (playerDb || [])
-    .filter(p => p && p.active !== false && p.name && !String(p.name).includes('/'))
-    .filter(p => normName(p.name).split(' ').some(w => w.startsWith(n)) || normName(p.name).startsWith(n) || (n.length > 2 && normName(p.name).includes(n)))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-    .slice(0, limit);
 };

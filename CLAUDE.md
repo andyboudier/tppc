@@ -294,23 +294,45 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
-**Dev-only so far: the Home dashboard.** The app opens on a **Home** tab
-(`HomeDashboard.jsx`, model in `home.js`), first in the tab strip, and a locked
-PIN or a restored captain tab now bounces to Home rather than Chukkas. It greets
-the member with their handicap, lesson tokens and what they owe, shows their
-next chukka (their team and chukka numbers once the draw is published), the
-next three fixtures, and a **Book a chukka** sheet that is two taps: the next
-open session is preselected with what they booked last time, remembered on the
-phone. Booking goes through the same roster, waiting list and `raiseDue` (split
-out of `chargeForBooking`) as the Chukkas form, priced by `priceBooking`, and
-the confirmation's Undo takes the entry and its unpaid charge off again. With
-sign-in off, the member is chosen once per phone ("Who's this phone for?",
-localStorage `tppc-home-me`) — never written to the club's data; with sign-in
-on it is `myPlayer`. A captain sees the next session's list, invoices waiting,
-waiting lists and lessons above their own card. Home is drawn dark in the club's
-colours (`.polo-app.home-on`); the working tabs are unchanged. When this is
-brought back to TPPC it applies to Druids and Vaux too, but Druids always
-suffixes day keys and has no waiting list, and each club's day names differ.
+**Dev-only so far: sign-in is live, and the app opens on Home.**
+
+TPPC-Dev runs with sign-in **on**, set by the deployment rather than the code:
+`VITE_SIGN_IN_LIVE=1` and `VITE_FIXED_ADMIN_EMAILS` (Andy's club address) are
+environment variables on the `tppc-dev` Vercel project, read by
+`authFirebase.js`. A build that sets neither — every club's — stays dormant, so
+the file is the same in both repos. With it on, `main.jsx` wakes the provider
+on the first paint, and the app runs the demo's model: admins (the fixed list
+plus `config/admins`, which an admin edits in Players → Admins) are
+`captainMode` and run everything; the captain PIN is `canScore` and opens live
+scoring only; More tells a signed-in member the admin area is for admins and
+offers the scoring PIN. Google, Apple and email/password are switched on in the
+tppc-dev Firebase console.
+
+**Home** (`HomeDashboard.jsx`, model in `home.js`) is first in the bar and is
+the sign-in screen: signed out, the bar is Home, Fixtures, Live and More;
+Chukkas and Lessons join it once somebody is signed in or `captainMode` is on
+(`MEMBER_TABS`, `loggedOn`), and a restore onto either while signed out goes to
+Home. The badge is `public/tppc-crest.png`, the official crest cut round from
+`icon-512.png`. Signed in, Home greets the member with their handicap, lesson
+tokens and what they owe, shows their next chukka (team and chukka numbers
+once the draw is published) and the next three fixtures, and offers **Book a
+chukka** — two taps, the next open session preselected with what they booked
+last time, remembered on the phone — and **Book a lesson**, which opens
+Lessons. Booking goes through the same roster, waiting list and `raiseDue`
+(split out of `chargeForBooking`) as the Chukkas form, priced by
+`priceBooking`, and Undo takes the entry and its unpaid charge off again.
+Lessons is a member tab now (out of `CAPTAIN_ONLY_TABS`): a member gets the
+same `LessonsBoard` with the captain's tools off, booking as their own record;
+an admin gets the diary and the sign-in bench as before. Home's own AuthSheet
+is handed `enabled: true` like the bench, so it works whichever way the switch
+is set; `tppc-signed-in` in localStorage tells a later load to wake sign-in
+early. An admin sees the next session's list, invoices waiting, waiting lists
+and lessons above their own card. Home is drawn dark in the club's colours
+(`.polo-app.home-on`); the working tabs are unchanged.
+
+When this is brought back to TPPC it applies to Druids and Vaux too, but
+Druids always suffixes day keys and has no waiting list, each club's day names
+and crest differ, and the clubs keep sign-in dormant unless they ask.
 
 ### Things that differ between the apps, and must not be "fixed"
 
