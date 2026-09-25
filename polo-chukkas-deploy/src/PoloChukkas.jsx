@@ -5235,6 +5235,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         dateLabel: date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
         time: fmtTime(startMin), start, ground: grounds[k] || '',
         fixed: fixedChukkasFor(k), max: maxChukkasFor(k), instructional: !!cfg.instructional,
+        // The same "Available from / to" choices as the Chukkas form: a member
+        // may start up to three chukkas in and leave from the fifth on.
+        fromTimes: (captainMode ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3]).map(i => fmtTime(startMin + i * CHUKKA_INTERVAL_MIN)),
+        toTimes: (captainMode ? [0, 1, 2, 3, 4, 5, 6, 7] : [4, 5, 6, 7]).map(i => fmtTime(startMin + i * CHUKKA_INTERVAL_MIN)),
         status, reason: hBlock || (block ? bookingClosedReason(k) : ''),
         entry, waitPlace: wIdx + 1, slots: entry && showDraw ? mySlots(schedules[k], entry.id) : [],
         players: roster.length, chukkasAsked: roster.reduce((sum, e) => sum + (Number(e.chukkas) || 0), 0),
@@ -5275,7 +5279,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return { price: bd.total > 0 ? homeMoney(bd.total) : 'Included', note, total: bd.total };
   };
 
-  const homeBook = async (k, n, pony, waitlist, who) => {
+  // `opts` carries the rest of the Chukkas form: availableFrom / availableTo
+  // (HH:MM, empty for throw-in and the end) and noConsecutive.
+  const homeBook = async (k, n, pony, waitlist, who, opts = {}) => {
     const self = !who || who === 'me';
     const rec = homeWhoRec(who);
     if (!homePlayer) return { error: 'Sign in to book.' };
@@ -5297,6 +5303,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (roster.some(e => isMine(e, rec))) return { error: `${you} already on the ${cfg.fullLabel} list.` };
     if (wl.some(e => isMine(e, rec))) return { error: `${you} already on the ${cfg.fullLabel} waiting list.` };
     const c = fixedChukkasFor(k) || Math.max(1, Math.min(maxChukkasFor(k), parseInt(n, 10) || 1));
+    const from = opts.availableFrom || '';
+    const to = opts.availableTo || '';
+    if (from && to && parseTime(to) < parseTime(from)) return { error: '"Available to" must be the same as or later than "Available from".' };
     const cleanedName = String(rec.name || '').trim().replace(/\s+/g, ' ');
     const entry = {
       id: Date.now(),
@@ -5308,10 +5317,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       mobile: rec.mobile || undefined,
       handicap: Number(rec.handicap),
       chukkas: c,
-      availableFrom: fmtTime(throwInMins[k]),
-      availableTo: '',
+      availableFrom: from || fmtTime(throwInMins[k]),
+      availableTo: to,
       vip: false,
-      noConsecutive: false,
+      noConsecutive: cfg.instructional ? false : !!opts.noConsecutive,
       ponyHire: !!pony,
     };
     if (waitlist && block === 'full' && !captainMode) {

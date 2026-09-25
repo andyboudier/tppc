@@ -374,6 +374,11 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   const [dayKey, setDayKey] = useState(initialKey);
   const [n, setN] = useState(usual.chukkas);
   const [pony, setPony] = useState(usual.pony);
+  // The rest of the Chukkas form. Times are per day, so they reset when the
+  // day changes; empty means from the throw-in and to the end.
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [noCon, setNoCon] = useState(!!usual.noConsecutive);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // the booking result, once confirmed
@@ -406,6 +411,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   useEffect(() => {
     if (!done && !choices.some(s => s.key === dayKey)) setDayKey(choices.length ? choices[0].key : null);
   }, [who]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setFrom(''); setTo(''); }, [dayKey]);
   const cur = sessions.find(s => s.key === dayKey && !s.viaLessons) || null;
   const fixed = cur && cur.fixed ? cur.fixed : null;
   const max = cur ? cur.max : 4;
@@ -418,11 +424,12 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   const confirm = async () => {
     if (!canConfirm) return;
     setBusy(true); setError('');
-    const r = await book(cur.key, chukkas, ponyOn, waitlist, who);
+    const noConsecutive = !cur.instructional && noCon;
+    const r = await book(cur.key, chukkas, ponyOn, waitlist, who, { availableFrom: from, availableTo: to, noConsecutive });
     setBusy(false);
     if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); return; }
-    if (!cur.fixed && who === 'me') writeUsual(me.id, { chukkas, pony: ponyOn });
-    setDone({ ...r, session: cur, chukkas, pony: ponyOn, price: q, person });
+    if (!cur.fixed && who === 'me') writeUsual(me.id, { chukkas, pony: ponyOn, noConsecutive: noCon });
+    setDone({ ...r, session: cur, chukkas, pony: ponyOn, price: q, person, from, to, noConsecutive });
   };
 
   const doUndo = async () => {
@@ -485,6 +492,12 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
             <div className="hd-card hd-in" style={{ '--d': '.4s', width: '100%', marginTop: '26px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', borderRadius: '18px' }}>
               <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Chukkas</span><span>{done.chukkas}</span></div>
               <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Pony</span><span>{done.pony ? 'Club pony' : 'My own pony'}</span></div>
+              {(done.from || done.to) && (
+                <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Available</span><span>{done.from || done.session.time}&ndash;{done.to || 'the end'}</span></div>
+              )}
+              {done.noConsecutive && (
+                <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Chukkas in a row</span><span>No &mdash; a gap between each</span></div>
+              )}
               <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>{done.waitlisted ? 'Charged' : booked.me ? 'On your invoice' : `On ${firstName(booked.name)}\u2019s invoice`}</span><span style={{ color: 'var(--hd-gold2)' }}>{done.waitlisted ? 'Only if a place comes up' : done.owedText || 'No charge'}</span></div>
               <div style={{ fontSize: '12px', color: 'var(--hd-muted)', borderTop: '1px solid var(--hd-line)', paddingTop: '10px', lineHeight: 1.5 }}>
                 {done.waitlisted ? 'The captain will be in touch if a place comes up.'
@@ -603,6 +616,42 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
                   })}
                 </div>
               </fieldset>
+              <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Available</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>
+                    From
+                    <select style={{ ...fld, marginTop: '4px', background: 'var(--hd-card)' }} value={from || (cur.fromTimes && cur.fromTimes[0]) || ''}
+                      onChange={(e) => { setFrom(e.target.value === (cur.fromTimes && cur.fromTimes[0]) ? '' : e.target.value); setError(''); }}
+                      aria-label="Earliest chukka you can play">
+                      {(cur.fromTimes || []).map((t, i) => <option key={t} value={t}>{t}{i === 0 ? ' (throw-in)' : ''}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>
+                    To
+                    <select style={{ ...fld, marginTop: '4px', background: 'var(--hd-card)' }} value={to}
+                      onChange={(e) => { setTo(e.target.value); setError(''); }} aria-label="Latest chukka you can play">
+                      <option value="">Stay to the end</option>
+                      {(cur.toTimes || []).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px', lineHeight: 1.45 }}>
+                  Arriving late or leaving early? The draw only puts you in chukkas inside these times.
+                </div>
+              </fieldset>
+              {!cur.instructional && (
+                <button type="button" className="hd-choice hd-row" role="switch" aria-checked={noCon} onClick={() => setNoCon(v => !v)}
+                  style={{ minHeight: '56px', padding: '10px 14px', borderColor: noCon ? 'var(--hd-gold2)' : undefined }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: '14px', fontWeight: 500 }}>No consecutive chukkas</span>
+                    <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-muted)', marginTop: '2px' }}>Always a gap of at least one chukka between plays</span>
+                  </span>
+                  <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, position: 'relative', background: noCon ? 'var(--hd-burg)' : 'var(--hd-card2)', border: `1px solid ${noCon ? 'var(--hd-gold2)' : 'var(--hd-line)'}`, transition: 'background .15s' }}>
+                    <span style={{ position: 'absolute', top: 2, left: noCon ? 20 : 2, width: 20, height: 20, borderRadius: '50%', background: noCon ? 'var(--hd-gold2)' : 'var(--hd-muted)', transition: 'left .15s' }} />
+                  </span>
+                </button>
+              )}
               {cur.ground && directions(cur.ground) && (
                 <a href={directions(cur.ground)} target="_blank" rel="noopener noreferrer" className="hd-row" style={{ fontSize: '13px', textDecoration: 'none', gap: '6px' }}>
                   <Icon d={I.pin} size={16} />Directions to {cur.ground}

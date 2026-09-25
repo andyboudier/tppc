@@ -330,7 +330,10 @@ because payment is heading to Stripe — shows their next chukka (team and chukk
 once the draw is published) and the next three fixtures, and offers **Book a
 chukka** — two taps, listing only chukka days that person can book (open, or
 full with a waiting list; never Ladies Only or Instructional, which are booked
-in Lessons), the next open one preselected with what they booked
+in Lessons), the next open one preselected, with the rest of the Chukkas
+form beside it — Available from / to (the same member choices: start up to
+three chukkas in, leave from the fifth) and No consecutive chukkas, which is
+remembered with the usual chukkas and pony with what they booked
 last time, remembered on the phone — and **Book a lesson**, which opens
 Lessons. Booking goes through the same roster, waiting list and `raiseDue`
 (split out of `chargeForBooking`) as the Chukkas form, priced by

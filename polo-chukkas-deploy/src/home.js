@@ -28,21 +28,21 @@ export const noteSignIn = (on) => {
   try { if (on) localStorage.setItem(SIGNED_IN_KEY, '1'); else localStorage.removeItem(SIGNED_IN_KEY); } catch (e) { /* asks again */ }
 };
 
-// What the member usually books, so the booking sheet opens on it. Kept per
-// member on the phone; the first time it is two chukkas on their own pony,
+// What the member usually books, so the booking sheet opens on it — chukkas,
+// pony and whether they want no consecutive chukkas. Kept per member on the phone; the first time it is two chukkas on their own pony,
 // which is the choice that can never put an unexpected charge on an invoice.
 export const readUsual = (playerId) => {
   try {
     const all = JSON.parse(localStorage.getItem(USUAL_KEY) || '{}');
     const u = all && all[playerId];
-    if (u && Number(u.chukkas) > 0) return { chukkas: Number(u.chukkas), pony: !!u.pony };
+    if (u && Number(u.chukkas) > 0) return { chukkas: Number(u.chukkas), pony: !!u.pony, noConsecutive: !!u.noConsecutive };
   } catch (e) { /* fall through */ }
-  return { chukkas: 2, pony: false };
+  return { chukkas: 2, pony: false, noConsecutive: false };
 };
 export const writeUsual = (playerId, usual) => {
   try {
     const all = JSON.parse(localStorage.getItem(USUAL_KEY) || '{}') || {};
-    all[playerId] = { chukkas: usual.chukkas, pony: !!usual.pony };
+    all[playerId] = { chukkas: usual.chukkas, pony: !!usual.pony, noConsecutive: !!usual.noConsecutive };
     localStorage.setItem(USUAL_KEY, JSON.stringify(all));
   } catch (e) { /* nothing to remember with */ }
 };
