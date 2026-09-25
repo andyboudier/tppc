@@ -6,6 +6,16 @@ The web/PWA app lives in `polo-chukkas-deploy/` (single large React component,
 Xcode Cloud → TestFlight; Android via the `.github/workflows/android-release.yml`
 GitHub Action.
 
+## Working preference: do it, don't hand it back
+
+When a connector or tool gives direct access to a service — GitHub, Vercel,
+Firebase, Resend, Stripe, Microsoft 365, DNS — **do the step yourself** rather
+than writing instructions for the owner to follow. Hand a step back only when
+no available tool can do it (and say which tool is missing), when it needs a
+secret that must not pass through the chat, or when it is destructive or
+irreversible enough to confirm first (deleting data, wiping DNS, spending money,
+publishing to the live clubs). Check the result afterwards either way.
+
 ## Keep all four apps in sync
 
 TPPC is one of **four near-identical apps** — three clubs and the PoloACT demo:
