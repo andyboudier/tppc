@@ -405,6 +405,32 @@ default: it emails only `REMINDERS_ALLOW` (Andy's address on dev) unless
 Resend with `RESEND_API_KEY`. The two secrets are the owner's to set in Vercel;
 `?dry=1` and `?date=YYYY-MM-DD` help a manual test.
 
+**Booking emails** — "you're booked", "booking updated", "booking cancelled"
+for chukkas, waiting lists, lessons and club sessions (`api/_bookingEmail.js`,
+endpoint `api/booking-email.js`). The app calls `bookingEmail()`
+(`src/bookingEmail.js`) after it has saved the change — Home's booking, the
+Chukkas form, joining and promotion off the waiting list, the × on a roster
+or waiting-list entry, lesson and session booking, every lesson cancellation,
+and "Your booking". The request names the booking and nothing more; the
+server reads the booking and the player's address from `shared/<key>`, so it
+can only tell a member about their own booking. The caller's Firebase ID token
+(`auth.idToken()`) is checked with Google (`accounts:lookup`); they may send
+for themselves, a teammate, whoever they booked, or anyone as an admin.
+"booked"/"amended" must be a change made in the last 15 minutes
+(`bookedAt`/`at`/`addedAt`, `amendedAt`), and "cancelled" only goes once the
+booking really has gone. The same `REMINDERS_ALLOW` / `REMINDERS_LIVE` gate as
+the reminders applies. Each email but a cancellation has **Amend or cancel**:
+`?manage=chukka:<day>:<entryId>` (or `waitlist:` / `lesson:<slot>:<booking>`)
+opens **Your booking** on Home once the member is signed in (`ManageSheet` in
+HomeDashboard.jsx; `homeManage`, `manageAmend`, `manageCancel` in
+PoloChukkas.jsx). A chukka changes chukkas, pony, times and no-consecutive; an
+unpaid invoice line is swapped for the new price (entries now carry `txId`,
+and `txForEntry` finds the line for older ones), a paid one is left and the
+member told the club will settle the difference. A lesson changes only its
+pony — to move it, cancel and rebook. Cancelling takes the unpaid charge off
+(and a lesson's token goes back), as the rest of the app does. With sign-in
+off there is no token, so the clubs' builds send nothing.
+
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
 on the app's own screen (`AuthActionPage.jsx`; `emailAction.js` reads the link

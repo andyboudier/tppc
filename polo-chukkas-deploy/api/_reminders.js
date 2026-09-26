@@ -34,10 +34,10 @@ export const DAYS = {
 // TPPC stores Wednesday under the bare key and every other day suffixed.
 export const storageKey = (base, dk) => (dk === 'wed' ? base : `${base}-${dk}`);
 
-const SESSION_NAMES = { ladies: 'Ladies Only', instructional: 'Instructional Chukkas' };
+export const SESSION_NAMES = { ladies: 'Ladies Only', instructional: 'Instructional Chukkas' };
 
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
-const normEmail = (s) => String(s || '').trim().toLowerCase();
+export const normEmail = (s) => String(s || '').trim().toLowerCase();
 
 // ── Dates in the club's own time ────────────────────────────────────────────
 // Vercel runs in UTC; the club lives in Europe/London, so "tomorrow" and the
@@ -52,7 +52,7 @@ export const targetDate = (when, now = new Date()) => londonParts(when === 'even
 export const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
 
 // ── Reading the club's data ─────────────────────────────────────────────────
-const projectOf = (env) => ({
+export const projectOf = (env) => ({
   projectId: env.VITE_FIREBASE_PROJECT_ID || LIVE_PROJECT.projectId,
   apiKey: env.VITE_FIREBASE_API_KEY || LIVE_PROJECT.apiKey,
 });
@@ -75,7 +75,7 @@ export const makeReader = (env, fetchImpl = fetch) => {
     return v;
   };
 };
-const json = (s, fallback) => { try { return s == null ? fallback : JSON.parse(s); } catch (e) { return fallback; } };
+export const json = (s, fallback) => { try { return s == null ? fallback : JSON.parse(s); } catch (e) { return fallback; } };
 
 // Who to write to for a booking: the record the booking points at, else the
 // one with the same name. No address on file, no email.
@@ -143,8 +143,8 @@ export async function collect(read, target) {
 }
 
 // ── The email ───────────────────────────────────────────────────────────────
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || 'there';
+export const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || 'there';
 
 const itemLines = (it) => {
   const bits = [];

@@ -212,6 +212,202 @@ const PROVIDER_NAMES = { 'google.com': 'Google', 'apple.com': 'Apple', password:
 const fld = { width: '100%', minHeight: 48, padding: '0 14px', borderRadius: 12, background: 'var(--hd-card2)', border: '1px solid var(--hd-line)', color: 'var(--hd-cream)', fontSize: 16, fontFamily: 'inherit', outline: 'none' };
 const lbl = { display: 'block', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--hd-muted)', margin: '14px 0 6px' };
 
+// ── Your booking: amend or cancel ───────────────────────────────────────────
+// Where an email's "Amend or cancel" button lands. `m` is worked out by the
+// app from the link (see manageRequest in bookingEmail.js): the booking as it
+// stands, whether this member may change it, and what may be changed. A chukka
+// can change its chukkas, pony, times and no-consecutive; a lesson only its
+// pony, since its time is the slot's — to move a lesson, cancel and rebook.
+function ManageSheet({ m, onAmend, onCancel, onClose }) {
+  const isLesson = m.kind === 'lesson';
+  const [draft, setDraft] = useState(() => ({
+    chukkas: m.chukkas || 2, pony: !!m.pony, from: m.from || '', to: m.to || '', noConsecutive: !!m.noConsecutive,
+  }));
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(null); // { cancelled, note }
+  const [confirming, setConfirming] = useState(false);
+  const headRef = useRef(null);
+
+  useEffect(() => {
+    headRef.current && headRef.current.focus();
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('hd-sheet-open');
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; document.body.classList.remove('hd-sheet-open'); window.removeEventListener('keydown', onKey); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { headRef.current && headRef.current.focus(); }, [done]);
+
+  const changed = isLesson
+    ? draft.pony !== !!m.pony
+    : draft.chukkas !== m.chukkas || draft.pony !== !!m.pony || draft.from !== (m.from || '') || draft.to !== (m.to || '') || draft.noConsecutive !== !!m.noConsecutive;
+  const set = (k, v) => { setDraft(d => ({ ...d, [k]: v })); setError(''); };
+
+  const save = async () => {
+    setBusy('save'); setError('');
+    const r = await onAmend(draft);
+    setBusy('');
+    if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); return; }
+    setDone({ cancelled: false, note: r.note || '' });
+  };
+  const cancel = async () => {
+    setBusy('cancel'); setError('');
+    const r = await onCancel();
+    setBusy('');
+    if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); setConfirming(false); return; }
+    setDone({ cancelled: true, note: r.note || '' });
+  };
+
+  const title = done ? (done.cancelled ? 'Booking cancelled' : 'Booking updated') : 'Your booking';
+  const countOptions = Array.from({ length: Math.min(m.max || 4, 6) }, (_, i) => i + 1);
+  const row = (label, value) => (
+    <div style={{ display: 'flex', gap: 12, fontSize: 14, padding: '3px 0' }}>
+      <span style={{ color: 'var(--hd-muted)', flex: 1 }}>{label}</span><span style={{ textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-labelledby="hd-manage-title">
+      <div className="hd-sheet-inner hd-row" style={{ padding: '18px 20px 8px' }}>
+        <button type="button" onClick={onClose} aria-label="Back to Home" className="hd-btn" style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)' }}>
+          <Icon d={I.back} size={20} />
+        </button>
+        <div>
+          <div className="hd-eyebrow">{m.personName || ''}</div>
+          <h2 id="hd-manage-title" ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: 24, fontWeight: 500, margin: 0, outline: 'none' }}>{title}</h2>
+        </div>
+      </div>
+      <div className="hd-sheet-body">
+        <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div className="hd-card" style={{ padding: '16px 18px' }}>
+            <div className="hd-serif" style={{ fontSize: 21, textDecoration: done && done.cancelled ? 'line-through' : 'none', color: done && done.cancelled ? 'var(--hd-muted)' : undefined }}>{m.title}</div>
+            <div style={{ fontSize: 14, color: 'var(--hd-muted)', marginTop: 4 }}>{m.dateText} &middot; {m.time}{m.ground ? ` · ${m.ground}` : ''}</div>
+            {m.coach ? <div style={{ fontSize: 13, color: 'var(--hd-muted)', marginTop: 2 }}>with {m.coach}</div> : null}
+            {m.waitPlace ? <div style={{ fontSize: 13, color: 'var(--hd-gold2)', marginTop: 6 }}>Number {m.waitPlace} on the waiting list</div> : null}
+          </div>
+
+          {m.missing && !done && (
+            <div style={{ fontSize: 14, color: 'var(--hd-muted)', lineHeight: 1.55 }}>
+              This booking is no longer on the list &mdash; it may already have been cancelled, or the session has been played.
+            </div>
+          )}
+          {!m.missing && !m.allowed && !done && (
+            <div style={{ fontSize: 14, color: 'var(--hd-muted)', lineHeight: 1.55 }}>
+              You&rsquo;re signed in as someone who can&rsquo;t change this booking. Sign in as the member it&rsquo;s for, someone on their team, or an admin.
+            </div>
+          )}
+
+          {done && (
+            <div style={{ fontSize: 15, color: 'var(--hd-muted)', lineHeight: 1.55 }}>
+              {done.cancelled ? 'You’re off the list, and an email is on its way to confirm it.' : 'Saved, and an email is on its way with the new details.'}
+              {done.note ? <div style={{ marginTop: 8 }}>{done.note}</div> : null}
+            </div>
+          )}
+
+          {!done && !m.missing && m.allowed && !isLesson && (
+            <>
+              <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>
+                  Chukkas{m.fixed ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; fixed at {m.fixed} for this session</span> : null}
+                </legend>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${countOptions.length}, minmax(0,1fr))`, gap: '8px' }}>
+                  {countOptions.map(k => (
+                    <button key={k} type="button" className="hd-choice" aria-pressed={k === draft.chukkas} disabled={!!m.fixed && k !== m.fixed} onClick={() => set('chukkas', k)}
+                      style={{ minHeight: '48px', textAlign: 'center', fontSize: '18px', background: k === draft.chukkas ? 'var(--hd-burg)' : undefined }}>{k}</button>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Pony</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {[[true, 'Club pony'], [false, 'My own pony']].map(([v, label]) => (
+                    <button key={String(v)} type="button" className="hd-choice" aria-pressed={draft.pony === v} onClick={() => set('pony', v)} style={{ minHeight: '52px', padding: '10px 12px', fontSize: 14 }}>{label}</button>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Available</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>
+                    From
+                    <select style={{ ...fld, marginTop: '4px', background: 'var(--hd-card)' }} value={draft.from || (m.fromTimes || [])[0] || ''}
+                      onChange={(e) => set('from', e.target.value === (m.fromTimes || [])[0] ? '' : e.target.value)} aria-label="Earliest chukka you can play">
+                      {(m.fromTimes || []).map((t, i) => <option key={t} value={t}>{t}{i === 0 ? ' (throw-in)' : ''}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>
+                    To
+                    <select style={{ ...fld, marginTop: '4px', background: 'var(--hd-card)' }} value={draft.to} onChange={(e) => set('to', e.target.value)} aria-label="Latest chukka you can play">
+                      <option value="">Stay to the end</option>
+                      {(m.toTimes || []).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
+              {!m.instructional && (
+                <button type="button" className="hd-choice hd-row" role="switch" aria-checked={draft.noConsecutive} onClick={() => set('noConsecutive', !draft.noConsecutive)}
+                  style={{ minHeight: '56px', padding: '10px 14px', borderColor: draft.noConsecutive ? 'var(--hd-gold2)' : undefined }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500 }}>No consecutive chukkas</span>
+                  <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, position: 'relative', background: draft.noConsecutive ? 'var(--hd-burg)' : 'var(--hd-card2)', border: `1px solid ${draft.noConsecutive ? 'var(--hd-gold2)' : 'var(--hd-line)'}` }}>
+                    <span style={{ position: 'absolute', top: 2, left: draft.noConsecutive ? 20 : 2, width: 20, height: 20, borderRadius: '50%', background: draft.noConsecutive ? 'var(--hd-gold2)' : 'var(--hd-muted)' }} />
+                  </span>
+                </button>
+              )}
+            </>
+          )}
+
+          {!done && !m.missing && m.allowed && isLesson && (
+            <>
+              <div>
+                {row('Lesson', m.lessonText)}
+                {m.bookedBy ? row('Booked by', m.bookedBy) : null}
+              </div>
+              <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Pony</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {[[true, 'Club pony', m.ponyIncluded ? 'Included in the price' : ''], [false, 'My own pony', 'I’ll bring my own']].map(([v, label, sub]) => (
+                    <button key={String(v)} type="button" className="hd-choice" aria-pressed={draft.pony === v} onClick={() => set('pony', v)} style={{ minHeight: '58px', padding: '10px 12px' }}>
+                      <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{label}</span>
+                      {sub ? <span style={{ display: 'block', fontSize: 12, color: 'var(--hd-muted)', marginTop: 2 }}>{sub}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <div style={{ fontSize: 12, color: 'var(--hd-dim)', lineHeight: 1.5 }}>To move to another time, cancel this one and book the new time in Lessons.</div>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="hd-sheet-foot">
+        <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {error && <div role="alert" style={{ fontSize: '13px', color: '#f0b9b9', lineHeight: 1.45 }}>{error}</div>}
+          {done || m.missing || !m.allowed ? (
+            <button type="button" className="hd-primary" onClick={onClose}><span>Back to Home</span></button>
+          ) : confirming ? (
+            <>
+              <div style={{ fontSize: 14, color: 'var(--hd-cream)', textAlign: 'center' }}>Cancel this booking{m.personIsMe ? '' : ` for ${m.personName}`}?{m.refundText ? ` ${m.refundText}` : ''}</div>
+              <button type="button" className="hd-primary" disabled={!!busy} onClick={cancel} style={{ background: '#7a1f1f' }}>
+                <span>{busy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it'}</span>
+              </button>
+              <button type="button" className="hd-btn" disabled={!!busy} onClick={() => setConfirming(false)} style={{ minHeight: 48, justifyContent: 'center' }}>Keep my booking</button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="hd-primary" disabled={!changed || !!busy} onClick={save}>
+                <span>{busy === 'save' ? 'Saving…' : changed ? 'Save changes' : 'No changes yet'}</span>
+              </button>
+              <button type="button" className="hd-btn" disabled={!!busy} onClick={() => setConfirming(true)}
+                style={{ minHeight: 48, justifyContent: 'center', color: '#f0b9b9', borderColor: '#7a3b3b' }}>Cancel this booking</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileSheet({ account, profile, me, handicapOptions, onSave, onChangePassword, onResetEmail, onLinkProvider, onSignOut, onPhoto, onClose }) {
   const p = profile || {};
   const [draft, setDraft] = useState({
@@ -786,6 +982,9 @@ export default function HomeDashboard(props) {
     profile, handicapOptions = [], onSaveProfile, onChangePassword, onResetEmail, onLinkProvider,
     sessions, fixtures, captain, quote, book, undo,
     openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
+    // An email's "Amend or cancel" link: the booking to show (null when there
+    // is none, or nobody is signed in yet) and whether one is waiting on sign-in.
+    manage, manageWaiting, onManageAmend, onManageCancel, onManageClose,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -809,6 +1008,11 @@ export default function HomeDashboard(props) {
         <div className="hd-dots" />
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {captain && <CaptainPanel c={captain} go={goCaptain} />}
+          {manageWaiting && (
+            <div className="hd-card hd-in" style={{ padding: '14px 18px', fontSize: '14px', color: 'var(--hd-muted)', lineHeight: 1.5, borderColor: 'var(--hd-gold)' }}>
+              Sign in to amend or cancel your booking &mdash; it opens as soon as you&rsquo;re in.
+            </div>
+          )}
           <Logon onSignIn={onSignIn} openFixtures={openFixtures} openLive={openLive} />
         </div>
       </div>
@@ -937,6 +1141,10 @@ export default function HomeDashboard(props) {
 
       {photoOpen && (
         <PhotoSheet account={account} name={shownName} onSave={onSavePhoto} onClose={() => setPhotoOpen(false)} />
+      )}
+
+      {manage && (
+        <ManageSheet key={manage.key} m={manage} onAmend={onManageAmend} onCancel={onManageCancel} onClose={onManageClose} />
       )}
 
       {booking && me && (

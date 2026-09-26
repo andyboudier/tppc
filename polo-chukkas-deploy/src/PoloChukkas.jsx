@@ -20,10 +20,11 @@ import HomeDashboard from './HomeDashboard';
 import AuthActionPage from './AuthActionPage';
 import { emailAction as readEmailAction, clearEmailAction } from './emailAction';
 import { LUX_CSS } from './luxTheme';
+import { bookingEmail, manageRequest, clearManageRequest } from './bookingEmail';
 import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours, bookingsFor as lessonBookingsFor } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours, bookingsFor as lessonBookingsFor, dateLabel as lessonDateLabel } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -1577,6 +1578,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const n = (s) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase();
     return !!n(a) && n(a) === n(b);
   };
+  // The player record a booking belongs to: the id it carries, else the
+  // record with its name — for the email that tells them it has gone.
+  const playerIdFor = (entry) => {
+    if (!entry) return null;
+    if (entry.playerId != null) return entry.playerId;
+    const rec = playerDb.find(x => sameName(x.name, entry.name));
+    return rec ? rec.id : null;
+  };
   const entryIsMe = (p) => !!(p && myPlayer && (p.playerId === myPlayer.id || (!p.playerId && sameName(p.name, myPlayer.name))));
   const entryIsTeammate = (p) => !!(p && teammates.some(t => p.playerId === t.id || (!p.playerId && sameName(p.name, t.name))));
   const canRemoveEntry = (p) => {
@@ -2619,6 +2628,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     });
     if (!res.ok) return { error: res.error };
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
+    if (res.booking) bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: res.booking.id });
     return { message: bd.total > 0
       ? `Booked for ${player.name} — £${bd.money} added to their invoices.`
       : `Booked for ${player.name}.` };
@@ -2656,6 +2666,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     }, LESSON_SLOT_RATES);
     if (!res.ok) return { error: res.error };
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
+    if (res.booking) bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: res.booking.id });
     if (byToken) await savePlayerDb(playerDb.map(p => (p.id === player.id ? { ...p, tokens: have - cost } : p)));
     return { message: byToken
       ? `Booked for ${player.name} — ${cost} token${cost === 1 ? '' : 's'} used, ${have - cost} left.`
@@ -2686,6 +2697,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       setTransactions(nextTx);
       try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
     }
+    bookings.forEach(b => {
+      const pid = playerIdFor(b);
+      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'lesson', slotId: slot.id, bookingId: b.id, playerId: String(pid), type: b.type });
+    });
   };
   const cancelLessonBooking = (slot, booking) => cancelLessonBookings(slot, [booking]);
 
@@ -3448,7 +3463,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const due = raiseDue(cleanedName, c, wantsPony, dayKey);
     return due ? due.text : '';
   };
-  const raiseDue = (cleanedName, c, wantsPony, dayKey = activeDay) => {
+  // The invoice line a booking would raise, without saving it — raiseDue
+  // saves it; amending a booking swaps it for the old one in one write.
+  const buildDue = (cleanedName, c, wantsPony, dayKey = activeDay) => {
     const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
     const subject = rec || { membership: 'none', military: false, subsidies: [] };
     const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none', dayKey);
@@ -3462,10 +3479,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       subsidyDeductions: [],
       total: bd.total, status: 'due', method: '', note: '',
     };
-    const nextTx = [dueTx, ...transactions];
+    return { tx: dueTx, total: bd.total, text: `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}` };
+  };
+  const raiseDue = (cleanedName, c, wantsPony, dayKey = activeDay) => {
+    const due = buildDue(cleanedName, c, wantsPony, dayKey);
+    if (!due) return null;
+    const nextTx = [due.tx, ...transactions];
     setTransactions(nextTx);
     window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
-    return { tx: dueTx, total: bd.total, text: `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}` };
+    return due;
   };
 
   const handleAdd = () => {
@@ -3479,10 +3501,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       { list: players, message: (e) => `${e.name} is already on the roster${captainMode ? ' \u2014 adjust their chukkas with the +/\u2212 buttons.' : ` for this ${activeDayConfig.fullLabel}.`}` },
     ]);
     if (v.error) return setError(v.error);
-    const newPlayer = signupEntry(v);
-    saveRoster([...players, newPlayer]);
+    // The charge is raised first so the entry can carry it: amending or
+    // cancelling the booking later knows which invoice line is its own.
+    const due = raiseDue(v.cleanedName, v.c, ponyHire);
+    const newPlayer = { ...signupEntry(v), bookedAt: Date.now(), txId: due ? due.tx.id : undefined };
+    const bookDay = activeDay;
+    saveRoster([...players, newPlayer])
+      .then(() => bookingEmail({ event: 'booked', kind: 'chukka', day: bookDay, entryId: String(newPlayer.id) }));
     upsertMember(newPlayer);
-    const owed = chargeForBooking(v.cleanedName, v.c, ponyHire);
+    const owed = due ? due.text : '';
     const who = newPlayer.bookedBy ? `${v.cleanedName} added` : 'Added';
     setBookingMsg(owed
       ? `${who} to the roster. ${owed} \u2014 please settle with the Captain.`
@@ -3492,7 +3519,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   const removePlayer = (id) => {
-    saveRoster(players.filter(p => p.id !== id));
+    const gone = players.find(p => p.id === id);
+    const day = activeDay;
+    saveRoster(players.filter(p => p.id !== id)).then(() => {
+      const pid = playerIdFor(gone);
+      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'chukka', day, entryId: String(id), playerId: String(pid) });
+    });
     saveSchedule(null);
   };
 
@@ -3520,7 +3552,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     }
     const entry = { ...signupEntry(v), email: cleanedEmail || undefined, addedAt: Date.now() };
     const place = waitingList.length + 1;
-    saveWaitlist([...waitingList, entry]);
+    const wlDay = activeDay;
+    saveWaitlist([...waitingList, entry])
+      .then(() => bookingEmail({ event: 'booked', kind: 'waitlist', day: wlDay, entryId: String(entry.id) }));
     // Nobody is billed for waiting — the charge is raised if and when the
     // captain moves them onto the roster.
     setBookingMsg(entry.bookedBy
@@ -3535,12 +3569,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const promoteFromWaitlist = (id) => {
     const entry = waitingList.find(w => w.id === id);
     if (!entry) return;
-    const { addedAt, ...player } = entry;
-    saveRoster([...players, player]);
+    const { addedAt, ...waiting } = entry;
+    const due = raiseDue(waiting.name, waiting.chukkas, !!waiting.ponyHire);
+    const player = { ...waiting, bookedAt: Date.now(), txId: due ? due.tx.id : undefined };
+    const day = activeDay;
+    saveRoster([...players, player])
+      .then(() => bookingEmail({ event: 'booked', kind: 'chukka', day, entryId: String(player.id) }));
     upsertMember(player);
     saveWaitlist(waitingList.filter(w => w.id !== id));
     saveSchedule(null);
-    const owed = chargeForBooking(player.name, player.chukkas, !!player.ponyHire);
+    const owed = due ? due.text : '';
     // Stamped with the day so the prompt cannot follow the captain onto
     // another tab, where its date and throw-in would be wrong.
     setPromoted({ ...entry, owed, day: activeDay });
@@ -3548,7 +3586,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const removeFromWaitlist = (id) => {
     setPromoted(prev => (prev && prev.id === id ? null : prev));
-    saveWaitlist(waitingList.filter(w => w.id !== id));
+    const gone = waitingList.find(w => w.id === id);
+    const day = activeDay;
+    saveWaitlist(waitingList.filter(w => w.id !== id)).then(() => {
+      const pid = playerIdFor(gone);
+      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'waitlist', day, entryId: String(id), playerId: String(pid) });
+    });
   };
 
   // Prefilled "you're on" email, so telling someone takes one tap rather than
@@ -5329,6 +5372,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       mobile: rec.mobile || undefined,
       handicap: Number(rec.handicap),
       chukkas: c,
+      bookedAt: Date.now(),
       availableFrom: from || fmtTime(throwInMins[k]),
       availableTo: to,
       vip: false,
@@ -5337,30 +5381,204 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     };
     if (waitlist && block === 'full' && !captainMode) {
       await saveWaitlist([...wl, { ...entry, addedAt: Date.now() }], k);
-      return { day: k, entryId: entry.id, waitlisted: true, place: wl.length + 1 };
+      bookingEmail({ event: 'booked', kind: 'waitlist', day: k, entryId: String(entry.id) });
+      return { day: k, entryId: entry.id, playerId: rec.id, waitlisted: true, place: wl.length + 1 };
     }
-    await saveRoster([...roster, entry], k);
-    upsertMember(entry);
     const due = raiseDue(cleanedName, c, !!pony, k);
+    const booked = { ...entry, txId: due ? due.tx.id : undefined };
+    await saveRoster([...roster, booked], k);
+    upsertMember(booked);
     await saveSchedule(null, k);
-    return { day: k, entryId: entry.id, txId: due ? due.tx.id : null, owedText: due ? homeMoney(due.total) : '' };
+    bookingEmail({ event: 'booked', kind: 'chukka', day: k, entryId: String(entry.id) });
+    return { day: k, entryId: entry.id, playerId: rec.id, txId: due ? due.tx.id : null, owedText: due ? homeMoney(due.total) : '' };
   };
 
   // Undo straight after booking: off the list, and the charge with it if it
   // has not been settled in the meantime.
   const homeUndo = async (r) => {
     if (!r || !r.day) return;
+    const mail = { event: 'cancelled', kind: r.waitlisted ? 'waitlist' : 'chukka', day: r.day, entryId: String(r.entryId), playerId: String(r.playerId) };
     if (r.waitlisted) {
       await saveWaitlist((waitlists[r.day] || []).filter(e => e.id !== r.entryId), r.day);
+      if (r.playerId != null) bookingEmail(mail);
       return;
     }
     await saveRoster((rosters[r.day] || []).filter(e => e.id !== r.entryId), r.day);
+    if (r.playerId != null) bookingEmail(mail);
     await saveSchedule(null, r.day);
     if (r.txId && transactions.some(t => t.id === r.txId && t.status === 'due')) {
       const nextTx = transactions.filter(t => t.id !== r.txId);
       setTransactions(nextTx);
       try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
     }
+  };
+
+  // ── Amend or cancel, from a booking email ──────────────────────────────
+  // The email's button opens the app with ?manage=… (bookingEmail.js). The
+  // request waits for sign-in, then opens "Your booking" on Home. Who may
+  // change a booking is the same as who may make or take one off: the member,
+  // their team, or an admin.
+  const [manageReq, setManageReq] = useState(() => manageRequest());
+  useEffect(() => { if (manageReq) clearManageRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (manageReq && homeSignedIn) { setActiveTab('home'); window.scrollTo(0, 0); }
+  }, [!!manageReq, homeSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mayManage = (e) => !!e && (captainMode || entryIsMe(e) || entryIsTeammate(e)
+    || (!!auth.user && !!e.uid && e.uid === auth.user.uid)
+    || (!!homePlayer && sameName(e.name, homePlayer.name)));
+  // The invoice line that belongs to a chukka booking: the one it carries,
+  // else (for a booking made before entries carried one) that player's line
+  // for the same day and number of chukkas.
+  const txForEntry = (e, k) => {
+    if (!e) return null;
+    if (e.txId) return transactions.find(t => t.id === e.txId) || null;
+    const pid = playerIdFor(e);
+    return transactions.find(t => !t.kind && t.day === k && Number(t.chukkas) === Number(e.chukkas)
+      && (pid != null ? t.playerId === pid : sameName(t.playerName, e.name))) || null;
+  };
+  const findManaged = (req) => {
+    if (!req) return null;
+    if (req.kind === 'lesson') {
+      const slot = lessonSlots.find(sl => String(sl.id) === String(req.slotId)) || null;
+      const booking = slot ? (slot.bookings || []).find(b => String(b.id) === String(req.bookingId)) || null : null;
+      return { slot, booking };
+    }
+    const list = (req.kind === 'waitlist' ? waitlists[req.day] : rosters[req.day]) || [];
+    const entry = DAY_CONFIG[req.day] ? list.find(e => String(e.id) === String(req.entryId)) || null : null;
+    return { entry, place: entry ? list.indexOf(entry) + 1 : 0 };
+  };
+
+  const homeManage = (() => {
+    if (!manageReq || !homeSignedIn) return null;
+    const f = findManaged(manageReq);
+    const key = JSON.stringify(manageReq);
+    if (manageReq.kind === 'lesson') {
+      const { slot, booking } = f;
+      const session = !!(slot && slot.kind);
+      const kindLabel = session ? ((clubSessionById(slot.kind) || {}).label || 'Club session') : booking ? `${booking.type === 'group' ? 'Group' : 'Individual'} lesson` : 'Lesson';
+      const hrs = booking ? Number(booking.hours) || 1 : 1;
+      return {
+        key, kind: 'lesson', missing: !booking, allowed: !!booking && mayManage(booking),
+        title: kindLabel, dateText: slot ? lessonDateLabel(slot.date) : '', time: slot ? `${slot.start}–${slot.end}` : '',
+        ground: (slot && slot.ground) || '', coach: (slot && slot.coach) || '',
+        personName: booking ? booking.name : '', personIsMe: !!booking && !!homePlayer && (booking.playerId === homePlayer.id || sameName(booking.name, homePlayer.name)),
+        pony: !!(booking && booking.ponyHire), ponyIncluded: !session,
+        lessonText: session ? 'The whole session' : `${hrs} hour${hrs === 1 ? '' : 's'}`,
+        bookedBy: (booking && booking.bookedBy && booking.bookedBy !== booking.name) ? booking.bookedBy : '',
+        refundText: booking && booking.paid === 'token' ? 'Your token goes back.' : booking && booking.paid === 'invoice' ? 'An unpaid charge comes off your invoice.' : '',
+      };
+    }
+    const k = manageReq.day;
+    const cfg = DAY_CONFIG[k] || {};
+    const e = f.entry;
+    const startMin = throwInMins[k];
+    const date = DAY_CONFIG[k] ? nextChukkaDate(k) : new Date();
+    const tx = manageReq.kind === 'chukka' ? txForEntry(e, k) : null;
+    return {
+      key, kind: manageReq.kind, missing: !e, allowed: !!e && mayManage(e),
+      title: homeSessionName(cfg) || cfg.fullLabel || 'Chukkas',
+      dateText: date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }),
+      time: startMin != null ? fmtTime(startMin) : '', ground: grounds[k] || '',
+      personName: e ? e.name : '', personIsMe: !!e && !!homePlayer && (e.playerId === homePlayer.id || sameName(e.name, homePlayer.name)),
+      chukkas: e ? Number(e.chukkas) || 1 : 2, pony: !!(e && e.ponyHire),
+      from: e && e.availableFrom && startMin != null && e.availableFrom !== fmtTime(startMin) ? e.availableFrom : '',
+      to: (e && e.availableTo) || '', noConsecutive: !!(e && e.noConsecutive),
+      fixed: DAY_CONFIG[k] ? fixedChukkasFor(k) : null, max: DAY_CONFIG[k] ? maxChukkasFor(k) : 4, instructional: !!cfg.instructional,
+      fromTimes: startMin == null ? [] : (captainMode ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3]).map(i => fmtTime(startMin + i * CHUKKA_INTERVAL_MIN)),
+      toTimes: startMin == null ? [] : (captainMode ? [0, 1, 2, 3, 4, 5, 6, 7] : [4, 5, 6, 7]).map(i => fmtTime(startMin + i * CHUKKA_INTERVAL_MIN)),
+      waitPlace: manageReq.kind === 'waitlist' ? f.place : 0,
+      refundText: tx && tx.status === 'due' ? 'The unpaid charge comes off your invoice.' : '',
+    };
+  })();
+
+  const manageAmend = async (d) => {
+    const req = manageReq;
+    const f = findManaged(req);
+    if (!f) return { error: 'Nothing to change.' };
+    if (req.kind === 'lesson') {
+      const { slot, booking } = f;
+      if (!booking) return { error: 'That booking is no longer in the diary.' };
+      if (!mayManage(booking)) return { error: 'You can change your own bookings, or your team’s.' };
+      const next = { ...booking, ponyHire: !!d.pony, amendedAt: Date.now() };
+      await saveLessonSlots(lessonSlots.map(sl => (sl.id === slot.id ? { ...sl, bookings: (sl.bookings || []).map(b => (b.id === booking.id ? next : b)) } : sl)));
+      bookingEmail({ event: 'amended', kind: 'lesson', slotId: slot.id, bookingId: booking.id });
+      return { ok: true };
+    }
+    const k = req.day;
+    const cfg = DAY_CONFIG[k];
+    const e = f.entry;
+    if (!e) return { error: 'That booking is no longer on the list.' };
+    if (!mayManage(e)) return { error: 'You can change your own bookings, or your team’s.' };
+    const block = bookingBlock(k);
+    if (!captainMode && block && block !== 'full') return { error: `${bookingClosedReason(k)} Ask the captain to change it.` };
+    const from = d.from || '';
+    const to = d.to || '';
+    if (from && to && parseTime(to) < parseTime(from)) return { error: '"To" must be the same as or later than "From".' };
+    const c = fixedChukkasFor(k) || Math.max(1, Math.min(maxChukkasFor(k), parseInt(d.chukkas, 10) || 1));
+    const next = {
+      ...e, chukkas: c, ponyHire: !!d.pony,
+      availableFrom: from || fmtTime(throwInMins[k]), availableTo: to,
+      noConsecutive: cfg.instructional ? false : !!d.noConsecutive, amendedAt: Date.now(),
+    };
+    let note = '';
+    if (req.kind === 'waitlist') {
+      await saveWaitlist((waitlists[k] || []).map(x => (x.id === e.id ? next : x)), k);
+    } else {
+      // Money follows the change: an unpaid line is swapped for the new
+      // price in one write; a settled one is left for the club to square.
+      if (c !== Number(e.chukkas) || !!d.pony !== !!e.ponyHire) {
+        const old = txForEntry(e, k);
+        if (old && old.status !== 'due') {
+          note = 'You’d already paid for this booking, so the club will settle any difference with you.';
+        } else {
+          const due = buildDue(e.name, c, !!d.pony, k);
+          next.txId = due ? due.tx.id : undefined;
+          const nextTx = [...(due ? [due.tx] : []), ...transactions.filter(t => !old || t.id !== old.id)];
+          setTransactions(nextTx);
+          try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (err) {}
+          note = due ? `The new price, ${homeMoney(due.total)}, is on the invoice.` : 'Nothing to pay for it now.';
+        }
+      }
+      await saveRoster((rosters[k] || []).map(x => (x.id === e.id ? next : x)), k);
+      const drawChanged = c !== Number(e.chukkas) || next.availableFrom !== e.availableFrom
+        || next.availableTo !== (e.availableTo || '') || next.noConsecutive !== !!e.noConsecutive;
+      if (drawChanged) await saveSchedule(null, k);
+    }
+    bookingEmail({ event: 'amended', kind: req.kind, day: k, entryId: String(e.id) });
+    return { ok: true, note };
+  };
+
+  const manageCancel = async () => {
+    const req = manageReq;
+    const f = findManaged(req);
+    if (!f) return { error: 'Nothing to cancel.' };
+    if (req.kind === 'lesson') {
+      const { slot, booking } = f;
+      if (!booking) return { error: 'That booking is no longer in the diary.' };
+      if (!mayManage(booking)) return { error: 'You can cancel your own bookings, or your team’s.' };
+      await cancelLessonBooking(slot, booking); // tokens back, unpaid invoice off, email sent
+      return { ok: true };
+    }
+    const k = req.day;
+    const e = f.entry;
+    if (!e) return { error: 'That booking is no longer on the list.' };
+    if (!mayManage(e)) return { error: 'You can cancel your own bookings, or your team’s.' };
+    const pid = playerIdFor(e);
+    if (req.kind === 'waitlist') {
+      await saveWaitlist((waitlists[k] || []).filter(x => x.id !== e.id), k);
+    } else {
+      const tx = txForEntry(e, k);
+      await saveRoster((rosters[k] || []).filter(x => x.id !== e.id), k);
+      await saveSchedule(null, k);
+      if (tx && tx.status === 'due') {
+        const nextTx = transactions.filter(t => t.id !== tx.id);
+        setTransactions(nextTx);
+        try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (err) {}
+      }
+    }
+    if (pid != null) bookingEmail({ event: 'cancelled', kind: req.kind, day: k, entryId: String(e.id), playerId: String(pid) });
+    return { ok: true };
   };
 
   const homeOwed = homePlayer ? owedBy(transactions, homePlayer) : 0;
@@ -6921,6 +7139,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               people={homePeople}
               sessionsFor={(who) => homeSessionsFor(homeWhoRec(who))}
               undo={homeUndo}
+              manage={homeManage}
+              manageWaiting={!!manageReq && !homeSignedIn}
+              onManageAmend={manageAmend}
+              onManageCancel={manageCancel}
+              onManageClose={() => setManageReq(null)}
               openChukkas={homeOpenChukkas}
               openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
               openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}

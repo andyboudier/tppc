@@ -184,6 +184,12 @@ const provider = {
     provider.user = snapshotUser(fbAuth.currentUser);
     announceAuthChange();
   },
+  // A fresh ID token for the signed-in user, for the app's own endpoints
+  // (/api/booking-email) to check who is asking. '' when nobody is.
+  async idToken() {
+    const u = fbAuth && fbAuth.currentUser;
+    return u ? u.getIdToken() : '';
+  },
   // Set a new password, or add one to an account that began with Google or
   // Apple so the member can also sign in with their email. Firebase asks for
   // a recent sign-in before either; the caller shows authErrorText for

@@ -48,6 +48,7 @@
 //   saveProfile({ name, handicap, mobile, hpa })
 //   savePhoto(dataUrl | 'none' | '')   '' goes back to the sign-in's photo
 //   changePassword(pw)             sets it, or adds one to a Google/Apple account
+//   idToken() → string             the signed-in user's Firebase ID token, or ''
 //   listAdmins() → [email]         admins only
 //   setAdmins([email])             admins only
 //
@@ -80,6 +81,7 @@ export const noAuth = {
   saveProfile: notEnabled,
   savePhoto: notEnabled,
   changePassword: notEnabled,
+  idToken: async () => '',
   listAdmins: async () => [],
   setAdmins: notEnabled,
 };
