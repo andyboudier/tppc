@@ -331,8 +331,9 @@ the sign-in screen: signed out, the bar is Home, Fixtures, Live and More;
 Chukkas and Lessons join it once somebody is signed in or `captainMode` is on
 (`MEMBER_TABS`, `loggedOn`), and a restore onto either while signed out goes to
 Home. The badge is `public/tppc-crest.png`, the official crest cut round from
-`icon-512.png`. Signed in, Home greets the member with their handicap and how many
-chukkas they have booked this week — tokens and what they owe are left off,
+`icon-512.png`. Signed in, Home greets the member with their handicap and **All bookings** —
+two tiles, chukkas and lessons (Ladies Only and Instructional count as lessons,
+being booked there), each opening where those bookings live — tokens and what they owe are left off,
 because payment is heading to Stripe — shows their next chukka (team and chukka numbers
 once the draw is published) and the next three fixtures, and offers **Book a
 chukka** — two taps, listing only chukka days that person can book (open, or

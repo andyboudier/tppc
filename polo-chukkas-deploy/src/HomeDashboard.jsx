@@ -819,6 +819,9 @@ export default function HomeDashboard(props) {
   const nextOpen = bookable.find(s => s.status === 'open') || bookable.find(s => s.status === 'full') || null;
   const mine = sessions.filter(s => s.status === 'booked' || s.status === 'waitlisted');
   const next = mine[0] || null;
+  const chukkasBooked = mine.filter(s => s.status === 'booked').length;
+  const waiting = mine.filter(s => s.status === 'waitlisted').length;
+  const chukkaKey = (mine[0] || nextOpen || bookable[0] || {}).key || null;
   const later = mine.slice(1);
   const now = new Date();
   const dateLine = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -857,8 +860,21 @@ export default function HomeDashboard(props) {
             </div>
             {/* Tokens and what is owed are left off: payment is heading to
                 Stripe, and the Payments tab still has both for the club. */}
+            {/* Everything still to come, chukkas and lessons apart. Each tile
+                opens where those bookings live. Ladies Only and Instructional
+                are booked in Lessons, so they count there. */}
             <div style={{ marginTop: '16px', position: 'relative' }}>
-              <div className="hd-stat"><b>{mine.filter(s => s.status === 'booked').length}</b><span>Booked this week</span></div>
+              <div className="hd-eyebrow" style={{ fontSize: '10px', marginBottom: '8px' }}>All bookings</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button type="button" className="hd-stat hd-choice" disabled={!chukkaKey} onClick={() => chukkaKey && openChukkas(chukkaKey)}
+                  aria-label={`Chukkas booked: ${chukkasBooked}. Open Chukkas.`} style={{ textAlign: 'center', background: 'var(--hd-card2)', border: 0 }}>
+                  <b>{chukkasBooked}</b><span>Chukka{chukkasBooked === 1 ? '' : 's'}{waiting ? ` · ${waiting} waiting` : ''}</span>
+                </button>
+                <button type="button" className="hd-stat hd-choice" onClick={openLessons}
+                  aria-label={`Lessons booked: ${me.lessonsBooked || 0}. Open Lessons.`} style={{ textAlign: 'center', background: 'var(--hd-card2)', border: 0 }}>
+                  <b>{me.lessonsBooked || 0}</b><span>Lesson{me.lessonsBooked === 1 ? '' : 's'}</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : (

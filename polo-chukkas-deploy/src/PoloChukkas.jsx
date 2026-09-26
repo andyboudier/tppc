@@ -23,7 +23,7 @@ import { LUX_CSS } from './luxTheme';
 import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours, bookingsFor as lessonBookingsFor } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -5374,6 +5374,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     mobile: homePlayer.mobile || '',
     owed: homeOwed,
     owedText: homeMoney(homeOwed),
+    // Every lesson and club session still to come that the member is booked
+    // on — Home counts them beside their chukkas. A booking stays counted
+    // until its slot has finished.
+    lessonsBooked: lessonBookingsFor(lessonSlots, { playerId: homePlayer.id, name: homePlayer.name })
+      .filter(({ slot }) => slot && slot.date && new Date(`${slot.date}T${slot.end || slot.start || '23:59'}`).getTime() > Date.now())
+      .length,
   } : null;
 
   const homeFixtures = upcomingFixtures(fixtures, parseFixtureDateRange, new Date(), 3).map(({ fx, live }) => ({
