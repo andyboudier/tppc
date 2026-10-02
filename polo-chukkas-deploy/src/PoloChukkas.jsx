@@ -102,8 +102,65 @@ const FIXTURES_2026 = [
   { id: 'sep-19',    month: 'September', date: 'Sat 19 & Sun 20 September', name: 'Light Infantry Trophy · Grooms Instructional · End of Season Awards', level: '−4 to 0 Goal' },
 ];
 
+// 2026/27 Tedworth Park Polo Club arena (winter) fixtures, from the club's
+// Arena Season Fixture List 2026/27. One fixture per line of the printed
+// list, its two events and two levels joined as they are printed. `year` is
+// what puts January and February in 2027 (see fixtureYear).
+const FIXTURES_ARENA_2026 = [
+  { id: 'ar-oct-10',    year: 2026, month: 'October',  date: 'Sat 10 October',          name: 'End of Summer Season Party', level: 'Clubhouse from 18:00' },
+  { id: 'ar-oct-17',    year: 2026, month: 'October',  date: 'Sat 17 October',          name: 'Start of Winter Season · Lessons, Club Chukkas and Challenges begin', level: '' },
+  { id: 'ar-oct-24',    year: 2026, month: 'October',  date: 'Sat 24 & Sun 25 October', name: 'Club Challenge & Exhibition Match', level: '2 to 4 Goal & 8 to 10 Goal' },
+  { id: 'ar-oct-24-m',  year: 2026, month: 'October',  date: 'Sat 24 October',          name: 'Players & Umpires Meeting', level: 'Clubhouse at 18:00' },
+  { id: 'ar-oct-29',    year: 2026, month: 'October',  date: 'Thu 29 October',          name: 'Pony Club Halloween Tournament (Qualifier #1)', level: '' },
+  { id: 'ar-oct-28',    year: 2026, month: 'October',  date: 'Wed 28 – Sat 31 October', name: 'Club Challenges', level: '2 to 4 Goal' },
+
+  { id: 'ar-nov-7',     year: 2026, month: 'November', date: 'Sat 7 & Sun 8 November',   name: 'Airborne Cup Remembrance Day Challenge', level: '2 to 4 Goal' },
+  { id: 'ar-nov-9',     year: 2026, month: 'November', date: 'Mon 9 – Fri 13 November',  name: 'Power of Polo Course', level: '' },
+  { id: 'ar-nov-14',    year: 2026, month: 'November', date: 'Sat 14 & Sun 15 November', name: 'Mil Tournament 1 & Club Challenge', level: 'Open' },
+  { id: 'ar-nov-21',    year: 2026, month: 'November', date: 'Sat 21 & Sun 22 November', name: "Polo Manager's Cup", level: '4 to 6 Goal' },
+  { id: 'ar-nov-28',    year: 2026, month: 'November', date: 'Sat 28 & Sun 29 November', name: 'Mil Tournament 2 & Club Challenge', level: 'Open' },
+
+  { id: 'ar-dec-2',     year: 2026, month: 'December', date: 'Wed 2 – Sat 5 December',   name: 'Harrier Cup', level: '2 to 4 Goal · a 2-day club challenge within these dates' },
+  { id: 'ar-dec-12',    year: 2026, month: 'December', date: 'Sat 12 & Sun 13 December', name: 'Mil Tournament 3 & Solstice Challenge', level: '2 to 4 Goal & 6 to 8 Goal' },
+  { id: 'ar-dec-17',    year: 2026, month: 'December', date: 'Thu 17 December',          name: 'Pony Club Christmas Tournament (Qualifier #2)', level: '' },
+  { id: 'ar-dec-19',    year: 2026, month: 'December', date: 'Sat 19 & Sun 20 December', name: 'Christmas Challenge', level: '2 to 4 Goal' },
+
+  { id: 'ar-jan-9',     year: 2027, month: 'January',  date: 'Sat 9 & Sun 10 January',  name: 'Barnard Trophy', level: '2 to 4 Goal' },
+  { id: 'ar-jan-16',    year: 2027, month: 'January',  date: 'Sat 16 & Sun 17 January', name: 'Winchester Trophy', level: 'Open' },
+  { id: 'ar-jan-23',    year: 2027, month: 'January',  date: 'Sat 23 & Sun 24 January', name: 'Red Barrel Trophy & Club Challenge', level: '4 to 6 Goal' },
+  { id: 'ar-jan-30',    year: 2027, month: 'January',  date: 'Sat 30 & Sun 31 January', name: 'Club & Instructional Challenge Finals', level: 'Open' },
+
+  { id: 'ar-feb-6',     year: 2027, month: 'February', date: 'Sat 6 February',           name: 'Veterans Tournament & Club Challenge', level: 'Open Mil 2 to 4' },
+  { id: 'ar-feb-13',    year: 2027, month: 'February', date: 'Sat 13 & Sun 14 February', name: "WIP Tournament & Gentlemen's Tournament", level: '2 to 4 Goal & 6 to 8 Goal' },
+  { id: 'ar-feb-18',    year: 2027, month: 'February', date: 'Thu 18 February',          name: 'Pony Club Valentine Tournament (Qualifier #3)', level: '' },
+  { id: 'ar-feb-20',    year: 2027, month: 'February', date: 'Sat 20 & Sun 21 February', name: 'In & Out Tournament', level: '2 to 4 Goal & 8 to 10 Goal' },
+  { id: 'ar-feb-27',    year: 2027, month: 'February', date: 'Sat 27 February',          name: "End of Season · TPPC Gold Cup & Grooms' Tournament", level: '4 to 6 Goal' },
+];
+// The official list: the grass season and the arena season that follows it.
+// "↺ Official list" restores this; a club whose list already exists has the
+// arena season added to it once (ARENA_SEED_FLAG, in the load).
+const FIXTURES_OFFICIAL = [...FIXTURES_2026, ...FIXTURES_ARENA_2026];
+const ARENA_SEED_FLAG = 'arena-2026-27';
+
 const MONTHS_ORDER = ['April', 'May', 'June', 'July', 'August', 'September'];
 const ALL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// A fixture's year: its own `year`, else one written in its date, else 2026 —
+// the grass list was written before fixtures carried a year.
+const fixtureYear = (fx) => {
+  const y = Number(fx && fx.year);
+  if (y >= 2000 && y < 2100) return y;
+  const m = String((fx && fx.date) || '').match(/\b(20\d{2})\b/);
+  return m ? parseInt(m[1], 10) : 2026;
+};
+// The season a fixture belongs to. April to September is that year's grass
+// season; October to March the arena (winter) season that begins in October.
+const fixtureSeason = (fx) => {
+  const mi = ALL_MONTHS.indexOf(fx && fx.month);
+  const y = fixtureYear(fx);
+  if (mi >= 3 && mi <= 8) return { key: `${y}-g`, label: `Grass Season ${y}`, start: y * 12 + 3 };
+  const from = mi >= 9 ? y : y - 1;
+  return { key: `${from}-a`, label: `Arena Season ${from}/${String((from + 1) % 100).padStart(2, '0')}`, start: from * 12 + 9 };
+};
 // Parse a day label like "Saturday 30th May" (year 2026 implied; explicit year honoured)
 // into a sortable timestamp so date dropdowns can be ordered chronologically.
 const dayLabelTime = (label) => {
@@ -126,17 +183,18 @@ const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5,
 const MILITARY_DISCOUNT_PER_CHUKKA = 5;
 const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 145, '2 to 4': 180 };
 
-// 2026 coaching/lesson rates (group rates are per person). Subsidy pots apply to
-// LESSONS (not chukkas). Military players pay the military rate.
+// Coaching/lesson rates from the Arena Price List, Winter 26/27 (group rates
+// are per person, minimum 3). Subsidy pots apply to LESSONS (not chukkas).
+// Military and veteran players pay the military rate.
 const LESSON_TYPES_2026 = [
   { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315, mil: 300 },
   { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600, mil: 540 },
-  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 110, mil: 105 },
+  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, mil: 105 },
   { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, mil: 190 },
   { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80,  mil: 75 },
   { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75, mil: 65 },
-  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 100, mil: 95 },
-  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 180, mil: 170 },
+  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, mil: 95 },
+  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, mil: 170 },
   { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110, mil: 105 },
   { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160 },
 ];
@@ -151,33 +209,29 @@ const LESSON_SLOT_RATES = {
 
 const lessonById = (id) => LESSON_TYPES_2026.find(l => l.id === id) || LESSON_TYPES_2026[0];
 
-// 2026 tournament team entry fees (per team). Members/Non-Members use handicap
-// bands over a 2-day (or 3-day) tournament; Military is priced by duration.
+// Tournament team entry fees (per team) from the Arena Price List, Winter
+// 26/27: priced by category and length, with no handicap bands.
 const TOURNAMENT_ENTRY_2026 = {
   member: [
-    { id: 'm-6-2',    label: '−6 to −2 Goal (2-day)', fee: 525 },
-    { id: 'm-4-0',    label: '−4 to 0 Goal (2-day)',  fee: 550 },
-    { id: 'm-0-2',    label: '0 to 2 Goal (2-day)',   fee: 575 },
-    { id: 'm-2-4',    label: '2 to 4 Goal (2-day)',   fee: 605 },
-    { id: 'm-2-4-3d', label: '2 to 4 Goal (3-day)',   fee: 685 },
+    { id: 'm-1d',     label: '1 Day',  fee: 250 },
+    { id: 'm-2d',     label: '2 Days', fee: 400 },
   ],
   nonmember: [
-    { id: 'n-6-2',    label: '−6 to −2 Goal (2-day)', fee: 675 },
-    { id: 'n-4-0',    label: '−4 to 0 Goal (2-day)',  fee: 715 },
-    { id: 'n-0-2',    label: '0 to 2 Goal (2-day)',   fee: 755 },
-    { id: 'n-2-4',    label: '2 to 4 Goal (2-day)',   fee: 800 },
-    { id: 'n-2-4-3d', label: '2 to 4 Goal (3-day)',   fee: 900 },
+    { id: 'n-1d',     label: '1 Day',  fee: 350 },
+    { id: 'n-2d',     label: '2 Days', fee: 600 },
   ],
   military: [
-    { id: 'mil-1d',   label: '1 Day',  fee: 295 },
-    { id: 'mil-2d',   label: '2 Days', fee: 565 },
+    { id: 'mil-1d',   label: '1 Day',  fee: 240 },
+    { id: 'mil-2d',   label: '2 Days', fee: 380 },
   ],
 };
 const ENTRY_CATEGORY_LABEL = { member: 'Members', nonmember: 'Non-Members', military: 'Military' };
 const entryOptions = (cat) => TOURNAMENT_ENTRY_2026[cat] || [];
 const entryOptionById = (cat, id) => entryOptions(cat).find(o => o.id === id) || null;
 
-// 2026 membership categories from the price list. `chukkasIncluded` drives the
+// Membership categories. The Winter 26/27 list includes chukka fees in every
+// membership, Day Membership too (£40 a day, at most four a season).
+// `chukkasIncluded` drives the
 // booking branch: included → added straight to the roster; not included (or no
 // membership) → sent to checkout to pay per chukka.
 const MEMBERSHIP_TYPES_2026 = [
@@ -189,10 +243,10 @@ const MEMBERSHIP_TYPES_2026 = [
   { id: 'civ-full-excl',    label: 'Civ · Full (excl chukka fees)',      chukkasIncluded: false },
   { id: 'civ-pro',          label: 'Civ · Pro (incl chukkas)',           chukkasIncluded: true },
   { id: 'civ-nonplaying',   label: 'Civ · Non-Playing',                  chukkasIncluded: false },
-  { id: 'civ-day',          label: 'Civ · Day Member',                   chukkasIncluded: false },
+  { id: 'civ-day',          label: 'Civ · Day Member (incl chukkas)',    chukkasIncluded: true },
   { id: 'mil-full-pony',    label: 'Mil · Full Playing, Pony Owner',     chukkasIncluded: true,  mil: true },
   { id: 'mil-full-nonpony', label: 'Mil · Full Playing, Non-Pony Owner', chukkasIncluded: true,  mil: true },
-  { id: 'mil-day',          label: 'Mil · Day Member',                   chukkasIncluded: false, mil: true },
+  { id: 'mil-day',          label: 'Mil · Day Member (incl chukkas)',    chukkasIncluded: true,  mil: true },
   { id: 'mil-unit',         label: 'Mil · Unit Membership',              chukkasIncluded: true,  mil: true },
 ];
 const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || MEMBERSHIP_TYPES_2026[0];
@@ -414,13 +468,15 @@ const SUN_7JUNE_GENTS_MATCHES = [  // Gentlemen's Challenge Matches
 ];
 const sun7JuneDay = (matches) => ({ id: 'sun', dateLabel: 'Sunday 7th June', ground: 'Perham Down', prizegiving: true, matches });
 
-// Parse a fixture's date string into a { start, end } Date range (year 2026).
+// Parse a fixture's date string into a { start, end } Date range, in the
+// fixture's own year (fixtureYear).
 // Handles: 'Sat 30 & Sun 31 May', 'Mon 25 May', 'Fri 24 & Sun 26 July' etc.
 const parseFixtureDateRange = (fx) => {
   const monthMap = { January:0, February:1, March:2, April:3, May:4, June:5, July:6, August:7, September:8, October:9, November:10, December:11 };
   const fallback = monthMap[fx.month];
   if (fallback === undefined) return null;
-  const tokens = String(fx.date || '').match(/\d{1,2}|[A-Za-z]+/g) || [];
+  // A year written into the date is the fixture's year, not two day numbers.
+  const tokens = String(fx.date || '').replace(/\b20\d{2}\b/g, ' ').match(/\d{1,2}|[A-Za-z]+/g) || [];
   const parts = [];
   let pending = [];
   tokens.forEach((t) => {
@@ -435,9 +491,10 @@ const parseFixtureDateRange = (fx) => {
   const valid = parts.filter(p => p.day >= 1 && p.day <= 31);
   if (!valid.length) return null;
   const a = valid[0], b = valid[valid.length - 1];
-  const start = new Date(2026, a.month, a.day, 0, 0, 0, 0);
+  const year = fixtureYear(fx);
+  const start = new Date(year, a.month, a.day, 0, 0, 0, 0);
   // A fixture running December into January ends in the following year.
-  const end = new Date(b.month < a.month ? 2027 : 2026, b.month, b.day, 23, 59, 59, 999);
+  const end = new Date(b.month < a.month ? year + 1 : year, b.month, b.day, 23, 59, 59, 999);
   return { start, end };
 };
 
@@ -1345,7 +1402,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [coError, setCoError] = useState('');
   const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '' });
   const [lessonError, setLessonError] = useState('');
-  const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-6-2', method: 'transfer', note: '' });
+  const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-1d', method: 'transfer', note: '' });
   const [teamRegError, setTeamRegError] = useState('');
 
   // Fixtures state
@@ -1375,7 +1432,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Captain-editable fixtures list — seeded from the built-in 2026 list, then
   // persisted so captains can add ad hoc fixtures, edit details, and change the
   // handicap level. Stored under 'fixtures' and synced across devices.
-  const [fixtures, setFixtures] = useState(FIXTURES_2026);
+  const [fixtures, setFixtures] = useState(FIXTURES_OFFICIAL);
   // True once the Firestore 'fixtures' doc has been read at least once. Until then
   // we must not persist the built-in seed — doing so would resurrect deleted
   // fixtures (and wipe ad hoc ones) for everyone.
@@ -2317,13 +2374,34 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           // masquerading as live data — which was resurrecting deleted fixtures
           // (e.g. Queen's Royal Lancers) and hiding ad hoc ones (e.g. 9th Lancer).
           const arr = JSON.parse(fxs.value);
-          if (Array.isArray(arr)) setFixtures(arr);
+          if (Array.isArray(arr)) {
+            // The 2026/27 arena season, added once to the club's own list: any
+            // official arena fixture it lacks is appended, and a flag stops it
+            // coming back after a captain deletes one.
+            let list = arr;
+            try {
+              const fl = await window.storage.get('seed-flags', true);
+              let flags = [];
+              try { flags = fl && fl.value ? JSON.parse(fl.value) : []; } catch (e) { flags = []; }
+              if (!Array.isArray(flags)) flags = [];
+              if (!flags.includes(ARENA_SEED_FLAG)) {
+                const have = new Set(list.map(f => f && f.id));
+                const add = FIXTURES_ARENA_2026.filter(f => !have.has(f.id));
+                if (add.length) {
+                  list = [...list, ...add];
+                  await window.storage.set('fixtures', JSON.stringify(list), true);
+                }
+                await window.storage.set('seed-flags', JSON.stringify([...flags, ARENA_SEED_FLAG]), true);
+              }
+            } catch (e) {}
+            setFixtures(list);
+          }
           fixturesLoadedRef.current = true;
         } else {
           // No fixtures doc yet (genuine first run): establish it from the
           // built-in seed so future adds/edits/deletes persist instead of
           // falling back to the seed on the next load.
-          try { await window.storage.set('fixtures', JSON.stringify(FIXTURES_2026), true); } catch (e) {}
+          try { await window.storage.set('fixtures', JSON.stringify(FIXTURES_OFFICIAL), true); } catch (e) {}
           fixturesLoadedRef.current = true;
         }
       } catch (e) {}
@@ -3030,9 +3108,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const chukkaFeeFor = (p) => {
     const mem = membershipById((p && p.membership) || 'none');
     if (mem.chukkasIncluded) return 0;
+    // Winter 26/27 chukka fees: a non-member pays £15 a chukka, a military or
+    // veteran non-member £10. Every winter membership includes them.
     const mil = !!(p && p.military) || !!mem.mil;
-    if (mil) return mem.id === 'none' ? 20 : 11;   // military: non-member £20 vs member £11
-    return mem.id === 'civ-day' ? 16 : 26;          // civilian: day member £16 vs non-member £26
+    return mil ? 10 : 15;
   };
   const priceBooking = (player, chukkas, ponyLevel, dayKey = activeDay) => {
     const n = Math.max(0, parseInt(chukkas, 10) || 0);
@@ -4724,8 +4803,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     try { await window.storage.set('fixtures', JSON.stringify(next), true); }
     catch (e) { setFError('Saved locally only — check your connection.'); }
   };
-  const openAddFixture = () => { setFError(''); resetTrophyUi(); setFixtureEditor({ month: MONTHS_ORDER[0], date: '', name: '', level: '', titleLines: [], trophyKey: '' }); };
-  const openEditFixture = (fx) => { setFError(''); resetTrophyUi(); setFixtureEditor({ id: fx.id, month: fx.month, date: fx.date, name: fx.name, level: fx.level || '', titleLines: Array.isArray(fx.titleLines) ? [...fx.titleLines] : [], trophyKey: fx.trophyKey || '' }); };
+  // A new fixture starts on this month and year; editing keeps the fixture's.
+  const openAddFixture = () => { setFError(''); resetTrophyUi(); const now = new Date(); setFixtureEditor({ month: ALL_MONTHS[now.getMonth()], year: now.getFullYear(), date: '', name: '', level: '', titleLines: [], trophyKey: '' }); };
+  const openEditFixture = (fx) => { setFError(''); resetTrophyUi(); setFixtureEditor({ id: fx.id, month: fx.month, year: fixtureYear(fx), date: fx.date, name: fx.name, level: fx.level || '', titleLines: Array.isArray(fx.titleLines) ? [...fx.titleLines] : [], trophyKey: fx.trophyKey || '' }); };
 
   // ── The trophy photograph ──────────────────────────────────────────────
   // A trophy is played for year after year, so the photo is uploaded once and
@@ -4824,7 +4904,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!ed.date.trim()) { setFError('Please enter a date, e.g. “Sat 30 & Sun 31 May”.'); return; }
     setFError('');
     const titleLines = (ed.titleLines || []).map(s => (s || '').trim()).filter(Boolean).slice(0, MAX_TITLE_LINES);
-    const clean = { month: ed.month, date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), titleLines, trophyKey: (ed.trophyKey || '').trim() };
+    const clean = { month: ed.month, year: Number(ed.year) || fixtureYear(ed), date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), titleLines, trophyKey: (ed.trophyKey || '').trim() };
     let next;
     if (ed.id) {
       next = fixtures.map(f => f.id === ed.id ? { ...f, ...clean } : f);
@@ -4885,9 +4965,40 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     saveFixtures(fixtures.filter(f => f.id !== id));
     setFixtureEditor(null);
   };
+  // The Fixtures tab's months, grouped into seasons: the season that is on or
+  // coming up first, finished seasons after it, newest first. Each season's
+  // first month carries its heading.
+  const fixtureMonths = (() => {
+    const byMonth = new Map();
+    fixtures.forEach((f) => {
+      const mi = ALL_MONTHS.indexOf(f && f.month);
+      if (mi < 0) return;
+      const year = fixtureYear(f);
+      const key = `${year}-${String(mi).padStart(2, '0')}`;
+      if (!byMonth.has(key)) byMonth.set(key, { key, month: f.month, year, list: [], season: fixtureSeason(f) });
+      byMonth.get(key).list.push(f);
+    });
+    const now = Date.now();
+    const seasons = new Map();
+    [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key)).forEach((m) => {
+      if (!seasons.has(m.season.key)) seasons.set(m.season.key, { ...m.season, months: [], ended: true, started: false });
+      const s = seasons.get(m.season.key);
+      s.months.push(m);
+      m.list.forEach((f) => {
+        const r = parseFixtureDateRange(f);
+        if (!r || r.end.getTime() >= now) s.ended = false;
+        if (r && r.start.getTime() <= now) s.started = true;
+      });
+    });
+    const live = [...seasons.values()].filter(s => !s.ended).sort((a, b) => a.start - b.start);
+    const done = [...seasons.values()].filter(s => s.ended).sort((a, b) => b.start - a.start);
+    return [...live, ...done].flatMap(s => s.months.map((m, i) => ({
+      ...m, seasonHead: i === 0 ? { label: s.label, ended: s.ended, current: !s.ended && s.started } : null,
+    })));
+  })();
   const restoreOfficialFixtures = () => {
-    if (!window.confirm('Restore the official 2026 fixture list? This replaces the current list, including any fixtures you have added or edited.')) return;
-    saveFixtures(FIXTURES_2026);
+    if (!window.confirm('Restore the official fixture lists — the 2026 grass season and the 2026/27 arena season? This replaces the current list, including any fixtures you have added or edited.')) return;
+    saveFixtures(FIXTURES_OFFICIAL);
     setFixtureEditor(null);
   };
   const renderFixtureEditor = () => {
@@ -4898,11 +5009,14 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <input className="input-field" type="text" placeholder="Fixture name e.g. The Rabbit Cup" value={fixtureEditor.name} onChange={e => setEd('name', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
           <div style={{ display: 'flex', gap: '8px' }}>
-            <select className="input-field select-field" value={fixtureEditor.month} onChange={e => setEd('month', e.target.value)} style={{ width: '136px', flexShrink: 0, padding: '12px 8px', fontSize: '14px' }}>
+            <select className="input-field select-field" aria-label="Month" value={fixtureEditor.month} onChange={e => setEd('month', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '12px 8px', fontSize: '14px' }}>
               {ALL_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
-            <input className="input-field" type="text" placeholder="Date e.g. Sat 30 & Sun 31 May" value={fixtureEditor.date} onChange={e => setEd('date', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '14px' }} />
+            <select className="input-field select-field" aria-label="Year" value={fixtureEditor.year || 2026} onChange={e => setEd('year', Number(e.target.value))} style={{ width: '104px', flexShrink: 0, padding: '12px 8px', fontSize: '14px' }}>
+              {[...new Set([new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1, Number(fixtureEditor.year) || 2026])].sort().map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
+          <input className="input-field" type="text" placeholder="Date e.g. Sat 30 & Sun 31 May" value={fixtureEditor.date} onChange={e => setEd('date', e.target.value)} style={{ padding: '12px 14px', fontSize: '14px' }} />
           <input className="input-field" type="text" placeholder="Handicap level e.g. −4 to 0 Goal (optional)" value={fixtureEditor.level} onChange={e => setEd('level', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
           <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
             Put the weekday + day in the date (e.g. “Sat 30 & Sun 31 May”) so team sign-ups and the programme pick up the right days. The handicap level prints on the programme PDF.
@@ -8008,8 +8122,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           {activeTab === 'fixtures' && (
             <div className="reveal">
               <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-                <div className="label-eyebrow">Grass Season</div>
-                <h2 className="display" style={{ margin: '2px 0 0', fontSize: '26px' }}>Fixtures 2026</h2>
+                <div className="label-eyebrow">Grass &amp; Arena Seasons</div>
+                <h2 className="display" style={{ margin: '2px 0 0', fontSize: '26px' }}>Fixtures 2026/27</h2>
                 <div className="ornament">
                   <span className="ornament-line" />
                   <span className="ornament-dot" />
@@ -8121,14 +8235,19 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 </div>
               )}
 
-              {ALL_MONTHS.filter(m => fixtures.some(f => f.month === m)).map(month => {
-                const monthFixtures = fixtures.filter(f => f.month === month);
+              {fixtureMonths.map(({ key: monthKey, month, year, list: monthFixtures, seasonHead }) => {
                 if (monthFixtures.length === 0) return null;
                 return (
-                  <div key={month}>
+                  <div key={monthKey}>
+                    {seasonHead && (
+                      <div style={{ textAlign: 'center', margin: '26px 0 2px' }}>
+                        <div className="label-eyebrow" style={{ fontSize: '10px' }}>{seasonHead.ended ? 'Finished' : seasonHead.current ? 'This season' : 'Coming up'}</div>
+                        <h3 className="display" style={{ margin: '2px 0 0', fontSize: '22px' }}>{seasonHead.label}</h3>
+                      </div>
+                    )}
                     <div className="month-header">
                       <span className="line" />
-                      <span className="display" style={{ fontSize: '18px', color: 'var(--burgundy)' }}>{month}</span>
+                      <span className="display" style={{ fontSize: '18px', color: 'var(--burgundy)' }}>{month} {year}</span>
                       <span className="line" style={{ transform: 'scaleX(-1)' }} />
                     </div>
 
@@ -9022,7 +9141,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
               <div style={{ textAlign: 'center', marginTop: '28px', padding: '18px 0 4px', borderTop: '1px solid var(--line)' }}>
                 <div className="display-italic" style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '10px' }}>
-                  Source: official 2026 fixture list
+                  Source: official 2026 grass and 2026/27 arena fixture lists
                 </div>
                 <a
                   href="https://tedworthparkpolo.com/grass-fixture-list-2026/"
@@ -10023,7 +10142,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             return (
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
-                  Register a team into a tournament and take the entry fee. Fees come from the 2026 price list by category and handicap band. Pay now, or invoice later and settle from Checkout.
+                  Register a team into a tournament and take the entry fee. Fees come from the Winter 26/27 arena price list, by category and length. Pay now, or invoice later and settle from Checkout.
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Fixture

@@ -163,6 +163,23 @@ editor's Admin switch writes the admins list through `window.auth.setAdmins`
 (`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
 teams (`teamNames`) with a "new team" input.
 
+**Fixtures and prices are TPPC's own** (Druids and Vaux keep theirs; the demo
+takes TPPC's by resync). `FIXTURES_OFFICIAL` is the 2026 grass list
+(`FIXTURES_2026`) followed by the 2026/27 arena list (`FIXTURES_ARENA_2026`).
+A fixture may carry a `year`; without one it is 2026 (`fixtureYear`), so a
+January or February fixture needs `year: 2027` or a year in its date — the
+fixture editor has a Year box. The Fixtures tab groups months into seasons
+(`fixtureSeason`: April–September grass, October–March arena) with the season
+that is on or coming first and finished ones after. The club's stored list
+gets the arena season added **once**, by the `arena-2026-27` entry in
+`seed-flags`; a captain's later deletions stay deleted. A new season's list is
+added the same way: a new array, a new flag. Prices are the Arena Price List,
+Winter 26/27: lessons, tournament entry by category and length (1 or 2 days),
+chukka fees £15 a non-member and £10 a military or veteran non-member, and
+every membership — the day membership too — including chukka fees. Pony hire
+is not on the winter list and is unchanged. `public/tppc-pay.html` is an old,
+unlinked payment mock-up and still shows the summer figures.
+
 Grounds can carry a location: `groundPins.js` parses a pasted Google Maps
 link or the phone's own position, and the pin is stored once per ground name
 in the shared key `ground-pins`. Each app also ships `DEFAULT_GROUND_PINS`
