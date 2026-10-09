@@ -233,7 +233,11 @@ only, at the individual rate) or **cancel the group** (`cancelLessonBookings`,
 in one write). A member books a lesson or a session for themselves or a teammate
 (`teammates`, the same rule as chukkas; `mayBookFor` checks it again at
 booking), and sees what they could book plus anything they or their team are
-already in; an admin books anyone and sees every slot. Captains add or amend lessons, copy last week
+already in; an admin books anyone and sees every slot. A member can book a group lesson for several of their
+team at once: the sheet becomes tick boxes (up to the places left), all the
+bookings go into the slot in one write, and each player booked is emailed
+their own confirmation, which says who booked them. An admin's picker stays a
+single dropdown — their list is every player. Captains add or amend lessons, copy last week
 forward (times only, never bookings) and book people in by hand.
 
 Each club prices from its **own** rate card, so `LESSON_SLOT_RATES` maps

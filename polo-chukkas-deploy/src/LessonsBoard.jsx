@@ -93,22 +93,34 @@ function PonyChoice({ value, onChange, withPony, without }) {
 
 // ── The sheet that takes a booking ──────────────────────────────────────────
 
-function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
+function BookSheet({ slot, session, who, canPickPlayer, multi = false, players, quote, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
+  // A group lesson can be booked for several of the team at once.
+  const spaces = Math.max(0, (Number(session.max) || 0) - (Number(session.joined) || 0));
+  // A member's team, not an admin's whole list (that stays a dropdown).
+  const many = multi && session.type === 'group' && canPickPlayer && players.length > 1;
+  const [picked, setPicked] = useState(() => (who && players.some(p => p.id === who.id) ? [who.id] : []));
   const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const player = canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
+  const chosenPlayers = many ? players.filter(p => picked.includes(p.id)) : [];
+  const player = many ? chosenPlayers[0] : canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
   const withPony = quote(player, session.type, session.hours, true);
   const without = quote(player, session.type, session.hours, false);
   const chosen = pony ? withPony : without;
+  const each = many && pony !== null ? chosenPlayers.map(p => ({ p, q: quote(p, session.type, session.hours, pony) })) : [];
+  const total = each.reduce((n, x) => n + (Number(x.q.total) || 0), 0);
+  const toggle = (id) => {
+    setError('');
+    setPicked(cur => (cur.includes(id) ? cur.filter(x => x !== id) : cur.length >= spaces ? cur : [...cur, id]));
+  };
 
   const go = async () => {
-    if (!player) { setError('Pick who the lesson is for.'); return; }
+    if (many ? !chosenPlayers.length : !player) { setError('Pick who the lesson is for.'); return; }
     if (pony === null) { setError('Choose a club pony or your own.'); return; }
     setBusy(true);
-    const res = await onConfirm({ slot, session, player, ponyHire: pony });
+    const res = await onConfirm(many ? { slot, session, players: chosenPlayers, ponyHire: pony } : { slot, session, player, ponyHire: pony });
     setBusy(false);
     if (res && res.error) setError(res.error);
   };
@@ -126,7 +138,26 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel
         </div>
       )}
 
-      {canPickPlayer && (
+      {many && (
+        <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+          <legend style={S.label}>Who is it for <span style={{ textTransform: 'none', letterSpacing: 0 }}>· {spaces} place{spaces === 1 ? '' : 's'} left</span></legend>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {players.map(p => {
+              const on = picked.includes(p.id);
+              const full = !on && picked.length >= spaces;
+              return (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', minHeight: '36px', opacity: full ? 0.5 : 1, cursor: full ? 'default' : 'pointer' }}>
+                  <input type="checkbox" checked={on} disabled={full} onChange={() => toggle(p.id)} style={{ width: '18px', height: '18px' }} />
+                  <span>{who && p.id === who.id ? `${p.name} (me)` : p.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ ...S.hint, marginTop: '4px' }}>Everyone you tick is booked in and emailed their own confirmation.</div>
+        </fieldset>
+      )}
+
+      {canPickPlayer && !many && (
         <>
           <label style={S.label} htmlFor="lesson-who">Who is it for</label>
           <select id="lesson-who" className="input-field select-field" value={playerId}
@@ -142,17 +173,19 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel
       {pony !== null && chosen.detail && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
 
       <div style={{ ...S.hint, marginTop: '8px' }}>
-        {player
-          ? pony === null
+        {!player
+          ? 'Pick a player to see what it costs.'
+          : pony === null
             ? 'Choose a pony option to see the price.'
-            : `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
-          : 'Pick a player to see what it costs.'}
+            : many && each.length > 1
+              ? `${each.map(x => `${x.p.name} £${x.q.money}`).join(' · ')} — payable by card once online payment is live, nothing is taken now.`
+              : `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`}
       </div>
 
       <div style={{ ...S.row, marginTop: '12px' }}>
         <button type="button" className="btn-primary" disabled={busy || !player || pony === null} onClick={go}
           style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player || pony === null ? 0.6 : 1 }}>
-          {busy ? 'Booking…' : pony === null ? 'Choose a pony option' : `Book — £${chosen.money}`}
+          {busy ? 'Booking…' : pony === null ? 'Choose a pony option' : many && each.length > 1 ? `Book ${each.length} — £${total.toFixed(2)}` : `Book — £${chosen.money}`}
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
@@ -713,10 +746,10 @@ export default function LessonsBoard({
     return {};
   };
 
-  const confirmBooking = async ({ slot, session, player, ponyHire }) => {
+  const confirmBooking = async ({ slot, session, player, players: who, ponyHire }) => {
     const reason = blockedReason(slot, session.start, session.hours, session.type, rates);
     if (reason) { setPicking(null); setNote(reason); return { error: reason }; }
-    const res = await onBook({ slot, session, player, ponyHire });
+    const res = await onBook({ slot, session, player, players: who, ponyHire });
     if (res && res.error) return res;
     setPicking(null);
     setNote(res && res.message ? res.message : 'Booked.');
@@ -795,7 +828,7 @@ export default function LessonsBoard({
       {picking && (
         <BookSheet
           slot={picking.slot} session={picking.session}
-          who={myPlayer} canPickPlayer={canPick} players={bookable}
+          who={myPlayer} canPickPlayer={canPick} multi={!captainMode} players={bookable}
           quote={quote} onOpenTerms={onOpenTerms}
           onCancel={() => setPicking(null)} onConfirm={confirmBooking} />
       )}

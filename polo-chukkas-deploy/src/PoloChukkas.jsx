@@ -2790,19 +2790,44 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // Book a lesson. The price is shown and the place accepted; nothing is
   // charged until card payment is live.
-  const bookLesson = async ({ slot, session, player, ponyHire }) => {
-    if (!mayBookFor(player)) return { error: 'You can book yourself or someone on your team.' };
+  //
+  // A group lesson can take several people at once — a member booking their
+  // team, as they can for chukkas. They go into the slot in ONE write (one by
+  // one, each write would start from the same stale copy and only the last
+  // would stick), and each person booked gets their own confirmation email,
+  // which says who booked them.
+  const bookLesson = async ({ slot, session, player, players, ponyHire }) => {
+    const people = (players && players.length ? players : [player]).filter(Boolean);
+    if (!people.length) return { error: 'Pick who the lesson is for.' };
+    const refused = people.find(p => !mayBookFor(p));
+    if (refused) return { error: `You can book yourself or someone on your team — not ${refused.name}.` };
+    if (people.length > 1 && session.type !== 'group') return { error: 'An individual lesson is for one rider.' };
     const hours = Math.max(1, Number(session.hours) || 1);
-    const bd = quoteLesson(player, session.type, hours, ponyHire);
-    const res = addLessonBooking(slot, {
-      playerId: player.id, name: player.name, start: session.start, hours,
-      type: session.type, ponyHire: !!ponyHire,
-      uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
-    }, LESSON_SLOT_RATES);
-    if (!res.ok) return { error: res.error };
-    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
-    if (res.booking) bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: res.booking.id });
-    return { message: bd.total > 0 ? `Booked for ${player.name} — £${bd.money}, payable by card once online payment is live.` : `Booked for ${player.name}.` };
+    let next = lessonSlots.find(s => s.id === slot.id) || slot;
+    const booked = [];
+    const skipped = [];
+    for (const p of people) {
+      const res = addLessonBooking(next, {
+        playerId: p.id, name: p.name, start: session.start, hours,
+        type: session.type, ponyHire: !!ponyHire,
+        uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
+      }, LESSON_SLOT_RATES);
+      if (!res.ok) { skipped.push(`${p.name}: ${res.error}`); continue; }
+      next = res.slot;
+      booked.push({ p, booking: res.booking, bd: quoteLesson(p, session.type, hours, ponyHire) });
+    }
+    if (!booked.length) return { error: skipped.join(' ') || 'That lesson could not be booked.' };
+    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? next : s)));
+    booked.forEach(({ booking }) => bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: booking.id }));
+    const pay = 'payable by card once online payment is live';
+    if (booked.length === 1) {
+      const { p, bd } = booked[0];
+      const one = bd.total > 0 ? `Booked for ${p.name} — £${bd.money}, ${pay}.` : `Booked for ${p.name}.`;
+      return { message: skipped.length ? `${one} Not booked: ${skipped.join(' ')}` : one };
+    }
+    const total = booked.reduce((n, x) => n + x.bd.total, 0);
+    const names = booked.map(x => (x.bd.total > 0 ? `${x.p.name} (£${x.bd.money})` : x.p.name)).join(', ');
+    return { message: `Booked ${booked.length} into the lesson: ${names}${total > 0 ? ` — £${fmtMoney(total)} in all, ${pay}` : ''}. Each of them is emailed their own confirmation.${skipped.length ? ` Not booked: ${skipped.join(' ')}` : ''}` };
   };
 
   // Several at once (a whole group) go through in ONE write to each store:
