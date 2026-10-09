@@ -180,6 +180,14 @@ entering pays the whole fee and collects the shares; the entry stores `fee`
 ({ total, military, days, shares }) and `bookedBy`. Nothing is charged until
 card payment is live.
 
+**Events are fixtures too.** A fixture with `event: true` (the organiser's
+"This is an event" tick box in the fixture editor) is a party or social, not a
+tournament: it carries an Event badge, takes no team entry, and in place of
+Register interest members give a name and answer **Going** or **Not going**
+(`answerEvent`). In the dev app the Event badge sits beside the Military one. The answers live in the same `fixture-interest` lists with a
+`going` flag; one answer per name, so answering again changes it. The card
+counts who is going. Same in all three clubs and the demo.
+
 **Fixtures and prices are TPPC's own** (Druids and Vaux keep theirs; the demo
 takes TPPC's by resync). `FIXTURES_OFFICIAL` is the 2026 grass list
 (`FIXTURES_2026`) followed by the 2026/27 arena list (`FIXTURES_ARENA_2026`).
