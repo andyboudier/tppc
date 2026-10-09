@@ -262,7 +262,7 @@ function ManageSheet({ m, onAmend, onCancel, onClose, onOpenTerms }) {
   };
 
   const title = done ? (done.cancelled ? 'Booking cancelled' : 'Booking updated') : 'Your booking';
-  const countOptions = Array.from({ length: Math.min(m.max || 4, 6) }, (_, i) => i + 1);
+  const countOptions = Array.from({ length: Math.min(m.max || 4, 8) }, (_, i) => i + 1);
   const row = (label, value) => (
     <div style={{ display: 'flex', gap: 12, fontSize: 14, padding: '3px 0' }}>
       <span style={{ color: 'var(--hd-muted)', flex: 1 }}>{label}</span><span style={{ textAlign: 'right' }}>{value}</span>
@@ -313,7 +313,7 @@ function ManageSheet({ m, onAmend, onCancel, onClose, onOpenTerms }) {
                 <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>
                   Chukkas{m.fixed ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; fixed at {m.fixed} for this session</span> : null}
                 </legend>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${countOptions.length}, minmax(0,1fr))`, gap: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${countOptions.length > 6 ? 4 : countOptions.length}, minmax(0,1fr))`, gap: '8px' }}>
                   {countOptions.map(k => (
                     <button key={k} type="button" className="hd-choice" aria-pressed={k === draft.chukkas} disabled={!!m.fixed && k !== m.fixed} onClick={() => set('chukkas', k)}
                       style={{ minHeight: '48px', textAlign: 'center', fontSize: '18px', background: k === draft.chukkas ? 'var(--hd-burg)' : undefined }}>{k}</button>
@@ -728,7 +728,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
     { id: true, label: 'Club pony', sub: cur && cur.instructional ? 'Included in the session' : 'Hired from the club' },
     { id: false, label: 'My own pony', sub: cur && cur.instructional ? 'Not for this session' : 'No hire charge' },
   ];
-  const countOptions = Array.from({ length: Math.min(max, 6) }, (_, i) => i + 1);
+  const countOptions = Array.from({ length: Math.min(max, 8) }, (_, i) => i + 1);
 
   return (
     <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-label="Book a chukka">
@@ -790,7 +790,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
                 <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>
                   Chukkas{fixed ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; fixed at {fixed} for this session</span> : null}
                 </legend>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${countOptions.length}, minmax(0,1fr))`, gap: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${countOptions.length > 6 ? 4 : countOptions.length}, minmax(0,1fr))`, gap: '8px' }}>
                   {countOptions.map(k => {
                     const on = k === chukkas;
                     const off = !!fixed && k !== fixed;
