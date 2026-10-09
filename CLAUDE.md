@@ -171,7 +171,11 @@ category's team fee (`priceTeamEntry`): with four players, two members and two
 non-members pay half the member fee plus half the non-member fee, so a mixed
 team's fee always sits between the two. Member or not comes from the player
 database (`membership` other than `none`) and can be switched per player on
-the form. Length is the fixture's days (1, or 2 for two or more). The person
+the form. Length is the fixture's days (1, or 2 for two or more). Typing a player
+offers matching players from the database as tappable suggestions
+(`squadSuggestions`); picking one, or typing a name exactly, fills their
+handicap and member status (`pickSquadPlayer`), and a known team's squad
+pulls each player's current handicap and status the same way. The person
 entering pays the whole fee and collects the shares; the entry stores `fee`
 ({ total, military, days, shares }) and `bookedBy`. Nothing is charged until
 card payment is live.

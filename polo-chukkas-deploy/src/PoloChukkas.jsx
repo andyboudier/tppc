@@ -4741,7 +4741,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!match) return;
     if (match.handicap !== null && match.handicap !== undefined) setTHandicap(String(match.handicap));
     const players = (match.players || []).filter(p => p.name?.trim())
-      .map(p => ({ name: p.name, handicap: (p.handicap === 0 || p.handicap) ? String(p.handicap) : '' }));
+      .map(p => {
+        const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === p.name.trim().toLowerCase());
+        const h = rec && rec.handicap != null && rec.handicap !== '' ? rec.handicap : p.handicap;
+        return { name: p.name, handicap: (h === 0 || h) ? String(h) : '', member: rec ? (rec.membership || 'none') !== 'none' : null };
+      });
     if (!players.length) return;
     setTSquads(prev => {
       const next = { ...prev };
@@ -4789,6 +4793,32 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     });
     return { military: false, len, memberFee, nonFee, total: shares.reduce((n, x) => n + x.share, 0), shares };
   };
+  // Players from the database that match what has been typed in a squad row,
+  // best first — shown as tappable suggestions under the name.
+  const squadSuggestions = (typed, taken) => {
+    const q = String(typed || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    if (playerDb.some(p => (p.name || '').trim().toLowerCase() === q)) return [];
+    const takenSet = new Set((taken || []).map(n => String(n || '').trim().toLowerCase()).filter(Boolean));
+    return playerDb
+      .filter(p => p.name && !p.name.includes('/') && !takenSet.has(p.name.trim().toLowerCase()))
+      .map(p => {
+        const n = p.name.toLowerCase();
+        const score = n.startsWith(q) ? 3 : n.split(/\s+/).some(w => w.startsWith(q)) ? 2 : n.includes(q) ? 1 : 0;
+        return { p, score };
+      })
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score || (a.p.active === false) - (b.p.active === false) || a.p.name.localeCompare(b.p.name))
+      .slice(0, 4).map(x => x.p);
+  };
+  // Fill a squad row from a player record: name, handicap and member or not.
+  const pickSquadPlayer = (dayKey, idx, rec) => {
+    setTSquads(prev => ({ ...prev, [dayKey]: (prev[dayKey] || []).map((row, i) => (i === idx ? {
+      ...row, name: rec.name, handicap: rec.handicap == null || rec.handicap === '' ? row.handicap : String(rec.handicap),
+      member: (rec.membership || 'none') !== 'none',
+    } : row)) }));
+  };
+
   // The squad the fee is worked out on: the fullest day's.
   const pricingSquad = (fx) => {
     const days = fixtureDays(fx);
@@ -9600,13 +9630,29 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                               <input
                                                 className="input-field"
                                                 type="text"
-                                                list="playerdb-names"
+                                                autoComplete="off"
                                                 aria-label={`Player ${idx + 1}`}
                                                 placeholder={`Player ${idx + 1}`}
                                                 value={row.name}
-                                                onChange={(e) => { const v = e.target.value; setSquadPlayer(d.key, idx, 'name', v); setSquadPlayer(d.key, idx, 'member', null); const rec = playerDb.find(p => (p.name || '').toLowerCase() === v.trim().toLowerCase()); if (rec && rec.handicap != null) setSquadPlayer(d.key, idx, 'handicap', String(rec.handicap)); }}
+                                                onChange={(e) => { const v = e.target.value; const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === v.trim().toLowerCase()); if (rec) pickSquadPlayer(d.key, idx, { ...rec, name: v }); else { setSquadPlayer(d.key, idx, 'name', v); setSquadPlayer(d.key, idx, 'member', null); } }}
                                                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: '15px' }}
                                               />
+                                              {(() => {
+                                                const hits = squadSuggestions(row.name, (tSquads[d.key] || []).filter((_, i) => i !== idx).map(x => x.name));
+                                                if (!hits.length) return null;
+                                                return (
+                                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }} role="listbox" aria-label="Matching players">
+                                                    {hits.map(h => (
+                                                      <button key={h.id} type="button" role="option" aria-selected="false" onClick={() => pickSquadPlayer(d.key, idx, h)}
+                                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '999px', border: '1px solid var(--line)', background: 'var(--cream-pale)', color: 'var(--ink)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                                        <span>{h.military && h.rank ? `${h.rank} ` : ''}{h.name}</span>
+                                                        {h.handicap != null && h.handicap !== '' && <span style={{ color: 'var(--muted)' }}>{fmtH(Number(h.handicap))}</span>}
+                                                        <span style={{ fontSize: '10px', color: (h.membership || 'none') !== 'none' ? 'var(--burgundy)' : 'var(--muted)' }}>{(h.membership || 'none') !== 'none' ? 'Member' : 'Non-member'}</span>
+                                                      </button>
+                                                    ))}
+                                                  </div>
+                                                );
+                                              })()}
                                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                               <select
                                                 className="input-field select-field"
