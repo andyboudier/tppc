@@ -282,6 +282,15 @@ until payments exist. Tournament entries registered on the Teams tab are kept
 in `team-entries` with their fee, unpaid. Note `savePlayer` builds an
 **explicit whitelist** — a field not named there is dropped on every save.
 
+Player records also carry what the club's membership spreadsheet holds that
+is safe to show: `rank` (military, kept out of `name`, shown in front of it in
+the Players list), `memberNo`, `membershipCategory` (the spreadsheet's own
+category text, which is finer than `membership`), `hpa` and `arenaIncluded`
+(true / false / null for not known). Phone numbers are stored one way —
+`07…`, no spaces, no +44 (`ukPhone` in `savePlayer`). The `players` document
+is readable without signing in, so date of birth, home address, next of kin
+and medical notes are deliberately **not** stored there.
+
 The tab strip is three member tabs — Chukkas, Fixtures, Live Game — plus
 **More**, which holds the captain area (Lessons, Players, Teams, Rate card,
 Shop). `CAPTAIN_ONLY_TABS` are the tabs a captain alone may sit on, so a

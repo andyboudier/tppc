@@ -2956,12 +2956,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const PLAYER_TYPES = ['Member', 'Associate', 'Guest'];
   const blankPlayer = () => ({
     id: '', name: '', handicap: '', email: '', mobile: '',
-    type: 'Member', membership: 'none', military: false, unit: '', active: true,
+    type: 'Member', membership: 'none', military: false, unit: '', rank: '', active: true,
     subsidies: [], notes: '',
+    // From the club's membership database: its member number, the category
+    // written there, HPA membership and whether arena is included.
+    memberNo: '', membershipCategory: '', hpa: null, arenaIncluded: null,
     // Free text. Players with the same team may book each other in, once
     // sign-in is on — see myPlayer.
     team: '',
   });
+  // One format for every phone number: a UK number starting 0, no spaces and
+  // no +44, so the same mobile always reads (and matches) the same.
+  const ukPhone = (v) => {
+    let d = String(v || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d.startsWith('0044')) d = d.slice(4);
+    else if (d.startsWith('44') && d.length >= 12) d = d.slice(2);
+    return d.startsWith('0') ? d : `0${d}`;
+  };
+  const yesNo = (v) => (v === true || v === 'yes' ? true : v === false || v === 'no' ? false : null);
   const teamNames = [...new Set(playerDb.map(p => (p.team || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const newPlayerId = (salt = '') => `p-${Date.now()}-${salt}${Math.random().toString(36).slice(2, 7)}`;
   const savePlayerDb = async (next) => {
@@ -3045,11 +3058,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       name,
       handicap: draft.handicap === '' || draft.handicap == null ? null : Number(draft.handicap),
       email,
-      mobile: (draft.mobile || '').trim(),
+      mobile: ukPhone(draft.mobile),
       type: draft.type || 'Member',
       membership: draft.membership || 'none',
       military: !!draft.military,
       unit: draft.military ? (draft.unit || '').trim() : '',
+      rank: draft.military ? (draft.rank || '').trim() : '',
+      memberNo: String(draft.memberNo == null ? '' : draft.memberNo).trim(),
+      membershipCategory: (draft.membershipCategory || '').trim(),
+      hpa: yesNo(draft.hpa),
+      arenaIncluded: yesNo(draft.arenaIncluded),
       active: draft.active !== false,
       subsidies: Array.isArray(draft.subsidies) ? draft.subsidies : [],
       notes: (draft.notes || '').trim(),
@@ -10124,8 +10142,28 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       Military (eligible for subsidies)
                     </label>
                     {playerEditor.military && (
-                      <input className="input-field" type="text" placeholder="Regiment / unit (optional)" value={playerEditor.unit} onChange={e => setPlayerEditor({ ...playerEditor, unit: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input className="input-field" type="text" aria-label="Rank" placeholder="Rank (e.g. Capt)" value={playerEditor.rank || ''} onChange={e => setPlayerEditor({ ...playerEditor, rank: e.target.value })} style={{ width: '38%', minWidth: 0, padding: '11px 13px', fontSize: '14px' }} />
+                        <input className="input-field" type="text" aria-label="Regiment or unit" placeholder="Regiment / unit (optional)" value={playerEditor.unit} onChange={e => setPlayerEditor({ ...playerEditor, unit: e.target.value })} style={{ flex: 1, minWidth: 0, padding: '11px 13px', fontSize: '14px' }} />
+                      </div>
                     )}
+                    {/* From the club's membership database. */}
+                    <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)' }}>Club membership record</div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input className="input-field" type="text" aria-label="Member number" placeholder="Member no." value={playerEditor.memberNo == null ? '' : playerEditor.memberNo} onChange={e => setPlayerEditor({ ...playerEditor, memberNo: e.target.value })} style={{ width: '38%', minWidth: 0, padding: '9px 11px', fontSize: '14px' }} />
+                        <input className="input-field" type="text" aria-label="Membership category" placeholder="Category on the membership list" value={playerEditor.membershipCategory || ''} onChange={e => setPlayerEditor({ ...playerEditor, membershipCategory: e.target.value })} style={{ flex: 1, minWidth: 0, padding: '9px 11px', fontSize: '14px' }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {[['hpa', 'HPA member'], ['arenaIncluded', 'Arena included']].map(([k, label]) => (
+                          <label key={k} style={{ flex: 1, fontSize: '12px', color: 'var(--muted)' }}>{label}
+                            <select className="input-field select-field" value={playerEditor[k] === true ? 'yes' : playerEditor[k] === false ? 'no' : ''} onChange={e => setPlayerEditor({ ...playerEditor, [k]: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null })} style={{ width: '100%', padding: '9px 8px', fontSize: '14px', marginTop: '4px' }}>
+                              <option value="">Not known</option><option value="yes">Yes</option><option value="no">No</option>
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                     {playerEditor.military && (
                       <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                         <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '8px' }}>Subsidies</div>
@@ -10228,7 +10266,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     {visiblePlayers.map(p => (
                       <div key={p.id} onClick={() => openEditPlayer(p)} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: '#fff', cursor: 'pointer', opacity: p.active === false ? 0.55 : 1 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                          <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.name}</span>
+                          <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{p.military && p.rank ? <span style={{ fontWeight: 400, color: 'var(--muted)' }}>{p.rank} </span> : null}{p.name}</span>
                           {p.handicap != null && <span style={{ fontSize: '13px', color: 'var(--muted)' }}>({p.handicap > 0 ? `+${p.handicap}` : p.handicap})</span>}
                           <span style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
                             {auth.enabled && isAdminEmail(p.email) && <span title="Admin — runs the club in the app" style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--cream)', background: 'var(--burgundy)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Admin</span>}
@@ -10238,9 +10276,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             {p.active === false && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--muted)', border: '1px solid var(--line)', padding: '2px 6px', borderRadius: '3px', textTransform: 'uppercase' }}>Inactive</span>}
                           </span>
                         </div>
-                        {(p.email || p.mobile || p.unit) && (
+                        {(p.email || p.mobile || p.unit || p.memberNo) && (
                           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>
-                            {[p.unit, p.mobile, p.email].filter(Boolean).join('  ·  ')}
+                            {[p.memberNo ? `No. ${p.memberNo}` : '', p.unit, p.mobile, p.email].filter(Boolean).join('  ·  ')}
                           </div>
                         )}
                       </div>
