@@ -1473,6 +1473,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Fixtures state
   const [interest, setInterest] = useState({}); // { [fixtureId]: [{ id, name, handicap, mobile?, email? }] }
   const [expandedId, setExpandedId] = useState(null);
+  // Admins' "Previous seasons" fold on the Fixtures tab; members never see
+  // a finished season (see fixtureMonths).
+  const [showFixtureArchive, setShowFixtureArchive] = useState(false);
   const [fName, setFName] = useState('');
   const [fHandicap, setFHandicap] = useState('');
   const [fMobile, setFMobile] = useState('');
@@ -4925,7 +4928,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
   // The Fixtures tab's months, grouped into seasons: the season that is on or
   // coming up first, finished seasons after it, newest first. Each season's
-  // first month carries its heading.
+  // first month carries its heading. A finished season is archived: members
+  // see only the seasons that are on or to come, and an admin finds the rest
+  // under "Previous seasons" at the foot of the list.
   const fixtureMonths = (() => {
     const byMonth = new Map();
     fixtures.forEach((f) => {
@@ -4950,9 +4955,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     });
     const live = [...seasons.values()].filter(s => !s.ended).sort((a, b) => a.start - b.start);
     const done = [...seasons.values()].filter(s => s.ended).sort((a, b) => b.start - a.start);
-    return [...live, ...done].flatMap(s => s.months.map((m, i) => ({
+    const months = (list) => list.flatMap(s => s.months.map((m, i) => ({
       ...m, seasonHead: i === 0 ? { label: s.label, ended: s.ended, current: !s.ended && s.started } : null,
     })));
+    if (!captainMode || !done.length) return months(live);
+    const archived = done.reduce((n, s) => n + s.months.reduce((k, m) => k + m.list.length, 0), 0);
+    return [
+      ...months(live),
+      { key: 'archive-toggle', archiveToggle: true, seasons: done.length, fixtures: archived },
+      ...(showFixtureArchive ? months(done) : []),
+    ];
   })();
   const restoreOfficialFixtures = () => {
     if (!window.confirm('Restore the official fixture lists — the 2026 grass season and the 2026/27 arena season? This replaces the current list, including any fixtures you have added or edited.')) return;
@@ -8742,13 +8754,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 </div>
               )}
 
-              {fixtureMonths.map(({ key: monthKey, month, year, list: monthFixtures, seasonHead }) => {
+              {fixtureMonths.length === 0 && (
+                <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: '13px', margin: '28px 0' }}>No fixtures coming up yet.</div>
+              )}
+              {fixtureMonths.map(({ key: monthKey, month, year, list: monthFixtures, seasonHead, archiveToggle, seasons, fixtures: archivedCount }) => {
+                if (archiveToggle) return (
+                  <div key={monthKey} style={{ textAlign: 'center', margin: '34px 0 6px' }}>
+                    <button type="button" onClick={() => setShowFixtureArchive(v => !v)} aria-expanded={showFixtureArchive}
+                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '10px 16px', borderRadius: '999px', fontSize: '12px', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {showFixtureArchive ? 'Hide previous seasons ▴' : `Previous seasons · ${seasons} season${seasons === 1 ? '' : 's'}, ${archivedCount} fixture${archivedCount === 1 ? '' : 's'} ▾`}
+                    </button>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>Archived — only admins see these.</div>
+                  </div>
+                );
                 if (monthFixtures.length === 0) return null;
                 return (
                   <div key={monthKey}>
                     {seasonHead && (
                       <div style={{ textAlign: 'center', margin: '26px 0 2px' }}>
-                        <div className="label-eyebrow" style={{ fontSize: '10px' }}>{seasonHead.ended ? 'Finished' : seasonHead.current ? 'This season' : 'Coming up'}</div>
+                        <div className="label-eyebrow" style={{ fontSize: '10px' }}>{seasonHead.ended ? 'Archived' : seasonHead.current ? 'This season' : 'Coming up'}</div>
                         <h3 className="display" style={{ margin: '2px 0 0', fontSize: '22px' }}>{seasonHead.label}</h3>
                       </div>
                     )}

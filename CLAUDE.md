@@ -170,7 +170,10 @@ A fixture may carry a `year`; without one it is 2026 (`fixtureYear`), so a
 January or February fixture needs `year: 2027` or a year in its date — the
 fixture editor has a Year box. The Fixtures tab groups months into seasons
 (`fixtureSeason`: April–September grass, October–March arena) with the season
-that is on or coming first and finished ones after. The club's stored list
+that is on or coming first. A finished season is archived: members see only
+the seasons that are on or to come, and an admin (`captainMode`) finds the rest
+under a "Previous seasons" fold at the foot of the list (`showFixtureArchive`);
+nothing is deleted, so archived fixtures keep their match details and sign-ups. The club's stored list
 gets the arena season added **once**, by the `arena-2026-27` entry in
 `seed-flags`; a captain's later deletions stay deleted. A new season's list is
 added the same way: a new array, a new flag. Prices are the Arena Price List,
