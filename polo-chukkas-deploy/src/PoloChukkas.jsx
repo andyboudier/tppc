@@ -4757,12 +4757,51 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const removeSquadPlayer = (dayKey, idx) =>
     setTSquads(prev => ({ ...prev, [dayKey]: (prev[dayKey] || []).filter((_, i) => i !== idx) }));
 
+  // What a team's entry costs, from the rate card. A military tournament is
+  // one flat military team fee whoever plays in it. Otherwise each named
+  // player carries a share of their own category's team fee — a team of four
+  // with two members and two non-members pays half the member fee plus half
+  // the non-member fee — so the total always sits between the two. The person
+  // entering pays it all and collects the shares from the others.
+  const entryLength = (fx) => (fixtureDays(fx).length >= 2 ? 2 : 1);
+  const entryFeeFor = (cat, len) => {
+    const opts = entryOptions(cat);
+    const hit = opts.find(o => new RegExp(`(^|[^0-9])${len}\\s*(day|d\\b)`, 'i').test(`${o.label} ${o.id}`)) || opts[len === 2 ? 1 : 0] || opts[0];
+    return hit ? Number(hit.fee) || 0 : 0;
+  };
+  const isClubMember = (name) => {
+    const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === String(name || '').trim().toLowerCase());
+    return !!(rec && (rec.membership || 'none') !== 'none');
+  };
+  const priceTeamEntry = (fx, rows) => {
+    const named = (rows || []).filter(r => (r.name || '').trim());
+    const len = entryLength(fx);
+    if (fx.military) {
+      const total = entryFeeFor('military', len);
+      const share = named.length ? total / named.length : 0;
+      return { military: true, len, total, shares: named.map(r => ({ name: r.name.trim(), member: null, share })) };
+    }
+    const memberFee = entryFeeFor('member', len);
+    const nonFee = entryFeeFor('nonmember', len);
+    const shares = named.map(r => {
+      const member = r.member == null ? isClubMember(r.name) : !!r.member;
+      return { name: r.name.trim(), member, share: (member ? memberFee : nonFee) / named.length };
+    });
+    return { military: false, len, memberFee, nonFee, total: shares.reduce((n, x) => n + x.share, 0), shares };
+  };
+  // The squad the fee is worked out on: the fullest day's.
+  const pricingSquad = (fx) => {
+    const days = fixtureDays(fx);
+    const rows = (tPerDay && days.length > 1 ? days : [days[0]]).map(d => tSquads[d.key] || []);
+    return rows.reduce((best, arr) => (arr.filter(r => (r.name || '').trim()).length > best.filter(r => (r.name || '').trim()).length ? arr : best), rows[0] || []);
+  };
+
   const registerTeam = (fx) => {
     setTError('');
     if (!tName.trim()) return setTError('Please enter a team name.');
     const days = fixtureDays(fx);
     const cleanRows = (rows) => (rows || [])
-      .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10) }))
+      .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
       .filter(r => r.name);
     const usePerDay = tPerDay && days.length > 1;
     const daysOut = {};
@@ -4782,6 +4821,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     };
     if (tContact.trim()) entry.contact = tContact.trim();
     if (tMobile.trim()) entry.mobile = tMobile.trim();
+    // The fee as it stood when they entered, and who is paying it.
+    const fee = priceTeamEntry(fx, pricingSquad(fx));
+    entry.fee = { total: Math.round(fee.total * 100) / 100, military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: Math.round(x.share * 100) / 100 })) };
+    if (myName) entry.bookedBy = myName;
     const list = teamSignups[fx.id] || [];
     saveTeamSignups({ ...teamSignups, [fx.id]: [...list, entry] });
     // Remember this team (fullest day's squad) so it autofills next time.
@@ -4808,8 +4851,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     catch (e) { setFError('Saved locally only — check your connection.'); }
   };
   // A new fixture starts on this month and year; editing keeps the fixture's.
-  const openAddFixture = () => { setFError(''); resetTrophyUi(); const now = new Date(); setFixtureEditor({ month: ALL_MONTHS[now.getMonth()], year: now.getFullYear(), date: '', name: '', level: '', titleLines: [], trophyKey: '' }); };
-  const openEditFixture = (fx) => { setFError(''); resetTrophyUi(); setFixtureEditor({ id: fx.id, month: fx.month, year: fixtureYear(fx), date: fx.date, name: fx.name, level: fx.level || '', titleLines: Array.isArray(fx.titleLines) ? [...fx.titleLines] : [], trophyKey: fx.trophyKey || '' }); };
+  const openAddFixture = () => { setFError(''); resetTrophyUi(); const now = new Date(); setFixtureEditor({ month: ALL_MONTHS[now.getMonth()], year: now.getFullYear(), date: '', name: '', level: '', titleLines: [], trophyKey: '', military: false }); };
+  const openEditFixture = (fx) => { setFError(''); resetTrophyUi(); setFixtureEditor({ id: fx.id, month: fx.month, year: fixtureYear(fx), date: fx.date, name: fx.name, level: fx.level || '', titleLines: Array.isArray(fx.titleLines) ? [...fx.titleLines] : [], trophyKey: fx.trophyKey || '', military: !!fx.military }); };
 
   // ── The trophy photograph ──────────────────────────────────────────────
   // A trophy is played for year after year, so the photo is uploaded once and
@@ -4908,7 +4951,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!ed.date.trim()) { setFError('Please enter a date, e.g. “Sat 30 & Sun 31 May”.'); return; }
     setFError('');
     const titleLines = (ed.titleLines || []).map(s => (s || '').trim()).filter(Boolean).slice(0, MAX_TITLE_LINES);
-    const clean = { month: ed.month, year: Number(ed.year) || fixtureYear(ed), date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), titleLines, trophyKey: (ed.trophyKey || '').trim() };
+    const clean = { month: ed.month, year: Number(ed.year) || fixtureYear(ed), date: ed.date.trim(), name: ed.name.trim(), level: ed.level.trim(), titleLines, trophyKey: (ed.trophyKey || '').trim(), military: !!ed.military };
     let next;
     if (ed.id) {
       next = fixtures.map(f => f.id === ed.id ? { ...f, ...clean } : f);
@@ -5031,6 +5074,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           </div>
           <input className="input-field" type="text" placeholder="Date e.g. Sat 30 & Sun 31 May" value={fixtureEditor.date} onChange={e => setEd('date', e.target.value)} style={{ padding: '12px 14px', fontSize: '14px' }} />
           <input className="input-field" type="text" placeholder="Handicap level e.g. −4 to 0 Goal (optional)" value={fixtureEditor.level} onChange={e => setEd('level', e.target.value)} style={{ padding: '12px 14px', fontSize: '15px' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!fixtureEditor.military} onChange={e => setEd('military', e.target.checked)} />
+            Military tournament — entered at the military rate, whoever is in the team
+          </label>
           <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
             Put the weekday + day in the date (e.g. “Sat 30 & Sun 31 May”) so team sign-ups and the programme pick up the right days. The handicap level prints on the programme PDF.
           </div>
@@ -8841,7 +8888,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                             <div className="fixture-date">{fx.date}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div className="fixture-name">{fx.name}</div>
-                              {fx.level && <div className="fixture-level">{fx.level}</div>}
+                              {(fx.level || fx.military) && <div className="fixture-level">{fx.military && <span style={{ display: 'inline-block', fontSize: '9px', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: 'var(--cream)', background: 'var(--gold)', padding: '1px 6px', borderRadius: '3px', marginRight: fx.level ? '6px' : 0, verticalAlign: '1px' }}>Military</span>}{fx.level}</div>}
                             </div>
                             <div className="fixture-meta">
                               {teamsHere.length > 0 ? (
@@ -9480,6 +9527,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                         </div>
                                       ));
                                     })()}
+                                    {captainMode && s.fee && (
+                                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                                        Entry £{fmtMoney(s.fee.total)}{s.fee.military ? ' · military rate' : ` · ${s.fee.shares.filter(x => x.member).length} member${s.fee.shares.filter(x => x.member).length === 1 ? '' : 's'}, ${s.fee.shares.filter(x => !x.member).length} non-member${s.fee.shares.filter(x => !x.member).length === 1 ? '' : 's'}`}{s.bookedBy ? ` · entered by ${s.bookedBy}` : ''}
+                                      </div>
+                                    )}
                                     {captainMode && s.contact && (
                                       <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
                                         Captain: {s.contact}
@@ -9490,30 +9542,45 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 ))}
 
                                 {!isPast && !isTournamentActive(fx) && (showTeamForm ? (
+                                  (() => {
+                                    const fee = priceTeamEntry(fx, pricingSquad(fx));
+                                    const money = (v) => `£${fmtMoney(v)}`;
+                                    const sec = { fontSize: '10px', margin: '6px 0 6px' };
+                                    return (
                                   <div className="register-form" style={{ marginTop: '12px' }}>
-                                    <div className="label-eyebrow" style={{ fontSize: '10px', marginBottom: '10px' }}>Enter a team</div>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                      <div className="display" style={{ fontSize: '19px', flex: 1, minWidth: 0 }}>Enter a team</div>
+                                      {fx.military && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: 'var(--cream)', background: 'var(--gold)', padding: '2px 7px', borderRadius: '3px' }}>Military</span>}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>{fx.name} · {fx.date} · {fee.len === 2 ? '2 days' : '1 day'}</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                      <input
-                                        className="input-field"
-                                        list="known-team-names"
-                                        type="text"
-                                        placeholder="Team name"
-                                        value={tName}
-                                        onChange={(e) => onTeamNameChange(fx, e.target.value)}
-                                        style={{ padding: '12px 14px', fontSize: '15px' }}
-                                      />
+                                      <div className="label-eyebrow" style={sec}>Team</div>
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                          className="input-field"
+                                          list="known-team-names"
+                                          type="text"
+                                          aria-label="Team name"
+                                          placeholder="Team name"
+                                          value={tName}
+                                          onChange={(e) => onTeamNameChange(fx, e.target.value)}
+                                          style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '15px' }}
+                                        />
+                                        <select
+                                          className="input-field select-field"
+                                          aria-label="Team handicap"
+                                          value={tHandicap}
+                                          onChange={(e) => setTHandicap(e.target.value)}
+                                          style={{ width: '96px', flexShrink: 0, padding: '12px 6px', fontSize: '14px' }}
+                                        >
+                                          <option value="">Hcp…</option>
+                                          {TEAM_HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
+                                        </select>
+                                      </div>
                                       <datalist id="known-team-names">
                                         {Object.values(knownTeams()).map(t => <option key={t.name} value={t.name} />)}
                                       </datalist>
-                                      <select
-                                        className="input-field select-field"
-                                        value={tHandicap}
-                                        onChange={(e) => setTHandicap(e.target.value)}
-                                        style={{ padding: '12px 14px', fontSize: '15px' }}
-                                      >
-                                        <option value="">Team handicap (optional)…</option>
-                                        {TEAM_HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
-                                      </select>
+                                      <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-4px' }}>Start typing a team name to pull through its last squad.</div>
 
                                       {fxDays.length > 1 && (
                                         <div className="perday-toggle">
@@ -9523,69 +9590,115 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                       )}
 
                                       {(tPerDay && fxDays.length > 1 ? fxDays : [fxDays[0]]).map(d => (
-                                        <div key={d.key} className="squad-editor">
-                                          <div className="squad-editor-head">
-                                            {tPerDay && fxDays.length > 1 ? d.label : (fxDays.length > 1 ? 'Squad — both days' : 'Squad')}
-                                          </div>
-                                          {(tSquads[d.key] || []).map((row, idx) => (
-                                            <div key={idx} className="squad-row">
+                                        <div key={d.key}>
+                                          <div className="label-eyebrow" style={sec}>{tPerDay && fxDays.length > 1 ? `Players · ${d.label}` : 'Players'}</div>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                          {(tSquads[d.key] || []).map((row, idx) => {
+                                            const member = row.member == null ? isClubMember(row.name) : !!row.member;
+                                            return (
+                                            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '8px', borderBottom: '1px solid var(--line)' }}>
                                               <input
                                                 className="input-field"
                                                 type="text"
                                                 list="playerdb-names"
+                                                aria-label={`Player ${idx + 1}`}
                                                 placeholder={`Player ${idx + 1}`}
                                                 value={row.name}
-                                                onChange={(e) => { const v = e.target.value; setSquadPlayer(d.key, idx, 'name', v); const rec = playerDb.find(p => (p.name || '').toLowerCase() === v.trim().toLowerCase()); if (rec && rec.handicap != null) setSquadPlayer(d.key, idx, 'handicap', String(rec.handicap)); }}
-                                                style={{ flex: 1, minWidth: 0, padding: '10px 12px', fontSize: '14px' }}
+                                                onChange={(e) => { const v = e.target.value; setSquadPlayer(d.key, idx, 'name', v); setSquadPlayer(d.key, idx, 'member', null); const rec = playerDb.find(p => (p.name || '').toLowerCase() === v.trim().toLowerCase()); if (rec && rec.handicap != null) setSquadPlayer(d.key, idx, 'handicap', String(rec.handicap)); }}
+                                                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: '15px' }}
                                               />
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                               <select
                                                 className="input-field select-field"
+                                                aria-label={`Player ${idx + 1} handicap`}
                                                 value={row.handicap}
                                                 onChange={(e) => setSquadPlayer(d.key, idx, 'handicap', e.target.value)}
-                                                style={{ width: '70px', flexShrink: 0, padding: '10px 4px', fontSize: '14px' }}
+                                                style={{ width: '96px', flexShrink: 0, padding: '9px 6px', fontSize: '14px' }}
                                               >
-                                                <option value="">–</option>
+                                                <option value="">Hcp –</option>
                                                 {HANDICAP_OPTIONS.map(h => <option key={h} value={h}>{fmtH(h)}</option>)}
                                               </select>
-                                              {(tSquads[d.key] || []).length > 1 && (
-                                                <button type="button" className="remove-btn" onClick={() => removeSquadPlayer(d.key, idx)} aria-label="Remove player" style={{ fontSize: '18px', flexShrink: 0 }}>×</button>
+                                              {!fx.military && (
+                                                <button type="button" aria-pressed={member} title="Member or non-member — sets this player's share of the entry"
+                                                  onClick={() => setSquadPlayer(d.key, idx, 'member', !member)}
+                                                  style={{ flexShrink: 0, minWidth: '74px', padding: '9px 6px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                                                    border: `1px solid ${member ? 'var(--burgundy)' : 'var(--line)'}`, background: member ? 'var(--burgundy)' : 'transparent', color: member ? 'var(--cream)' : 'var(--muted)' }}>
+                                                  {member ? 'Member' : 'Non-member'}
+                                                </button>
                                               )}
+                                              <span style={{ flex: 1 }} />
+                                              {(tSquads[d.key] || []).length > 1 && (
+                                                <button type="button" className="remove-btn" onClick={() => removeSquadPlayer(d.key, idx)} aria-label={`Remove player ${idx + 1}`} style={{ fontSize: '18px', flexShrink: 0 }}>×</button>
+                                              )}
+                                              </div>
                                             </div>
-                                          ))}
-                                          <button type="button" className="add-player-btn" onClick={() => addSquadPlayer(d.key)}>＋ Add player</button>
+                                            );
+                                          })}
+                                          </div>
+                                          <button type="button" className="add-player-btn" onClick={() => addSquadPlayer(d.key)} style={{ marginTop: '8px' }}>＋ Add player</button>
                                         </div>
                                       ))}
 
-                                      <input
-                                        className="input-field"
-                                        type="text"
-                                        placeholder="Team captain name (optional)"
-                                        value={tContact}
-                                        onChange={(e) => setTContact(e.target.value)}
-                                        style={{ padding: '12px 14px', fontSize: '15px' }}
-                                      />
-                                      <input
-                                        className="input-field"
-                                        type="tel"
-                                        placeholder="Captain mobile (optional, captain only)"
-                                        value={tMobile}
-                                        onChange={(e) => setTMobile(e.target.value)}
-                                        style={{ padding: '12px 14px', fontSize: '15px' }}
-                                      />
-                                      <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.45, marginTop: '-2px' }}>
-                                        Start typing a team name to pull through last season's squad.{fxDays.length > 1 ? ' Choose “Different per day” if your Saturday and Sunday line-ups differ.' : ''}
+                                      <div className="label-eyebrow" style={sec}>Team captain</div>
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                          className="input-field"
+                                          type="text"
+                                          aria-label="Team captain"
+                                          placeholder="Name (optional)"
+                                          value={tContact}
+                                          onChange={(e) => setTContact(e.target.value)}
+                                          style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '15px' }}
+                                        />
+                                        <input
+                                          className="input-field"
+                                          type="tel"
+                                          aria-label="Captain mobile"
+                                          placeholder="Mobile (optional)"
+                                          value={tMobile}
+                                          onChange={(e) => setTMobile(e.target.value)}
+                                          style={{ flex: 1, minWidth: 0, padding: '12px 14px', fontSize: '15px' }}
+                                        />
                                       </div>
+
+                                      <div className="label-eyebrow" style={sec}>Entry fee</div>
+                                      <div style={{ fontSize: '13px', padding: '12px 14px', background: 'var(--cream-pale)', border: '1px solid var(--line)', borderRadius: '6px', lineHeight: 1.5 }}>
+                                        {fee.military ? (
+                                          <div>Military tournament · {fee.len === 2 ? '2 days' : '1 day'}: <strong>{money(fee.total)}</strong> for the team, at the military rate whoever plays.</div>
+                                        ) : fee.shares.length === 0 ? (
+                                          <div style={{ color: 'var(--muted)' }}>Add the players to see the entry fee. A team of members pays {money(fee.memberFee)}, of non-members {money(fee.nonFee)} ({fee.len === 2 ? '2 days' : '1 day'}); a mixed team pays each player's share.</div>
+                                        ) : (
+                                          <>
+                                            {fee.shares.map((x, k) => (
+                                              <div key={k} style={{ display: 'flex', gap: '8px' }}>
+                                                <span style={{ flex: 1, minWidth: 0 }}>{x.name} <span style={{ color: 'var(--muted)' }}>· {x.member ? 'member' : 'non-member'}</span></span>
+                                                <span>{money(x.share)}</span>
+                                              </div>
+                                            ))}
+                                            <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--line)', marginTop: '6px', paddingTop: '6px', fontWeight: 700 }}>
+                                              <span style={{ flex: 1 }}>Entry fee</span><span>{money(fee.total)}</span>
+                                            </div>
+                                          </>
+                                        )}
+                                        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                                          {fee.military ? '' : 'Each player carries a share of their own category’s team fee. '}You pay the whole entry and collect each player’s share from them. Payable by card once online payment is live — nothing is taken now.
+                                        </div>
+                                      </div>
+
                                       {tError && (
                                         <div style={{ fontSize: '12px', color: 'var(--danger)', padding: '8px 12px', background: '#fbf2f2', borderRadius: '4px', borderLeft: '3px solid var(--danger)' }}>
                                           {tError}
                                         </div>
                                       )}
                                       <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button className="btn-primary" onClick={() => registerTeam(fx)} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>Enter Team</button>
+                                        <button className="btn-primary" onClick={() => registerTeam(fx)} style={{ flex: 1, padding: '13px', fontSize: '12px' }}>{fee.total > 0 ? `Enter team — ${money(fee.total)}` : 'Enter team'}</button>
                                         <button onClick={() => setShowTeamForm(false)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '13px 16px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
                                       </div>
+                                      <TermsLine onOpen={openTerms} style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center' }} />
                                     </div>
                                   </div>
+                                    );
+                                  })()
                                 ) : (
                                   <button className="enter-team-btn" onClick={() => { resetTeamForm(fx); setShowTeamForm(true); }}>
                                     ＋ Enter a team for this fixture

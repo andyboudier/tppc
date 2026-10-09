@@ -163,6 +163,19 @@ editor's Admin switch writes the admins list through `window.auth.setAdmins`
 (`adminEmails` / `isAdminEmail`); the team field is a dropdown of existing
 teams (`teamNames`) with a "new team" input.
 
+**Tournament entry is priced from the rate card.** A fixture may be tagged
+`military` (a tick box in the fixture editor; a Military badge on the card): a
+military tournament is the rate card's flat military team fee for its length,
+whoever plays. Otherwise each named player carries a share of their own
+category's team fee (`priceTeamEntry`): with four players, two members and two
+non-members pay half the member fee plus half the non-member fee, so a mixed
+team's fee always sits between the two. Member or not comes from the player
+database (`membership` other than `none`) and can be switched per player on
+the form. Length is the fixture's days (1, or 2 for two or more). The person
+entering pays the whole fee and collects the shares; the entry stores `fee`
+({ total, military, days, shares }) and `bookedBy`. Nothing is charged until
+card payment is live.
+
 **Fixtures and prices are TPPC's own** (Druids and Vaux keep theirs; the demo
 takes TPPC's by resync). `FIXTURES_OFFICIAL` is the 2026 grass list
 (`FIXTURES_2026`) followed by the 2026/27 arena list (`FIXTURES_ARENA_2026`).
