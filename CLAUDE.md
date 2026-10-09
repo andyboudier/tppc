@@ -273,11 +273,19 @@ that prices reads `RATES` — set from it on each render — never the printed
 constants, so a change reaches every booking screen at once. "Back to the
 printed card" deletes the document. A club with no own-pony lesson price
 passes `ownPony={false}`, which hides those boxes. Each club keeps its own
-printed card and its own `rate-card` document.
+printed card and its own `rate-card` document. `RateCardEditor.jsx` is the same
+file in every app: the card's shape is passed in (`tiers` — TPPC and Vaux
+civilian/military, Druids standard/student; `chukkaFeeLabels`, one box per key
+of `chukkaFee` — TPPC civ/mil, Druids `std`, Vaux `all`; `discountKey` —
+`milPonyDiscount`, Druids `studentPonyDiscount`).
 
 **Booking terms.** `terms.js` is the club's draft booking terms (the working
 copy the committee reviews is the shared doc "TPPC Booking Terms and
-Conditions"), shown full screen by `TermsSheet.jsx`. The terms are linked from
+Conditions"), shown full screen by `TermsSheet.jsx`. The sheet is the same
+file in every app; the club's name, crest and dark colours come from
+`TERMS_CLUB` in its `terms.js`, and Druids' and Vaux's `terms.js` are TPPC's
+text with their own details (name, address, contact; Druids prices students,
+not military). The terms are linked from
 the footer, under every Book button (`TermsLine`) and by `?terms=1`. With
 sign-in on, a member accepts them once — `auth.acceptTerms` writes
 `termsVersion` and `termsAcceptedAt` to their profile — and again whenever

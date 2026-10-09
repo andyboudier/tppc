@@ -9,6 +9,16 @@
 // before their next booking (see `needTerms` in PoloChukkas.jsx).
 
 export const TERMS_VERSION = '2026-10-draft-3';
+
+// Who the terms are for, and how the sheet looks (TermsSheet.jsx reads it).
+export const TERMS_CLUB = {
+  name: 'Tedworth Park Polo Club',
+  crest: '/tppc-crest.png', crestRound: true,
+  colors: {
+    bg: '#120d0b', card: '#1f1714', line: '#3d2e24', burg: '#6b1f2a',
+    gold: '#b8924a', gold2: '#d4a85a', cream: '#f4ecd8', muted: '#b3a48c',
+  },
+};
 export const TERMS_DRAFT = true; // shows "Draft — awaiting committee review"
 
 // The points a member reads before ticking "I accept".
