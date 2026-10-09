@@ -191,18 +191,21 @@ const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 1
 
 // Coaching/lesson rates from the Arena Price List, Winter 26/27 (group rates
 // are per person, minimum 3). Subsidy pots apply to LESSONS (not chukkas).
-// Military and veteran players pay the military rate.
+// Military and veteran players pay the military rate. These prices include a
+// club pony; `own` is the price on the rider's own pony — the club's coaching
+// rate of £45 civilian / £40 military an hour, and £70 / £65 for an
+// Instructional Tournament. A line without `own` is one price either way.
 const LESSON_TYPES_2026 = [
   { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315, mil: 300 },
   { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600, mil: 540 },
-  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, mil: 105 },
-  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, mil: 190 },
+  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, mil: 105, own: { civ: 45, mil: 40 } },
+  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, mil: 190, own: { civ: 90, mil: 80 } },
   { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80,  mil: 75 },
   { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75, mil: 65 },
-  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, mil: 95 },
-  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, mil: 170 },
+  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, mil: 95,  own: { civ: 45, mil: 40 } },
+  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, mil: 170, own: { civ: 90, mil: 80 } },
   { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110, mil: 105 },
-  { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160 },
+  { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160, own: { civ: 70, mil: 65 } },
 ];
 // Which of this club's coaching rates a booked lesson slot is charged at.
 // Club-specific on purpose: the cards differ in both ids and shape, so a
@@ -1410,7 +1413,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [transactions, setTransactions] = useState([]);
   const [checkout, setCheckout] = useState({ playerId: '', day: 'wed', chukkas: '4', ponyLevel: 'club', method: 'cash', note: '' });
   const [coError, setCoError] = useState('');
-  const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '' });
+  const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '', ownPony: false });
   const [lessonError, setLessonError] = useState('');
   const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-1d', method: 'transfer', note: '' });
   const [teamRegError, setTeamRegError] = useState('');
@@ -2645,21 +2648,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   const tokensOf = (player) => Math.max(0, Number(player && player.tokens) || 0);
 
-  // What a lesson costs. The rate card's lesson prices include the pony, as
-  // Instructional Chukkas' does, so a club pony adds nothing: the rider still
-  // says which they want (`ponyHire` on the booking) so the yard knows what to
+  // What a lesson costs. The rate card's lesson prices include a club pony;
+  // on the rider's own pony it is the own-pony rate (£45 civilian / £40
+  // military an hour). `ponyHire` on the booking also tells the yard what to
   // have ready. Subsidy pots come off the coaching.
   const quoteLesson = (player, type, hours, ponyHire) => {
     const h = Math.max(1, Number(hours) || 1);
     const rateId = (LESSON_SLOT_RATES[type] || LESSON_SLOT_RATES.individual)[h];
     if (!rateId) return { blocked: `No ${h}-hour ${type} rate.`, money: '—', total: 0, detail: '' };
     const lt = lessonById(rateId);
-    const priced = player ? priceLesson(player, lt.id) : { lessonLabel: lt.label, base: lt.civ, subsidyDeductions: [], total: lt.civ };
+    const ownPony = !ponyHire && !!lt.own;
+    const guest = ownPony ? lt.own.civ : lt.civ;
+    const priced = player ? priceLesson(player, lt.id, ownPony) : { lessonLabel: lt.label, base: guest, subsidyDeductions: [], total: guest };
     const total = Math.max(0, priced.total);
     const bits = [`${lt.label} £${fmtMoney(priced.base)}`];
-    if (ponyHire) bits.push('club pony included');
+    bits.push(ponyHire ? 'club pony included' : 'own pony');
     (priced.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
-    return { lessonId: lt.id, lessonLabel: lt.label, base: priced.base, pony: 0,
+    return { lessonId: lt.id, lessonLabel: ownPony ? `${lt.label} · own pony` : lt.label, base: priced.base, pony: 0, ownPony,
              subsidyDeductions: priced.subsidyDeductions || [], total,
              money: fmtMoney(total), detail: bits.join(' · ') };
   };
@@ -3332,10 +3337,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   // --- Lessons (coaching) pricing + payment. Subsidy pots apply here. ---
-  const priceLesson = (player, lessonId) => {
+  // `ownPony` prices the line at its own-pony rate where the card has one.
+  const priceLesson = (player, lessonId, ownPony = false) => {
     const lt = lessonById(lessonId);
     const mil = !!(player && player.military);
-    const base = mil ? lt.mil : lt.civ;
+    const own = !!(ownPony && lt.own);
+    const base = own ? (mil ? lt.own.mil : lt.own.civ) : (mil ? lt.mil : lt.civ);
     let running = base;
     const subsidyDeductions = [];
     ((player && player.subsidies) || []).forEach(sid => {
@@ -3346,7 +3353,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
       running -= amount;
     });
-    return { lessonId: lt.id, lessonLabel: lt.label, base, militaryRate: mil, subsidyDeductions, total: Math.max(0, running) };
+    return { lessonId: lt.id, lessonLabel: own ? `${lt.label} · own pony` : lt.label, base, militaryRate: mil, ownPony: own, subsidyDeductions, total: Math.max(0, running) };
   };
   const recordLessonPayment = async (player, bd, opts) => {
     const o = opts || {};
@@ -3374,7 +3381,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setLessonError('');
     const pl = playerDb.find(p => p.id === lesson.playerId);
     if (!pl) { setLessonError('Pick a player first.'); return; }
-    const bd = priceLesson(pl, lesson.lessonId);
+    const bd = priceLesson(pl, lesson.lessonId, lesson.ownPony);
     await recordLessonPayment(pl, bd, { method: lesson.method, note: lesson.note });
     setLessonError(`Recorded £${fmtMoney(bd.total)} (${lesson.method}) for ${pl.name} — ${bd.lessonLabel}.`);
     setLesson(prev => ({ ...prev, playerId: '', note: '' }));
@@ -3383,7 +3390,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     setLessonError('');
     const pl = playerDb.find(p => p.id === lesson.playerId);
     if (!pl) { setLessonError('Pick a player first.'); return; }
-    const bd = priceLesson(pl, lesson.lessonId);   // pots are drawn down on settle, not now
+    const bd = priceLesson(pl, lesson.lessonId, lesson.ownPony);   // pots are drawn down on settle, not now
     const dueTx = {
       id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'lesson',
       playerId: pl.id, playerName: pl.name, day: null,
@@ -5598,6 +5605,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         ground: (slot && slot.ground) || '', coach: (slot && slot.coach) || '',
         personName: booking ? booking.name : '', personIsMe: !!booking && !!homePlayer && (booking.playerId === homePlayer.id || sameName(booking.name, homePlayer.name)),
         pony: !!(booking && booking.ponyHire), ponyIncluded: !session,
+        ...(() => {
+          // A lesson's price depends on the pony; a session's does not here.
+          if (session || !booking) return {};
+          const rec = playerDb.find(p => p.id === booking.playerId) || null;
+          const h = Number(booking.hours) || 1;
+          return { ponyPrices: { club: quoteLesson(rec, booking.type, h, true).money, own: quoteLesson(rec, booking.type, h, false).money }, paidByToken: booking.paid === 'token' };
+        })(),
         lessonText: session ? 'The whole session' : `${hrs} hour${hrs === 1 ? '' : 's'}`,
         bookedBy: (booking && booking.bookedBy && booking.bookedBy !== booking.name) ? booking.bookedBy : '',
         refundText: booking && booking.paid === 'token' ? 'Your token goes back.' : booking && booking.paid === 'invoice' ? 'An unpaid charge comes off your invoice.' : '',
@@ -5635,9 +5649,27 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (!booking) return { error: 'That booking is no longer in the diary.' };
       if (!mayManage(booking)) return { error: 'You can change your own bookings, or your team’s.' };
       const next = { ...booking, ponyHire: !!d.pony, amendedAt: Date.now() };
+      let note = '';
+      // The pony changes a lesson's price: an unpaid invoice is re-priced; a
+      // token bought the hour either way; a settled invoice is left for the
+      // club to square.
+      if (!slot.kind && !!d.pony !== !!booking.ponyHire && booking.paid === 'invoice') {
+        const tx = transactions.find(t => t.id === booking.txId);
+        const rec = playerDb.find(p => p.id === booking.playerId) || null;
+        const q = quoteLesson(rec, booking.type, Number(booking.hours) || 1, !!d.pony);
+        if (tx && tx.status === 'due') {
+          const nextTx = transactions.map(t => (t.id === tx.id ? { ...t, lessonId: q.lessonId, lessonLabel: q.lessonLabel, base: q.base,
+            subsidyDeductions: (q.subsidyDeductions || []).filter(x => x.amount > 0).map(x => ({ id: x.id, name: x.name, amount: x.amount })), total: q.total } : t));
+          setTransactions(nextTx);
+          try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (err) {}
+          note = `The invoice is now ${homeMoney(q.total)}.`;
+        } else if (tx) {
+          note = 'You’d already paid for this lesson, so the club will settle any difference with you.';
+        }
+      }
       await saveLessonSlots(lessonSlots.map(sl => (sl.id === slot.id ? { ...sl, bookings: (sl.bookings || []).map(b => (b.id === booking.id ? next : b)) } : sl)));
       bookingEmail({ event: 'amended', kind: 'lesson', slotId: slot.id, bookingId: booking.id });
-      return { ok: true };
+      return { ok: true, note };
     }
     const k = req.day;
     const cfg = DAY_CONFIG[k];
@@ -10740,7 +10772,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               {playersView === 'lessons' && (() => {
                 const sortedPl = [...playerDb].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 const pl = playerDb.find(p => p.id === lesson.playerId);
-                const bd = pl ? priceLesson(pl, lesson.lessonId) : null;
+                const bd = pl ? priceLesson(pl, lesson.lessonId, lesson.ownPony) : null;
+                const ownable = !!lessonById(lesson.lessonId).own;
                 const ok = lessonError && (lessonError.indexOf('Recorded') === 0 || lessonError.indexOf('Booked') === 0);
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -10761,10 +10794,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Lesson
                       <select className="select-field" value={lesson.lessonId} onChange={e => { setLessonError(''); setLesson({ ...lesson, lessonId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
                         {LESSON_TYPES_2026.map(l => (
-                          <option key={l.id} value={l.id}>{l.label} — £{l.civ} / £{l.mil} mil</option>
+                          <option key={l.id} value={l.id}>{l.label} — £{l.civ} / £{l.mil} mil{l.own ? ` (own pony £${l.own.civ} / £${l.own.mil})` : ''}</option>
                         ))}
                       </select>
                     </label>
+                    {ownable && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)' }}>
+                        <input type="checkbox" checked={!!lesson.ownPony} onChange={e => { setLessonError(''); setLesson({ ...lesson, ownPony: e.target.checked }); }} />
+                        On their own pony (own-pony rate)
+                      </label>
+                    )}
                     {bd && (
                       <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>

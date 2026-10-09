@@ -242,7 +242,12 @@ A length the card does not price is not offered at all. The lesson prices
 **include the pony**, as Instructional Chukkas' does, so a club pony adds
 nothing to a lesson (`quoteLesson`). The rider still chooses Club pony or My
 own pony — it is never chosen for them, and Book stays disabled until one is
-picked — because the yard needs to know which to have ready.
+picked — because the yard needs to know which to have ready. On the rider's **own pony** a lesson costs the own-pony rate instead:
+£45 civilian / £40 military an hour for individual and group lessons, and
+£70 / £65 for an Instructional Tournament (`own` on the `LESSON_TYPES_2026`
+line; `priceLesson(player, id, ownPony)`). The pony choice shows both prices,
+"Your booking" re-prices an unpaid invoice when the pony changes, and the
+manual lesson sale in Payments has an own-pony tick.
 
 TPPC also sells its own **club sessions** from the Lessons tab — Ladies Only
 and Instructional Chukkas, one hour, two chukkas, eight places. A slot with a

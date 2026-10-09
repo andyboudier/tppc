@@ -367,7 +367,8 @@ function ManageSheet({ m, onAmend, onCancel, onClose }) {
               <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Pony</legend>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {[[true, 'Club pony', m.ponyIncluded ? 'Included in the price' : ''], [false, 'My own pony', 'I’ll bring my own']].map(([v, label, sub]) => (
+                  {[[true, 'Club pony', m.ponyPrices ? (m.paidByToken ? 'Included' : `£${m.ponyPrices.club}`) : (m.ponyIncluded ? 'Included in the price' : '')],
+                    [false, 'My own pony', m.ponyPrices ? (m.paidByToken ? 'Bring your own' : `£${m.ponyPrices.own}`) : 'I’ll bring my own']].map(([v, label, sub]) => (
                     <button key={String(v)} type="button" className="hd-choice" aria-pressed={draft.pony === v} onClick={() => set('pony', v)} style={{ minHeight: '58px', padding: '10px 12px' }}>
                       <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{label}</span>
                       {sub ? <span style={{ display: 'block', fontSize: 12, color: 'var(--hd-muted)', marginTop: 2 }}>{sub}</span> : null}

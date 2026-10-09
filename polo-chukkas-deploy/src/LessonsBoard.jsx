@@ -72,9 +72,9 @@ function PonyChoice({ value, onChange, withPony, without }) {
     background: on ? 'var(--cream-warm)' : 'transparent', color: 'var(--ink)',
     border: on ? '1.5px solid var(--gold)' : '1px solid var(--line)',
   });
-  // A lesson's price includes the pony, so both choices cost the same and
-  // the choice only tells the yard what to have ready; a session that
-  // charges pony hire shows the two prices.
+  // Each choice shows its price — a lesson is cheaper on the rider's own
+  // pony. Where both cost the same (a session priced one way either way) it
+  // only tells the yard what to have ready.
   const same = withPony.total === without.total;
   return (
     <div role="radiogroup" aria-label="Pony" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
