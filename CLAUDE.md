@@ -494,14 +494,38 @@ template → Edit → Customize action URL) must be
 first. Reset signs the member straight in with the new password.
 
 **Google and Apple under the app's own address.** `vercel.json` proxies
-`/__/auth/*` and `/__/firebase/*` to tppc-dev.firebaseapp.com, so the sign-in
-handler can live at tppc-dev.poloact.co.uk. It takes effect only when
-`VITE_FIREBASE_AUTH_DOMAIN` becomes `tppc-dev.poloact.co.uk`, and that must
-wait until `https://tppc-dev.poloact.co.uk/__/auth/handler` is an authorised
-redirect URI on the Google OAuth client and a return URL on the Apple
-Services ID — switch it first and Google sign-in fails with
-redirect_uri_mismatch. The rewrites and crons in vercel.json name the dev
-project; bringing them back to TPPC means pointing them at the club's own.
+`/__/auth/*` and `/__/firebase/*` to tppc-dev.firebaseapp.com, and
+`VITE_FIREBASE_AUTH_DOMAIN` on the tppc-dev Vercel project is
+`tppc-dev.poloact.co.uk`, so the sign-in handler lives at the app's own
+address. This is what makes Google and Apple work on an iPhone: with the
+handler on firebaseapp.com, Safari keeps that site's storage apart from the
+app's, so a redirect sign-in (always used by the home-screen app, and the
+fallback when a pop-up is blocked) came back with nobody signed in and simply
+showed the sign-in screen again — desktop browsers still allowed it, which
+hid the fault. `https://tppc-dev.poloact.co.uk/__/auth/handler` is an
+authorised redirect URI on the tppc-dev Google OAuth client ("Web client
+(auto created by Google Service)") and a return URL on the Apple Services ID
+`uk.co.tedworthparkpolo.chukkas.web`, with `tppc-dev.poloact.co.uk` among its
+domains and the JavaScript origins. Never switch the auth domain before both
+are registered — Google answers redirect_uri_mismatch and Apple "Invalid web
+redirect url", on desktop too.
+
+**Bringing sign-in to TPPC live repeats all of this for the club's own
+address** (tppc.poloact.co.uk, or whichever host the live app answers on), in
+this order: (1) in the live Google Cloud project (tedworth-park-polo), on its
+auto-created web OAuth client, add the origin `https://<host>` and the redirect
+URI `https://<host>/__/auth/handler`; (2) on the Apple Services ID add `<host>`
+to the domains and `https://<host>/__/auth/handler` to the return URLs, and
+make sure Apple is set up as a provider in the live Firebase console with that
+Services ID; (3) add `<host>` to the live Firebase project's authorised
+domains; (4) point the vercel.json rewrites at
+`tedworth-park-polo.firebaseapp.com`; (5) only then set the live build's
+`authDomain` to `<host>` (the `LIVE` config in firebase.js, or
+`VITE_FIREBASE_AUTH_DOMAIN`). Check (1) and (2) before (5) by asking
+identitytoolkit `accounts:createAuthUri` for each provider with that handler
+as `continueUri` and opening the URI it returns: a mismatch shows at once.
+The rewrites and crons in vercel.json name the dev project; bringing them back
+to TPPC means pointing them at the club's own.
 
 When this is brought back to TPPC it applies to Druids and Vaux too, but
 Druids always suffixes day keys and has no waiting list, each club's day names,
