@@ -85,9 +85,9 @@ reach nobody.
 are named there or a captain's next save wipes the link. The player editor's
 **Sign-in account** panel is where a captain unlinks, relinks to the account
 signed in now, and merges a duplicate. `mergePlayers` keeps the primary's id
-because rosters, waiting lists, lesson bookings and transactions all point at
-it — and `mergePlayerInto` re-points whatever the duplicate had collected, or
-the merge would quietly detach somebody's chukkas and their invoices. The merge
+because rosters, waiting lists and lesson bookings all point at it — and
+`mergePlayerInto` re-points whatever the duplicate had collected, or the merge
+would quietly detach somebody's chukkas and lessons. The merge
 is field-agnostic on purpose: TPPC has `military` and `team`, Druids has
 `student` and neither, and naming fields would drop one or invent another.
 Druids and Vaux have **no waiting list**, so that step is TPPC's alone.
@@ -226,9 +226,8 @@ group's minimum and maximum; the ground is the same dropdown as chukkas
 (`groundCap`). A group below its minimum is flagged "x of min needed" and the
 admin settles it on the card: **run as a smaller group** (`runAsSmallerGroup`,
 min becomes the count), **make it individual** (`groupToIndividual`, one rider
-only; an unpaid invoice is re-priced at the individual rate) or **cancel the
-group** (`cancelLessonBookings` — tokens back, unpaid invoices dropped, in one
-write). A member books a lesson or a session for themselves or a teammate
+only, at the individual rate) or **cancel the group** (`cancelLessonBookings`,
+in one write). A member books a lesson or a session for themselves or a teammate
 (`teammates`, the same rule as chukkas; `mayBookFor` checks it again at
 booking), and sees what they could book plus anything they or their team are
 already in; an admin books anyone and sees every slot. Captains add or amend lessons, copy last week
@@ -246,8 +245,7 @@ picked — because the yard needs to know which to have ready. On the rider's **
 £45 civilian / £40 military an hour for individual and group lessons, and
 £70 / £65 for an Instructional Tournament (`own` on the `LESSON_TYPES_2026`
 line; `priceLesson(player, id, ownPony)`). The pony choice shows both prices,
-"Your booking" re-prices an unpaid invoice when the pony changes, and the
-manual lesson sale in Payments has an own-pony tick.
+and "Your booking" says the new price when the pony changes.
 
 TPPC also sells its own **club sessions** from the Lessons tab — Ladies Only
 and Instructional Chukkas, one hour, two chukkas, eight places. A slot with a
@@ -262,26 +260,31 @@ through `priceBooking` with that day, so a session costs exactly what the same
 evening costs on the Chukkas tab: Instructional is the rate card's flat
 £110/£105 with the pony in it, Ladies Only is the ordinary tariff for two
 chukkas. No session price is restated anywhere. The day's `maxHandicap` gate
-applies too. Sessions are invoice-only — a token buys an hour of *coaching*, and
-spending one on chukkas unasked is not the app's call. `CLUB_SESSIONS` must stay
+applies too. `CLUB_SESSIONS` must stay
 below `DAY_CONFIG`: it reads the start-time constants at load. Druids and Vaux
 ship the same `lessons.js` and `LessonsBoard.jsx` but pass no catalogue, and
 with none the board is exactly as it was.
 
-Payment is a token wallet that falls back to an invoice: `tokens` on the player
-record (one token buys an hour) is spent when the player has enough, otherwise
-the cash price raises the same `'due'` transaction the Payments tab already
-settles. Cancelling returns the token, or removes the invoice if it is still
-unpaid. Note `savePlayer` builds an **explicit whitelist** — a field not named
-there is dropped on every save.
+**No payment is taken in the app yet.** Payment is moving to a Stripe payment
+link; until that is connected a booking is simply accepted, and every booking
+screen shows what it will cost (from the rate card), so the price is known up
+front. There is no token wallet, no invoice ("due" transaction), no Payments
+or Checkout screen and no manual lesson sale — all were removed on the way to
+Stripe, and the old `transactions` document is no longer read. When Stripe is
+wired in, the booking paths (`handleAdd`, `promoteFromWaitlist`, `homeBook`,
+`bookLesson`, `bookClubSession`) are where a payment link is created;
+`bookingPrice`, `priceBooking`, `quoteLesson` and `quoteClubSession` give the
+amount. Subsidy pots still discount the quoted price but are not drawn down
+until payments exist. Tournament entries registered on the Teams tab are kept
+in `team-entries` with their fee, unpaid. Note `savePlayer` builds an
+**explicit whitelist** — a field not named there is dropped on every save.
 
 The tab strip is three member tabs — Chukkas, Fixtures, Live Game — plus
-**More**, which holds the captain area (Lessons, Players, Payments, Teams,
+**More**, which holds the captain area (Lessons, Players, Teams, Rate card,
 Shop). `CAPTAIN_ONLY_TABS` are the tabs a captain alone may sit on, so a
 restore or a locked PIN bounces off them; `CAPTAIN_TABS` adds `'more'`, which
 a member may open to find the PIN, and is what keeps More lit inside an area.
-Add a captain area to both. Payments deep-links to Players with
-`playersView = 'checkout'`.
+Add a captain area to both.
 
 On a phone (`max-width: 640px`) the same nav markup is restyled into a fixed
 bottom bar with icons — one nav, one state, no second copy to keep in step.
@@ -355,8 +358,7 @@ Chukkas and Lessons join it once somebody is signed in or `captainMode` is on
 Home. The badge is `public/tppc-crest.png`, the official crest cut round from
 `icon-512.png`. Signed in, Home greets the member with their handicap and **All bookings** —
 two tiles, chukkas and lessons (Ladies Only and Instructional count as lessons,
-being booked there), each opening where those bookings live — tokens and what they owe are left off,
-because payment is heading to Stripe — shows their next chukka (team and chukka numbers
+being booked there), each opening where those bookings live — shows their next chukka (team and chukka numbers
 once the draw is published) and the next three fixtures, and offers **Book a
 chukka** — two taps, listing only chukka days that person can book (open, or
 full with a waiting list; never Ladies Only or Instructional, which are booked
@@ -373,8 +375,7 @@ same `LessonsBoard` with the captain's tools off, booking as their own record;
 an admin gets the diary and the sign-in bench as before. Home's own AuthSheet
 is handed `enabled: true` like the bench, so it works whichever way the switch
 is set; `tppc-signed-in` in localStorage tells a later load to wake sign-in
-early. An admin sees the next session's list, invoices waiting, waiting lists
-and lessons above their own card. Home is drawn dark in the club's colours
+early. An admin sees the next session's list, waiting lists and lessons above their own card. Home is drawn dark in the club's colours
 (`.polo-app.home-on`); the working tabs are unchanged.
 
 **The whole app wears Home's look** (`luxTheme.js`, the `lux` class on
@@ -399,7 +400,7 @@ profile, not the shared player list.
 **Booking a teammate from Home.** The booking sheet has "Who's playing": the
 member and anyone sharing their team (`teammates`, the same rule the Chukkas
 form uses). Each person's sessions are worked out for them (booked, beginners
-only), the price is theirs, the charge goes on their invoice, and the entry
+only), the price shown is theirs, and the entry
 carries `playerId` and `bookedBy`, as the form's do.
 
 With sign-in live the captain's sign-in bench on Lessons is hidden — Home is
@@ -445,13 +446,10 @@ the reminders applies. Each email but a cancellation has **Amend or cancel**:
 `?manage=chukka:<day>:<entryId>` (or `waitlist:` / `lesson:<slot>:<booking>`)
 opens **Your booking** on Home once the member is signed in (`ManageSheet` in
 HomeDashboard.jsx; `homeManage`, `manageAmend`, `manageCancel` in
-PoloChukkas.jsx). A chukka changes chukkas, pony, times and no-consecutive; an
-unpaid invoice line is swapped for the new price (entries now carry `txId`,
-and `txForEntry` finds the line for older ones), a paid one is left and the
-member told the club will settle the difference. A lesson changes only its
-pony — to move it, cancel and rebook. Cancelling takes the unpaid charge off
-(and a lesson's token goes back), as the rest of the app does. With sign-in
-off there is no token, so the clubs' builds send nothing.
+PoloChukkas.jsx). A chukka changes chukkas, pony, times and no-consecutive, and
+the member is told the new price when it changes. A lesson changes only its
+pony — to move it, cancel and rebook. With sign-in off there is no ID token,
+so the clubs' builds send nothing.
 
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
@@ -510,5 +508,4 @@ document, `rate-card`, laid over them by id (`mergeRateCard`), and every price
 reads `RATES` — set from it on each render — never the constants. Lessons
 (with the own-pony price, which can be taken away with `own: null`),
 non-member chukka fees, pony hire per chukka and the military discount, and
-tournament entry. New bookings use a change at once; invoices already raised
-keep their price. "Back to the printed card" deletes the document.
+tournament entry. Every booking screen shows a change at once. "Back to the printed card" deletes the document.

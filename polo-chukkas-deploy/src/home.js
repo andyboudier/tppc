@@ -30,7 +30,7 @@ export const noteSignIn = (on) => {
 
 // What the member usually books, so the booking sheet opens on it — chukkas,
 // pony and whether they want no consecutive chukkas. Kept per member on the phone; the first time it is two chukkas on their own pony,
-// which is the choice that can never put an unexpected charge on an invoice.
+// which is the choice that can never add an unexpected pony-hire charge.
 export const readUsual = (playerId) => {
   try {
     const all = JSON.parse(localStorage.getItem(USUAL_KEY) || '{}');
@@ -60,14 +60,6 @@ export const membershipShort = (label, id) => {
   const core = String(label || '').replace(/^(Civ|Mil)\s*·\s*/, '').replace(/\s*\(.*\)\s*$/, '').trim();
   return /member/i.test(core) ? core : `${core} member`;
 };
-
-// ── Money ───────────────────────────────────────────────────────────────────
-// What is on the member's invoice and not yet settled. Matched on the record
-// id, or on the name for a charge raised before the record existed.
-export const owedBy = (transactions, me) => (transactions || [])
-  .filter(t => t && t.status === 'due')
-  .filter(t => (t.playerId != null ? t.playerId === me.id : normName(t.playerName) === normName(me.name)))
-  .reduce((s, t) => s + (Number(t.total) || 0), 0);
 
 // ── The draw ────────────────────────────────────────────────────────────────
 // The chukkas a roster entry plays in a draw, with the shirt they wear in each.

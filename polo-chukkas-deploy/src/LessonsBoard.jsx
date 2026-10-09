@@ -4,7 +4,7 @@ import {
   MIN_GROUP, MAX_GROUP,
   addDays, slotOptions, takenAs, groupShort, blankSlot, blockedReason, bookingsFor, bySlotTime,
   copyWeek, dateLabel, dayLabel, groupBookings, mondayOf, newSlotId, normaliseSlot,
-  parseHM, parseISO, rangeLabel, removeBooking, slotsOn, tokenCost, weekDays,
+  parseHM, parseISO, rangeLabel, removeBooking, slotsOn, weekDays,
   windowHours, isoOf,
   isClubSession, clubSessionBookings, clubSessionPlaces, clubSessionSpots,
   clubSessionBlockedReason, fmtHM, groundCap,
@@ -23,9 +23,9 @@ import {
 // catalogue comes in as `clubSessions`, because the names and the prices are
 // each club's own; a club that passes none simply never sees any of it.
 //
-// Money and tokens stay with the app (it knows the rates, who is military and
-// which subsidy pots apply); this component asks for a quote and reports a
-// booking back.
+// Money stays with the app (it knows the rates, who is military and which
+// subsidy pots apply); this component asks for a quote and reports a booking
+// back. Nothing is charged at booking until card payment is live.
 
 const S = {
   wrap: { maxWidth: '520px', margin: '0 auto' },
@@ -93,7 +93,7 @@ function PonyChoice({ value, onChange, withPony, without }) {
 
 // ── The sheet that takes a booking ──────────────────────────────────────────
 
-function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf, onCancel, onConfirm, onOpenTerms }) {
+function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
   const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
@@ -103,9 +103,6 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
   const withPony = quote(player, session.type, session.hours, true);
   const without = quote(player, session.type, session.hours, false);
   const chosen = pony ? withPony : without;
-  const tokens = tokensOf(player);
-  const cost = tokenCost(session.hours);
-  const payingWithTokens = tokens >= cost;
 
   const go = async () => {
     if (!player) { setError('Pick who the lesson is for.'); return; }
@@ -146,16 +143,16 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
 
       <div style={{ ...S.hint, marginTop: '8px' }}>
         {player
-          ? payingWithTokens
-            ? `${player.name} has ${tokens} token${tokens === 1 ? '' : 's'} — this uses ${cost}, leaving ${tokens - cost}.`
-            : `${player.name} has ${tokens} token${tokens === 1 ? '' : 's'}, so this goes on their invoice at £${chosen.money}.`
-          : 'Pick a player to see how it will be paid.'}
+          ? pony === null
+            ? 'Choose a pony option to see the price.'
+            : `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
+          : 'Pick a player to see what it costs.'}
       </div>
 
       <div style={{ ...S.row, marginTop: '12px' }}>
         <button type="button" className="btn-primary" disabled={busy || !player || pony === null} onClick={go}
           style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player || pony === null ? 0.6 : 1 }}>
-          {busy ? 'Booking…' : pony === null ? 'Choose a pony option' : payingWithTokens ? `Book — ${cost} token${cost === 1 ? '' : 's'}` : `Book — £${chosen.money}`}
+          {busy ? 'Booking…' : pony === null ? 'Choose a pony option' : `Book — £${chosen.money}`}
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
@@ -168,8 +165,8 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
 // ── The sheet that takes a place in a club session ──────────────────────────
 //
 // Deliberately not the lesson sheet with bits hidden. There is no length to
-// choose, no individual-or-group, and no token line — a place is the whole
-// evening and it goes on the invoice — so a sheet that showed those switched
+// choose and no individual-or-group — a place is the whole evening at one
+// price — so a sheet that showed those switched
 // off would only invite the question of how to switch them on.
 
 function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
@@ -230,7 +227,7 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
       <div style={{ ...S.hint, marginTop: '8px' }}>
         {player
           ? chosen.total > 0
-            ? `£${chosen.money} goes on ${player.name}'s invoice, settled from Payments.`
+            ? `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
             : `Nothing to pay — ${player.name}'s membership covers it.`
           : 'Pick a player to see what it costs.'}
       </div>
@@ -465,7 +462,6 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
             <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '3px 0' }}>
               <span style={{ flex: 1 }}>
                 {b.name}{b.ponyHire ? ' · pony hire' : ' · own pony'}
-                <span style={{ color: 'var(--muted)' }}>{b.paid === 'invoice' ? ' · invoiced' : ''}</span>
               </span>
               <button type="button" className="remove-btn" title={`Take ${b.name} off`} onClick={() => onRemoveBooking(slot, b)}>×</button>
             </div>
@@ -575,12 +571,12 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
             )}
             {group.length === 1 && (
               <button type="button" style={S.btn} disabled={!!busy}
-                onClick={() => resolve('individual', `Make ${group[0].name}'s booking an individual lesson? It is re-priced at the individual rate if it is still unpaid.`)}>
+                onClick={() => resolve('individual', `Make ${group[0].name}'s booking an individual lesson? It is re-priced at the individual rate.`)}>
                 {busy === 'individual' ? 'Saving…' : 'Make it individual'}
               </button>
             )}
             <button type="button" style={{ ...S.btn, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy}
-              onClick={() => resolve('cancel', `Cancel this group and take ${group.length === 1 ? group[0].name : `all ${group.length} riders`} off? Tokens go back and unpaid invoices are removed.`)}>
+              onClick={() => resolve('cancel', `Cancel this group and take ${group.length === 1 ? group[0].name : `all ${group.length} riders`} off?`)}>
               {busy === 'cancel' ? 'Cancelling…' : 'Cancel the group'}
             </button>
           </div>
@@ -595,7 +591,6 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
               <span style={{ flex: 1 }}>
                 {b.name} · {TYPE_LABEL[b.type]}
                 {b.ponyHire ? ' · club pony' : ' · own pony'}
-                <span style={{ color: 'var(--muted)' }}>{b.paid === 'token' ? ` · ${b.tokensSpent || 1} token` : b.paid === 'invoice' ? ' · invoiced' : ''}</span>
               </span>
               <button type="button" className="remove-btn" title={`Take ${b.name} off`} onClick={() => onRemoveBooking(slot, b)}>×</button>
             </div>
@@ -614,7 +609,7 @@ export default function LessonsBoard({
   // chukkas. An admin may book anyone.
   teammates = [],
   onOpenTerms = null,
-  quote, tokensOf, onBook, onCancelBooking, onResolveGroup, grounds = [],
+  quote, onBook, onCancelBooking, onResolveGroup, grounds = [],
   clubSessions = [], quoteSession, onBookSession,
   // Open the board on one date, showing club sessions, and bring one slot
   // into view — how Thursday and Friday on the Chukkas tab land here.
@@ -801,7 +796,7 @@ export default function LessonsBoard({
         <BookSheet
           slot={picking.slot} session={picking.session}
           who={myPlayer} canPickPlayer={canPick} players={bookable}
-          quote={quote} tokensOf={tokensOf} onOpenTerms={onOpenTerms}
+          quote={quote} onOpenTerms={onOpenTerms}
           onCancel={() => setPicking(null)} onConfirm={confirmBooking} />
       )}
 

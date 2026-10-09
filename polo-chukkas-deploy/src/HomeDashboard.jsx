@@ -368,8 +368,8 @@ function ManageSheet({ m, onAmend, onCancel, onClose, onOpenTerms }) {
               <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Pony</legend>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {[[true, 'Club pony', m.ponyPrices ? (m.paidByToken ? 'Included' : `£${m.ponyPrices.club}`) : (m.ponyIncluded ? 'Included in the price' : '')],
-                    [false, 'My own pony', m.ponyPrices ? (m.paidByToken ? 'Bring your own' : `£${m.ponyPrices.own}`) : 'I’ll bring my own']].map(([v, label, sub]) => (
+                  {[[true, 'Club pony', m.ponyPrices ? `£${m.ponyPrices.club}` : (m.ponyIncluded ? 'Included in the price' : '')],
+                    [false, 'My own pony', m.ponyPrices ? `£${m.ponyPrices.own}` : 'I’ll bring my own']].map(([v, label, sub]) => (
                     <button key={String(v)} type="button" className="hd-choice" aria-pressed={draft.pony === v} onClick={() => set('pony', v)} style={{ minHeight: '58px', padding: '10px 12px' }}>
                       <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{label}</span>
                       {sub ? <span style={{ display: 'block', fontSize: 12, color: 'var(--hd-muted)', marginTop: 2 }}>{sub}</span> : null}
@@ -389,7 +389,7 @@ function ManageSheet({ m, onAmend, onCancel, onClose, onOpenTerms }) {
             <button type="button" className="hd-primary" onClick={onClose}><span>Back to Home</span></button>
           ) : confirming ? (
             <>
-              <div style={{ fontSize: 14, color: 'var(--hd-cream)', textAlign: 'center' }}>Cancel this booking{m.personIsMe ? '' : ` for ${m.personName}`}?{m.refundText ? ` ${m.refundText}` : ''}</div>
+              <div style={{ fontSize: 14, color: 'var(--hd-cream)', textAlign: 'center' }}>Cancel this booking{m.personIsMe ? '' : ` for ${m.personName}`}?</div>
               <button type="button" className="hd-primary" disabled={!!busy} onClick={cancel} style={{ background: '#7a1f1f' }}>
                 <span>{busy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it'}</span>
               </button>
@@ -697,7 +697,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
               {done.noConsecutive && (
                 <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Chukkas in a row</span><span>No &mdash; a gap between each</span></div>
               )}
-              <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>{done.waitlisted ? 'Charged' : booked.me ? 'On your invoice' : `On ${firstName(booked.name)}\u2019s invoice`}</span><span style={{ color: 'var(--hd-gold2)' }}>{done.waitlisted ? 'Only if a place comes up' : done.owedText || 'No charge'}</span></div>
+              <div style={{ display: 'flex' }}><span style={{ color: 'var(--hd-muted)', flex: 1 }}>Price</span><span style={{ color: 'var(--hd-gold2)' }}>{done.waitlisted ? 'Only if a place comes up' : done.priceText || 'No charge'}</span></div>
               <div style={{ fontSize: '12px', color: 'var(--hd-muted)', borderTop: '1px solid var(--hd-line)', paddingTop: '10px', lineHeight: 1.5 }}>
                 {done.waitlisted ? 'The captain will be in touch if a place comes up.'
                   : booked.me ? 'Your team and chukkas show on Home as soon as the captain publishes the draw.'
@@ -748,7 +748,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
                 ))}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px' }}>
-                You can book anyone on your team{people[0] && people[0].team ? ` (${people[0].team})` : ''}. Their charge goes on their own invoice.
+                You can book anyone on your team{people[0] && people[0].team ? ` (${people[0].team})` : ''}. They pay for their own place.
               </div>
             </div>
           )}
@@ -965,13 +965,9 @@ function CaptainPanel({ c, go }) {
           </div>
         )}
         <div style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>{c.closes}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          <button type="button" className="hd-btn" style={{ background: 'var(--hd-burg)', borderColor: 'var(--hd-gold)' }} onClick={() => go('draw')}>Open the list</button>
-          <button type="button" className="hd-btn" onClick={() => go('payments')}>Payments</button>
-        </div>
+        <button type="button" className="hd-btn" style={{ background: 'var(--hd-burg)', borderColor: 'var(--hd-gold)' }} onClick={() => go('draw')}>Open the list</button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: '8px' }}>
-        <button type="button" className="hd-stat hd-choice" onClick={() => go('payments')}><b>{c.owedText}</b><span>Invoices waiting</span></button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' }}>
         <button type="button" className="hd-stat hd-choice" onClick={() => go('draw')}><b>{c.waiting}</b><span>Waiting lists</span></button>
         <button type="button" className="hd-stat hd-choice" onClick={() => go('lessons')}><b>{c.lessons}</b><span>Lessons this week</span></button>
       </div>
@@ -1066,8 +1062,6 @@ export default function HomeDashboard(props) {
                 <div className="hd-eyebrow" style={{ fontSize: '10px', marginTop: '4px' }}>Handicap</div>
               </div>
             </div>
-            {/* Tokens and what is owed are left off: payment is heading to
-                Stripe, and the Payments tab still has both for the club. */}
             {/* Everything still to come, chukkas and lessons apart. Each tile
                 opens where those bookings live. Ladies Only and Instructional
                 are booked in Lessons, so they count there. */}
