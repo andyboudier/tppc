@@ -9,8 +9,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 //
 // Props: rates (the card in force), defaults (the printed card), doc (the
 // saved changes, for who changed it and when), ponyLabels, entryLabels,
-// ownPony (false for a club that sells no own-pony lesson price),
-// onSave(doc | null) — null goes back to the printed card.
+// onSave(doc | null) — null goes back to the printed card. The clubs' cards
+// differ in shape, so the shape is described rather than assumed:
+//   tiers          the two prices on each lesson line: [[key, label], …]
+//                  (TPPC and Vaux civilian/military; Druids standard/student)
+//   chukkaFeeLabels  one box per key of rates.chukkaFee
+//   discountKey / discountLabel   the per-chukka pony-hire discount
+//   ownPony        false for a club that sells no own-pony lesson price
 
 const S = {
   card: { border: '1px solid var(--line)', borderRadius: '12px', padding: '12px 14px', marginBottom: '10px', background: 'var(--cream-pale)' },
@@ -22,11 +27,17 @@ const S = {
 };
 
 const str = (v) => (v == null ? '' : String(v));
-const toDraft = (r) => ({
-  lessons: r.lessons.map(l => ({ id: l.id, label: l.label, civ: str(l.civ), mil: str(l.mil), ownCiv: l.own ? str(l.own.civ) : '', ownMil: l.own ? str(l.own.mil) : '' })),
-  chukkaFee: { civ: str(r.chukkaFee.civ), mil: str(r.chukkaFee.mil) },
+const TIERS = [['civ', 'Civilian'], ['mil', 'Military']];
+const CHUKKA_FEE_LABELS = { civ: 'Civilian, per chukka', mil: 'Military / veteran, per chukka' };
+const toDraft = (r, tiers, discountKey) => ({
+  lessons: r.lessons.map(l => {
+    const row = { id: l.id, label: l.label };
+    tiers.forEach(([t]) => { row[t] = str(l[t]); row[`own_${t}`] = l.own ? str(l.own[t]) : ''; });
+    return row;
+  }),
+  chukkaFee: Object.fromEntries(Object.entries(r.chukkaFee).map(([k, v]) => [k, str(v)])),
   ponyHire: Object.fromEntries(Object.entries(r.ponyHire).map(([k, v]) => [k, str(v)])),
-  milPonyDiscount: str(r.milPonyDiscount),
+  discount: str(r[discountKey]),
   entry: Object.fromEntries(Object.entries(r.entry).map(([c, opts]) => [c, opts.map(o => ({ id: o.id, label: o.label, fee: str(o.fee) }))])),
 });
 const ok = (v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
@@ -47,8 +58,13 @@ function Money({ id, label, value, onChange, optional }) {
   );
 }
 
-export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, entryLabels = {}, ownPony = true, onSave }) {
-  const start = useMemo(() => toDraft(rates), [rates]);
+export default function RateCardEditor({
+  rates, defaults, doc, ponyLabels = {}, entryLabels = {}, onSave,
+  tiers = TIERS, chukkaFeeLabels = CHUKKA_FEE_LABELS,
+  discountKey = 'milPonyDiscount', discountLabel = 'Military discount, per chukka',
+  ownPony = true,
+}) {
+  const start = useMemo(() => toDraft(rates, tiers, discountKey), [rates]); // eslint-disable-line react-hooks/exhaustive-deps
   const [d, setD] = useState(start);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ kind: '', text: '' });
@@ -58,12 +74,13 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
   const problems = [];
   d.lessons.forEach(l => {
     if (!l.label.trim()) problems.push('Every lesson line needs a name.');
-    if (!ok(l.civ) || !ok(l.mil)) problems.push(`${l.label || 'A lesson'}: civilian and military prices are needed.`);
-    if ((l.ownCiv !== '' || l.ownMil !== '') && !(ok(l.ownCiv) && ok(l.ownMil))) problems.push(`${l.label}: give both own-pony prices, or leave both blank.`);
+    if (tiers.some(([t]) => !ok(l[t]))) problems.push(`${l.label || 'A lesson'}: ${tiers.map(([, lab]) => lab.toLowerCase()).join(' and ')} prices are needed.`);
+    const own = tiers.map(([t]) => l[`own_${t}`]);
+    if (own.some(v => v !== '') && !own.every(ok)) problems.push(`${l.label}: give every own-pony price, or leave them all blank.`);
   });
-  if (!ok(d.chukkaFee.civ) || !ok(d.chukkaFee.mil)) problems.push('Chukka fees need both prices.');
+  if (Object.values(d.chukkaFee).some(v => !ok(v))) problems.push('Chukka fees need a price.');
   Object.entries(d.ponyHire).forEach(([k, v]) => { if (!ok(v)) problems.push(`Pony hire (${ponyLabels[k] || k}) needs a price.`); });
-  if (!ok(d.milPonyDiscount)) problems.push('The military pony discount needs a figure (0 for none).');
+  if (!ok(d.discount)) problems.push(`The ${discountLabel.replace(/,.*$/, '').toLowerCase()} needs a figure (0 for none).`);
   Object.entries(d.entry).forEach(([c, opts]) => opts.forEach(o => { if (!o.label.trim() || !ok(o.fee)) problems.push(`${entryLabels[c] || c} entry: each line needs a name and a fee.`); }));
   const uniqueProblems = [...new Set(problems)];
 
@@ -76,14 +93,15 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
     const printedOwn = new Set(defaults.lessons.filter(l => l.own).map(l => l.id));
     const out = {
       lessons: d.lessons.map(l => {
-        const row = { id: l.id, label: l.label.trim(), civ: n(l.civ), mil: n(l.mil) };
-        if (l.ownCiv !== '' && l.ownMil !== '') row.own = { civ: n(l.ownCiv), mil: n(l.ownMil) };
+        const row = { id: l.id, label: l.label.trim() };
+        tiers.forEach(([t]) => { row[t] = n(l[t]); });
+        if (ownPony && tiers.every(([t]) => l[`own_${t}`] !== '')) row.own = Object.fromEntries(tiers.map(([t]) => [t, n(l[`own_${t}`])]));
         else if (printedOwn.has(l.id)) row.own = null; // the printed card has one; the admin took it away
         return row;
       }),
-      chukkaFee: { civ: n(d.chukkaFee.civ), mil: n(d.chukkaFee.mil) },
+      chukkaFee: Object.fromEntries(Object.entries(d.chukkaFee).map(([k, v]) => [k, n(v)])),
       ponyHire: Object.fromEntries(Object.entries(d.ponyHire).map(([k, v]) => [k, n(v)])),
-      milPonyDiscount: n(d.milPonyDiscount),
+      [discountKey]: n(d.discount),
       entry: Object.fromEntries(Object.entries(d.entry).map(([c, opts]) => [c, opts.map(o => ({ id: o.id, label: o.label.trim(), fee: n(o.fee) }))])),
     };
     try { await onSave(out); setMsg({ kind: 'ok', text: 'Saved. New bookings use these prices from now on.' }); }
@@ -91,7 +109,7 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
     setBusy(false);
   };
   const backToPrinted = async () => {
-    if (!window.confirm('Go back to the printed rate card? Every change made here is removed. Invoices already raised are not changed.')) return;
+    if (!window.confirm('Go back to the printed rate card? Every change made here is removed.')) return;
     setBusy(true);
     try { await onSave(null); setMsg({ kind: 'ok', text: 'Back to the printed rate card.' }); }
     catch (e) { setMsg({ kind: 'err', text: 'That didn’t save — check your connection and try again.' }); }
@@ -107,16 +125,14 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
       </div>
 
       <div style={S.h}>Lessons and coaching</div>
-      <div style={{ ...S.hint, marginBottom: '8px' }}>{ownPony ? 'The first two prices include a club pony. The own-pony prices are used when the rider brings their own; leave them blank where there is no separate price.' : 'Civilian and military prices for each lesson.'}</div>
+      <div style={{ ...S.hint, marginBottom: '8px' }}>{ownPony ? 'The first two prices include a club pony. The own-pony prices are used when the rider brings their own; leave them blank where there is no separate price.' : `${tiers.map(([, lab]) => lab).join(' and ')} prices for each lesson.`}</div>
       {d.lessons.map((l, i) => (
         <div key={l.id} style={S.card}>
           <label style={S.label} htmlFor={`rc-${l.id}-label`}>Name</label>
           <input id={`rc-${l.id}-label`} className="input-field" type="text" value={l.label} onChange={e => setLesson(i, 'label', e.target.value)} style={{ width: '100%', padding: '9px 10px', fontSize: '14px', marginBottom: '10px' }} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' }}>
-            <Money id={`rc-${l.id}-civ`} label="Civilian" value={l.civ} onChange={v => setLesson(i, 'civ', v)} />
-            <Money id={`rc-${l.id}-mil`} label="Military" value={l.mil} onChange={v => setLesson(i, 'mil', v)} />
-            {ownPony && <Money id={`rc-${l.id}-ownciv`} label="Own pony · civilian" value={l.ownCiv} optional onChange={v => setLesson(i, 'ownCiv', v)} />}
-            {ownPony && <Money id={`rc-${l.id}-ownmil`} label="Own pony · military" value={l.ownMil} optional onChange={v => setLesson(i, 'ownMil', v)} />}
+            {tiers.map(([t, lab]) => <Money key={t} id={`rc-${l.id}-${t}`} label={lab} value={l[t]} onChange={v => setLesson(i, t, v)} />)}
+            {ownPony && tiers.map(([t, lab]) => <Money key={`own-${t}`} id={`rc-${l.id}-own${t}`} label={`Own pony · ${lab.toLowerCase()}`} value={l[`own_${t}`]} optional onChange={v => setLesson(i, `own_${t}`, v)} />)}
           </div>
         </div>
       ))}
@@ -124,8 +140,9 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
       <div style={S.h}>Chukka fees · non-members</div>
       <div style={S.card}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' }}>
-          <Money id="rc-cf-civ" label="Civilian, per chukka" value={d.chukkaFee.civ} onChange={v => setD(x => ({ ...x, chukkaFee: { ...x.chukkaFee, civ: v } }))} />
-          <Money id="rc-cf-mil" label="Military / veteran, per chukka" value={d.chukkaFee.mil} onChange={v => setD(x => ({ ...x, chukkaFee: { ...x.chukkaFee, mil: v } }))} />
+          {Object.keys(d.chukkaFee).map(k => (
+            <Money key={k} id={`rc-cf-${k}`} label={chukkaFeeLabels[k] || k} value={d.chukkaFee[k]} onChange={v => setD(x => ({ ...x, chukkaFee: { ...x.chukkaFee, [k]: v } }))} />
+          ))}
         </div>
         <div style={{ ...S.hint, marginTop: '8px' }}>Memberships that include chukka fees pay nothing here.</div>
       </div>
@@ -136,7 +153,7 @@ export default function RateCardEditor({ rates, defaults, doc, ponyLabels = {}, 
           {Object.keys(d.ponyHire).map(k => (
             <Money key={k} id={`rc-ph-${k}`} label={ponyLabels[k] || k} value={d.ponyHire[k]} onChange={v => setD(x => ({ ...x, ponyHire: { ...x.ponyHire, [k]: v } }))} />
           ))}
-          <Money id="rc-ph-mil" label="Military discount, per chukka" value={d.milPonyDiscount} onChange={v => setD(x => ({ ...x, milPonyDiscount: v }))} />
+          <Money id="rc-ph-discount" label={discountLabel} value={d.discount} onChange={v => setD(x => ({ ...x, discount: v }))} />
         </div>
       </div>
 
