@@ -49,6 +49,7 @@
 //   savePhoto(dataUrl | 'none' | '')   '' goes back to the sign-in's photo
 //   changePassword(pw)             sets it, or adds one to a Google/Apple account
 //   idToken() → string             the signed-in user's Firebase ID token, or ''
+//   acceptTerms(version)           records acceptance of the booking terms on the profile
 //   listAdmins() → [email]         admins only
 //   setAdmins([email])             admins only
 //
@@ -82,6 +83,7 @@ export const noAuth = {
   savePhoto: notEnabled,
   changePassword: notEnabled,
   idToken: async () => '',
+  acceptTerms: notEnabled,
   listAdmins: async () => [],
   setAdmins: notEnabled,
 };
@@ -101,6 +103,7 @@ export const authSnapshot = () => {
     user: a.user || null,
     role: a.role || 'anon',
     profile: a.profile || null,
+    profileReady: a.profileReady !== false,
     // Admins fixed by the deployment's configuration, never removable in-app.
     fixedAdmins: (a.fixedAdmins || []).map((e) => String(e).toLowerCase()),
     // A sign-in link waiting for its address, or one that failed — the app

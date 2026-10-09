@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import {
   enterStageMode, exitStageMode, reacquireWakeLock,
   isFullscreen, canFullscreen, canWakeLock,
@@ -21,6 +21,9 @@ import AuthActionPage from './AuthActionPage';
 import { emailAction as readEmailAction, clearEmailAction } from './emailAction';
 import { LUX_CSS } from './luxTheme';
 import { bookingEmail, manageRequest, clearManageRequest } from './bookingEmail';
+import TermsSheet, { TermsLine } from './TermsSheet';
+import RateCardEditor from './RateCardEditor';
+import { TERMS_VERSION } from './terms';
 import { hadSignIn, noteSignIn, isMine, owedBy, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
@@ -216,7 +219,7 @@ const LESSON_SLOT_RATES = {
   group:      { 1: 'grp-1hr', 2: 'grp-2hr' },
 };
 
-const lessonById = (id) => LESSON_TYPES_2026.find(l => l.id === id) || LESSON_TYPES_2026[0];
+const lessonById = (id) => RATES.lessons.find(l => l.id === id) || RATES.lessons[0];
 
 // Tournament team entry fees (per team) from the Arena Price List, Winter
 // 26/27: priced by category and length, with no handicap bands.
@@ -235,7 +238,7 @@ const TOURNAMENT_ENTRY_2026 = {
   ],
 };
 const ENTRY_CATEGORY_LABEL = { member: 'Members', nonmember: 'Non-Members', military: 'Military' };
-const entryOptions = (cat) => TOURNAMENT_ENTRY_2026[cat] || [];
+const entryOptions = (cat) => RATES.entry[cat] || [];
 const entryOptionById = (cat, id) => entryOptions(cat).find(o => o.id === id) || null;
 
 // Membership categories. The Winter 26/27 list includes chukka fees in every
@@ -259,6 +262,55 @@ const MEMBERSHIP_TYPES_2026 = [
   { id: 'mil-unit',         label: 'Mil · Unit Membership',              chukkasIncluded: true,  mil: true },
 ];
 const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || MEMBERSHIP_TYPES_2026[0];
+
+// ── The rate card in force ──────────────────────────────────────────────────
+// The printed card above is the default. An admin can change any figure from
+// Admin area → Rate card (RateCardEditor.jsx); the changes are one shared
+// document, `rate-card`, laid over the defaults by id, so a line the document
+// does not mention keeps its printed price and a new printed line appears by
+// itself. Everything that prices reads RATES — never the printed constants —
+// so a saved change reaches every booking screen at once. Invoices already
+// raised keep the price they were raised at.
+const RATE_CARD_DEFAULTS = {
+  lessons: LESSON_TYPES_2026,
+  chukkaFee: { civ: 15, mil: 10 },
+  ponyHire: PONY_HIRE_2026,
+  milPonyDiscount: MILITARY_DISCOUNT_PER_CHUKKA,
+  entry: TOURNAMENT_ENTRY_2026,
+};
+const PONY_HIRE_LABELS = { club: 'Club chukka', '-6 to -2': '−6 to −2 match', '-2 to 0': '−2 to 0 match', '0 to 2': '0 to 2 match', '2 to 4': '2 to 4 match' };
+const rateMoney = (v, fallback) => {
+  const n = Number(v);
+  return v !== '' && v != null && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : fallback;
+};
+const mergeRateCard = (doc) => {
+  if (!doc || typeof doc !== 'object') return RATE_CARD_DEFAULTS;
+  const byId = (arr) => new Map((Array.isArray(arr) ? arr : []).filter(x => x && x.id).map(x => [x.id, x]));
+  const L = byId(doc.lessons);
+  const lessons = RATE_CARD_DEFAULTS.lessons.map((d) => {
+    const o = L.get(d.id);
+    if (!o) return d;
+    const out = { id: d.id, label: String(o.label || d.label).trim() || d.label, civ: rateMoney(o.civ, d.civ), mil: rateMoney(o.mil, d.mil) };
+    // `own: null` in the document takes the own-pony price away.
+    const own = o.own === null ? null : (o.own || d.own);
+    if (own) out.own = { civ: rateMoney(own.civ, d.own ? d.own.civ : 0), mil: rateMoney(own.mil, d.own ? d.own.mil : 0) };
+    return out;
+  });
+  const cf = doc.chukkaFee || {};
+  const ph = doc.ponyHire || {};
+  const entry = Object.fromEntries(Object.entries(RATE_CARD_DEFAULTS.entry).map(([cat, opts]) => {
+    const E = byId(doc.entry && doc.entry[cat]);
+    return [cat, opts.map(d => { const o = E.get(d.id); return o ? { id: d.id, label: String(o.label || d.label).trim() || d.label, fee: rateMoney(o.fee, d.fee) } : d; })];
+  }));
+  return {
+    lessons,
+    chukkaFee: { civ: rateMoney(cf.civ, RATE_CARD_DEFAULTS.chukkaFee.civ), mil: rateMoney(cf.mil, RATE_CARD_DEFAULTS.chukkaFee.mil) },
+    ponyHire: Object.fromEntries(Object.entries(RATE_CARD_DEFAULTS.ponyHire).map(([k, v]) => [k, rateMoney(ph[k], v)])),
+    milPonyDiscount: rateMoney(doc.milPonyDiscount, RATE_CARD_DEFAULTS.milPonyDiscount),
+    entry,
+  };
+};
+let RATES = RATE_CARD_DEFAULTS;
 
 // A player accumulates live-match goals while a game is scored. Whenever a team
 // or squad is reused — pulled into another fixture/match, copied to another
@@ -403,7 +455,7 @@ const VIEW_STATE_KEY = 'tppc-view';
 const VIEW_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
 // Tabs only a captain may sit on: a restore or a locked PIN bounces off these
 // back to Home.
-const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams'];
+const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams', 'rates'];
 // Tabs that appear once a member has signed in (or the captain PIN is on):
 // signed out, the bar is Home, Fixtures, Live and More, and Home is the
 // sign-in screen. Lessons is the diary for a captain and a booking page for
@@ -1250,6 +1302,10 @@ export default function PoloChukkas() {
   const [notice, setNotice] = useState(null);
   // Lessons and club sessions with their bookings — see lessons.js.
   const [lessonSlots, setLessonSlots] = useState([]);
+  // The admins' changes to the printed rate card (see mergeRateCard). RATES
+  // is set from it on every render, before anything prices.
+  const [rateCardDoc, setRateCardDoc] = useState(null);
+  RATES = useMemo(() => mergeRateCard(rateCardDoc), [rateCardDoc]);
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
   const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -2459,11 +2515,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       // document and no live listener, so before negative caching it was a
       // guaranteed server round-trip on every single load.
       const one = (key) => window.storage.get(key, true).catch(() => null);
-      const [w, cm, m, p, s, t, gp, nt, ls] = await Promise.all([
+      const [w, cm, m, p, s, t, gp, nt, ls, rc] = await Promise.all([
         one('wa-link'), one('committee'), one('members'),
         one('players'), one('subsidies'), one('transactions'), one('ground-pins'),
-        one('notice'), one('lesson-slots'),
+        one('notice'), one('lesson-slots'), one('rate-card'),
       ]);
+      try {
+        const doc = rc && rc.value ? JSON.parse(rc.value) : null;
+        setRateCardDoc(doc && typeof doc === 'object' ? doc : null);
+      } catch (e) { setRateCardDoc(null); }
       try {
         if (w?.value) setWaLink(w.value);
       } catch (e) {}
@@ -2640,6 +2700,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // One shared document of lessons and club sessions. The board owns the diary; the
   // money and the tokens stay here, where the rates, the military flag and
   // the subsidy pots already live.
+  // Admin area → Rate card. `null` goes back to the printed card.
+  const saveRateCard = async (doc) => {
+    if (!captainMode) return;
+    if (!doc) {
+      setRateCardDoc(null);
+      await window.storage.delete('rate-card', true);
+      return;
+    }
+    const stamped = { ...doc, updatedAt: Date.now(), updatedBy: (auth.user && (auth.user.email || auth.user.displayName)) || 'captain' };
+    setRateCardDoc(stamped);
+    await window.storage.set('rate-card', JSON.stringify(stamped), true);
+  };
   const saveLessonSlots = async (next) => {
     setLessonSlots(next);
     try { await window.storage.set('lesson-slots', JSON.stringify(next), true); }
@@ -3227,7 +3299,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Winter 26/27 chukka fees: a non-member pays £15 a chukka, a military or
     // veteran non-member £10. Every winter membership includes them.
     const mil = !!(p && p.military) || !!mem.mil;
-    return mil ? 10 : 15;
+    return mil ? RATES.chukkaFee.mil : RATES.chukkaFee.civ;
   };
   const priceBooking = (player, chukkas, ponyLevel, dayKey = activeDay) => {
     const n = Math.max(0, parseInt(chukkas, 10) || 0);
@@ -3251,13 +3323,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         ponyHire: 0, chukkaFee: 0, gross: total, militaryDiscount: 0, total,
       };
     }
-    const ponyHire = wantsPony ? (PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club) : 0;
+    const ponyHire = wantsPony ? (RATES.ponyHire[ponyLevel] != null ? RATES.ponyHire[ponyLevel] : RATES.ponyHire.club) : 0;
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
     if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
       return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, total: 0 };
     }
     const gross = (ponyHire + chukkaFee) * n;
-    const militaryDiscount = (wantsPony && player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n; // the £5 is the pony-hire delta
+    const militaryDiscount = (wantsPony && player && player.military ? RATES.milPonyDiscount : 0) * n; // the £5 is the pony-hire delta
     const total = Math.max(0, gross - militaryDiscount);   // subsidies apply to lessons, not chukkas
     return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire, chukkaFee, gross, militaryDiscount, total };
   };
@@ -5560,6 +5632,23 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // change a booking is the same as who may make or take one off: the member,
   // their team, or an admin.
   const [manageReq, setManageReq] = useState(() => manageRequest());
+  // ── The booking terms (terms.js, TermsSheet.jsx) ───────────────────────
+  // Read from the footer, any booking screen, or a booking email's link
+  // (?terms=1). With sign-in on, a member accepts them once — the version
+  // and the moment go on their profile — and again whenever TERMS_VERSION
+  // changes; until then the accept screen stands in front of the app.
+  const [termsOpen, setTermsOpen] = useState(() => {
+    try { return new URL(window.location.href).searchParams.get('terms') === '1'; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('terms')) { url.searchParams.delete('terms'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
+    } catch (e) { /* nothing to tidy */ }
+  }, []);
+  const openTerms = () => setTermsOpen(true);
+  const needTerms = !!(auth.enabled && auth.ready && auth.user && auth.profileReady
+    && !(auth.profile && auth.profile.termsVersion === TERMS_VERSION));
   useEffect(() => { if (manageReq) clearManageRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (manageReq && homeSignedIn) { setActiveTab('home'); window.scrollTo(0, 0); }
@@ -7310,6 +7399,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onManageAmend={manageAmend}
               onManageCancel={manageCancel}
               onManageClose={() => setManageReq(null)}
+              onOpenTerms={openTerms}
               openChukkas={homeOpenChukkas}
               openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
               openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}
@@ -7334,6 +7424,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     { id: 'lessons', icon: '🎓', label: 'Lessons',  blurb: 'Coaching slots and who is booked in', go: () => setActiveTab('lessons') },
                     { id: 'players', icon: '👥', label: 'Players',  blurb: 'The player database, handicaps and tokens', go: () => { setPlayersView('players'); setActiveTab('players'); } },
                     { id: 'payments', icon: '💷', label: 'Payments', blurb: 'Take a payment and settle what is owed',   go: () => { setPlayersView('checkout'); setActiveTab('players'); } },
+                    { id: 'rates',   icon: '🏷️', label: 'Rate card', blurb: 'Prices for lessons, chukkas, pony hire and entries', go: () => setActiveTab('rates') },
                     { id: 'teams',   icon: '🏆', label: 'Teams',    blurb: 'Tournament entries and team sheets',        go: () => setActiveTab('teams') },
                     { id: 'shop',    icon: '🛍️', label: 'Shop',     blurb: 'Club shop (preview)',                       go: () => setActiveTab('shop') },
                   ].map(a => (
@@ -8162,6 +8253,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     >
                       Privacy notice
                     </button>
+                    <TermsLine onOpen={openTerms} style={{ fontSize: '11px', marginTop: '4px' }} />
                   </div>
                 </div>
               </section>
@@ -10709,7 +10801,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         </div>
 
                         <select className="input-field select-field" value={checkout.ponyLevel} onChange={e => setCheckout({ ...checkout, ponyLevel: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
-                          {ponyOpts.map(([k, l]) => <option key={k} value={k}>{k === 'none' ? l : `Pony hire: ${l} (£${PONY_HIRE_2026[k]})`}</option>)}
+                          {ponyOpts.map(([k, l]) => <option key={k} value={k}>{k === 'none' ? l : `Pony hire: ${l} (£${RATES.ponyHire[k]})`}</option>)}
                         </select>
 
                         {bd.freeToRoster ? (
@@ -10793,7 +10885,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     )}
                     <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Lesson
                       <select className="select-field" value={lesson.lessonId} onChange={e => { setLessonError(''); setLesson({ ...lesson, lessonId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
-                        {LESSON_TYPES_2026.map(l => (
+                        {RATES.lessons.map(l => (
                           <option key={l.id} value={l.id}>{l.label} — £{l.civ} / £{l.mil} mil{l.own ? ` (own pony £${l.own.civ} / £${l.own.mil})` : ''}</option>
                         ))}
                       </select>
@@ -10882,8 +10974,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               focus={lessonsFocus}
               quoteSession={quoteClubSession}
               onBookSession={bookClubSession}
+              onOpenTerms={openTerms}
             />
             </>
+          )}
+
+          {activeTab === 'rates' && captainMode && (
+            <RateCardEditor
+              rates={RATES}
+              defaults={RATE_CARD_DEFAULTS}
+              doc={rateCardDoc}
+              ponyLabels={PONY_HIRE_LABELS}
+              entryLabels={ENTRY_CATEGORY_LABEL}
+              onSave={saveRateCard}
+            />
           )}
 
           {activeTab === 'teams' && captainMode && (() => {
@@ -11035,6 +11139,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               Privacy
             </button>
             <span style={{ opacity: 0.3 }}>·</span>
+            <button onClick={openTerms}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer', padding: 0, opacity: 0.7 }}>
+              Terms
+            </button>
+            <span style={{ opacity: 0.3 }}>·</span>
             {auth.enabled && auth.ready && (
               <>
                 {auth.user ? (
@@ -11164,6 +11273,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           <AuthSheet open onClose={() => setHomeAuth(null)} auth={{ ...auth, enabled: true }} startAt={homeAuth}
             handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} providerHintFor={providerHintFor} />
         )}
+        {needTerms && !actionPage && !homeAuth && !authSheetOpen ? (
+          <TermsSheet mode="accept" onAccept={() => window.auth.acceptTerms(TERMS_VERSION)}
+            onSignOut={() => { if (window.auth && window.auth.signOut) window.auth.signOut().catch(() => {}); }} />
+        ) : termsOpen && !actionPage ? (
+          <TermsSheet mode="read" onClose={() => setTermsOpen(false)} onOpenPrivacy={() => { setTermsOpen(false); setPrivacyOpen(true); }} />
+        ) : null}
         {actionPage && (
           <AuthActionPage action={actionPage}
             ready={(auth.methods || []).length > 0 && !!(window.auth && window.auth.checkResetCode)}

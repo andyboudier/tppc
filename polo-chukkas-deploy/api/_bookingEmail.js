@@ -166,14 +166,15 @@ export function renderBookingEmail({ req, found, person, appUrl }) {
         <a href="${esc(cta.href)}" style="display:inline-block;background:#6b1f2a;border:1px solid #b8924a;color:#f4ecd8;text-decoration:none;font-family:Georgia,'Times New Roman',serif;font-size:17px;padding:13px 26px;border-radius:14px">${esc(cta.label)}</a>
       </td></tr>
       <tr><td align="center" style="font-size:12px;color:#9c8d77;line-height:1.6;padding:6px 10px">
-        ${cancelled ? '' : 'Can&rsquo;t make it after all? Cancelling in the app frees your place for someone else.<br>'}Tedworth Park Polo Club · Tidworth, Wiltshire
+        ${cancelled ? '' : 'Can&rsquo;t make it after all? Cancel in the app as early as you can: it frees your place, and the booking terms explain when a charge applies.<br>'}This booking is made under the club&rsquo;s <a href="${esc(appUrl)}/?terms=1" style="color:#d4a85a">booking terms</a>.<br>Tedworth Park Polo Club · Tidworth, Wiltshire
       </td></tr>
     </table>
   </td></tr></table></body></html>`;
   const text = [
     head, `Hello ${firstName(person.name)},`, lead, '',
     `${found.title}`, `${when}${found.ground ? ` · ${found.ground}` : ''}`, ...lines, '',
-    `${cta.label}: ${cta.href}`,
+    `${cta.label}: ${cta.href}`, '',
+    `Booking terms: ${appUrl}/?terms=1`,
   ].join('\n');
   return { subject, html, text };
 }

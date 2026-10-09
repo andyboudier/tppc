@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { TermsLine } from './TermsSheet';
 import {
   MIN_GROUP, MAX_GROUP,
   addDays, slotOptions, takenAs, groupShort, blankSlot, blockedReason, bookingsFor, bySlotTime,
@@ -92,7 +93,7 @@ function PonyChoice({ value, onChange, withPony, without }) {
 
 // ── The sheet that takes a booking ──────────────────────────────────────────
 
-function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf, onCancel, onConfirm }) {
+function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
   const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
@@ -158,6 +159,7 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
+      <TermsLine onOpen={onOpenTerms} style={{ marginTop: '8px', color: 'var(--muted)' }} />
       {error && <div style={S.err}>{error}</div>}
     </div>
   );
@@ -170,7 +172,7 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, tokensOf
 // evening and it goes on the invoice — so a sheet that showed those switched
 // off would only invite the question of how to switch them on.
 
-function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel, onConfirm }) {
+function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
   const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
@@ -240,6 +242,7 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
+      <TermsLine onOpen={onOpenTerms} style={{ marginTop: '8px', color: 'var(--muted)' }} />
       {error && <div style={S.err}>{error}</div>}
     </div>
   );
@@ -610,6 +613,7 @@ export default function LessonsBoard({
   // A member may book themselves or anyone on their team — the same rule as
   // chukkas. An admin may book anyone.
   teammates = [],
+  onOpenTerms = null,
   quote, tokensOf, onBook, onCancelBooking, onResolveGroup, grounds = [],
   clubSessions = [], quoteSession, onBookSession,
   // Open the board on one date, showing club sessions, and bring one slot
@@ -789,7 +793,7 @@ export default function LessonsBoard({
         <SessionSheet
           slot={taking} kind={kindOf(taking)}
           who={myPlayer} canPickPlayer={canPick} players={bookable}
-          quote={quoteSession}
+          quote={quoteSession} onOpenTerms={onOpenTerms}
           onCancel={() => setTaking(null)} onConfirm={confirmPlace} />
       )}
 
@@ -797,7 +801,7 @@ export default function LessonsBoard({
         <BookSheet
           slot={picking.slot} session={picking.session}
           who={myPlayer} canPickPlayer={canPick} players={bookable}
-          quote={quote} tokensOf={tokensOf}
+          quote={quote} tokensOf={tokensOf} onOpenTerms={onOpenTerms}
           onCancel={() => setPicking(null)} onConfirm={confirmBooking} />
       )}
 

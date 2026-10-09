@@ -489,3 +489,26 @@ own), and the clubs keep sign-in dormant unless they ask.
   and `<base>-<day>` otherwise; Druids always suffixes.
 - Each club sets its own palette, so anchors that include a colour need matching
   loosely when mirroring.
+
+**Booking terms** (`terms.js` for the text and `TERMS_VERSION`, `TermsSheet.jsx`
+for the screen). The committee's working copy is the shared "TPPC Booking Terms
+and Conditions" doc; `terms.js` is that text, kept in step by hand, and still
+marked draft (`TERMS_DRAFT`). With sign-in on, a member accepts once — an
+unticked box, Continue off until it is ticked — and `auth.acceptTerms` puts
+`termsVersion` and `termsAcceptedAt` on their profile (beside the photo,
+leaving `updated` alone). `needTerms` waits for `auth.profileReady`, so the
+screen never flashes before the profile has loaded, and it comes back
+whenever `TERMS_VERSION` changes. The terms are linked under every Book button
+(`TermsLine`: Home's sheet, "Your booking", lessons and sessions, the Chukkas
+form), from the footer beside Privacy, and from every booking email
+(`?terms=1` opens them). The app does not yet keep a charge for a late
+cancellation; clause 4.2–4.3 waits on the committee's notice period.
+
+**The rate card is editable** (Admin area → Rate card, `RateCardEditor.jsx`).
+The printed constants are only defaults: the admins' changes are one shared
+document, `rate-card`, laid over them by id (`mergeRateCard`), and every price
+reads `RATES` — set from it on each render — never the constants. Lessons
+(with the own-pony price, which can be taken away with `own: null`),
+non-member chukka fees, pony hire per chukka and the military discount, and
+tournament entry. New bookings use a change at once; invoices already raised
+keep their price. "Back to the printed card" deletes the document.

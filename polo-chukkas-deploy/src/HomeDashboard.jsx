@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { TermsLine } from './TermsSheet';
 import { greeting, firstName, readUsual, writeUsual, icsFor, initialsOf } from './home';
 import { authErrorText } from './auth';
 
@@ -218,7 +219,7 @@ const lbl = { display: 'block', fontSize: 11, letterSpacing: 2, textTransform: '
 // stands, whether this member may change it, and what may be changed. A chukka
 // can change its chukkas, pony, times and no-consecutive; a lesson only its
 // pony, since its time is the slot's — to move a lesson, cancel and rebook.
-function ManageSheet({ m, onAmend, onCancel, onClose }) {
+function ManageSheet({ m, onAmend, onCancel, onClose, onOpenTerms }) {
   const isLesson = m.kind === 'lesson';
   const [draft, setDraft] = useState(() => ({
     chukkas: m.chukkas || 2, pony: !!m.pony, from: m.from || '', to: m.to || '', noConsecutive: !!m.noConsecutive,
@@ -401,6 +402,7 @@ function ManageSheet({ m, onAmend, onCancel, onClose }) {
               </button>
               <button type="button" className="hd-btn" disabled={!!busy} onClick={() => setConfirming(true)}
                 style={{ minHeight: 48, justifyContent: 'center', color: '#f0b9b9', borderColor: '#7a3b3b' }}>Cancel this booking</button>
+              <TermsLine onOpen={onOpenTerms} style={{ textAlign: 'center', color: 'var(--hd-muted)' }} />
             </>
           )}
         </div>
@@ -560,7 +562,7 @@ function Logon({ onSignIn, openFixtures, openLive }) {
 }
 
 // ── The booking sheet ───────────────────────────────────────────────────────
-function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions }) {
+function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initialKey, quote, book, undo, onClose, directions, onOpenTerms }) {
   const usual = readUsual(me.id);
   // Who is being booked: 'me', or a teammate's player id. Each person has
   // their own standing — booked, blocked by handicap — so the list follows.
@@ -878,6 +880,7 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
           <button type="button" className="hd-primary hd-shimmer" disabled={!canConfirm} onClick={confirm}>
             <span>{busy ? 'Booking…' : waitlist ? 'Join the waiting list' : 'Confirm booking'}</span>
           </button>
+          <TermsLine onOpen={onOpenTerms} style={{ textAlign: 'center', color: 'var(--hd-muted)' }} />
         </div>
       </div>
     </div>
@@ -985,7 +988,7 @@ export default function HomeDashboard(props) {
     openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
     // An email's "Amend or cancel" link: the booking to show (null when there
     // is none, or nobody is signed in yet) and whether one is waiting on sign-in.
-    manage, manageWaiting, onManageAmend, onManageCancel, onManageClose,
+    manage, manageWaiting, onManageAmend, onManageCancel, onManageClose, onOpenTerms,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -1145,11 +1148,11 @@ export default function HomeDashboard(props) {
       )}
 
       {manage && (
-        <ManageSheet key={manage.key} m={manage} onAmend={onManageAmend} onCancel={onManageCancel} onClose={onManageClose} />
+        <ManageSheet key={manage.key} m={manage} onAmend={onManageAmend} onCancel={onManageCancel} onClose={onManageClose} onOpenTerms={onOpenTerms} />
       )}
 
       {booking && me && (
-        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo}
+        <BookSheet me={me} sessions={sessions} people={people} sessionsFor={sessionsFor} initialKey={booking} quote={quote} book={book} undo={undo} onOpenTerms={onOpenTerms}
           directions={directions} onClose={() => setBooking(null)} />
       )}
     </div>
