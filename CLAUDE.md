@@ -85,9 +85,9 @@ reach nobody.
 are named there or a captain's next save wipes the link. The player editor's
 **Sign-in account** panel is where a captain unlinks, relinks to the account
 signed in now, and merges a duplicate. `mergePlayers` keeps the primary's id
-because rosters, waiting lists, lesson bookings and transactions all point at
-it — and `mergePlayerInto` re-points whatever the duplicate had collected, or
-the merge would quietly detach somebody's chukkas and their invoices. The merge
+because rosters, waiting lists and lesson bookings all point at it — and
+`mergePlayerInto` re-points whatever the duplicate had collected, or the merge
+would quietly detach somebody's chukkas and lessons. The merge
 is field-agnostic on purpose: TPPC has `military` and `team`, Druids has
 `student` and neither, and naming fields would drop one or invent another.
 Druids and Vaux have **no waiting list**, so that step is TPPC's alone.
@@ -142,7 +142,7 @@ loads.
 
 With a provider installed (the PoloACT demo does this with Firebase Auth):
 `captainMode` means *admin* (rosters, draw, players, tournaments, shop,
-payments), `canScore` (the PIN, or an admin) gates live scoring only, and a
+rate card), `canScore` (the PIN, or an admin) gates live scoring only, and a
 signed-in member books as themselves and can remove only their own entry.
 `src/AuthSheet.jsx` is the sign-in sheet and the Admins panel. Both files are
 in the demo's resync list.
@@ -246,26 +246,53 @@ through `priceBooking` with that day, so a session costs exactly what the same
 evening costs on the Chukkas tab: Instructional is the rate card's flat
 £110/£105 with the pony in it, Ladies Only is the ordinary tariff for two
 chukkas. No session price is restated anywhere. The day's `maxHandicap` gate
-applies too. Sessions are invoice-only — a token buys an hour of *coaching*, and
-spending one on chukkas unasked is not the app's call. `CLUB_SESSIONS` must stay
+applies too. `CLUB_SESSIONS` must stay
 below `DAY_CONFIG`: it reads the start-time constants at load. Druids and Vaux
 ship the same `lessons.js` and `LessonsBoard.jsx` but pass no catalogue, and
 with none the board is exactly as it was.
 
-Payment is a token wallet that falls back to an invoice: `tokens` on the player
-record (one token buys an hour) is spent when the player has enough, otherwise
-the cash price raises the same `'due'` transaction the Payments tab already
-settles. Cancelling returns the token, or removes the invoice if it is still
-unpaid. Note `savePlayer` builds an **explicit whitelist** — a field not named
-there is dropped on every save.
+**No payment is taken in the apps yet** (all four). Payment is moving to a
+Stripe payment link; until that is connected a booking is simply accepted, and
+every booking screen shows what it will cost, so the price is known up front.
+There is no token wallet, no invoice ("due" transaction), no Payments or
+Checkout screen and no manual lesson sale — all were removed on the way to
+Stripe, and the old `transactions` document is no longer read. When Stripe is
+wired in, the booking paths (`handleAdd`, `promoteFromWaitlist`, `bookLesson`,
+`bookClubSession`) are where a payment link is created; `bookingPrice`,
+`priceBooking`, `quoteLesson` and `quoteClubSession` give the amount. Subsidy
+pots still discount the quoted price but are not drawn down until payments
+exist. Tournament entries registered on the Teams tab are kept in
+`team-entries` with their fee, unpaid. Note `savePlayer` builds an **explicit
+whitelist** — a field not named there is dropped on every save.
+
+**The rate card is editable.** More → Rate card (`RateCardEditor.jsx`) changes
+any price: lessons, non-member chukka fees, pony hire per chukka and the
+military discount, and tournament entry. The changes are one shared document,
+`rate-card`, laid over the printed card by id (`mergeRateCard`); everything
+that prices reads `RATES` — set from it on each render — never the printed
+constants, so a change reaches every booking screen at once. "Back to the
+printed card" deletes the document. A club with no own-pony lesson price
+passes `ownPony={false}`, which hides those boxes. Each club keeps its own
+printed card and its own `rate-card` document.
+
+**Booking terms.** `terms.js` is the club's draft booking terms (the working
+copy the committee reviews is the shared doc "TPPC Booking Terms and
+Conditions"), shown full screen by `TermsSheet.jsx`. The terms are linked from
+the footer, under every Book button (`TermsLine`) and by `?terms=1`. With
+sign-in on, a member accepts them once — `auth.acceptTerms` writes
+`termsVersion` and `termsAcceptedAt` to their profile — and again whenever
+`TERMS_VERSION` changes; `needTerms` waits for `auth.profileReady` so the
+prompt never flashes. Sign-in is off for the clubs, so today only the reading
+side shows. The clubs' copy leaves out what they do not do yet (booking
+emails, the first-sign-in accept); the draft notice stays until the committee
+signs the terms off (`TERMS_DRAFT`).
 
 The tab strip is three member tabs — Chukkas, Fixtures, Live Game — plus
-**More**, which holds the captain area (Lessons, Players, Payments, Teams,
+**More**, which holds the captain area (Lessons, Players, Rate card, Teams,
 Shop). `CAPTAIN_ONLY_TABS` are the tabs a captain alone may sit on, so a
 restore or a locked PIN bounces off them; `CAPTAIN_TABS` adds `'more'`, which
 a member may open to find the PIN, and is what keeps More lit inside an area.
-Add a captain area to both. Payments deep-links to Players with
-`playersView = 'checkout'`.
+Add a captain area to both.
 
 On a phone (`max-width: 640px`) the same nav markup is restyled into a fixed
 bottom bar with icons — one nav, one state, no second copy to keep in step.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import {
   enterStageMode, exitStageMode, reacquireWakeLock,
   isFullscreen, canFullscreen, canWakeLock,
@@ -18,7 +18,10 @@ import EntryContact from './EntryContact';
 import NoticeBanner from './NoticeBanner';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, tokenCost, addClubSessionBooking, fmtHM } from './lessons';
+import TermsSheet, { TermsLine } from './TermsSheet';
+import RateCardEditor from './RateCardEditor';
+import { TERMS_VERSION } from './terms';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, addClubSessionBooking, fmtHM } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -179,7 +182,7 @@ const TEAM_HANDICAP_OPTIONS = [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5,
 // 2026 pricing inputs for the payment screen. Pony hire is the per-chukka base;
 // every military pony-hire rate sits exactly £5 below the civilian rate, so the
 // military discount is modelled as a flat £5/chukka. Match-level rates and
-// per-membership chukka fees get wired in when the checkout screen lands.
+// per-membership chukka fees get wired in with card payment.
 const MILITARY_DISCOUNT_PER_CHUKKA = 5;
 const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 145, '2 to 4': 180 };
 
@@ -207,7 +210,7 @@ const LESSON_SLOT_RATES = {
   group:      { 1: 'grp-1hr', 2: 'grp-2hr' },
 };
 
-const lessonById = (id) => LESSON_TYPES_2026.find(l => l.id === id) || LESSON_TYPES_2026[0];
+const lessonById = (id) => RATES.lessons.find(l => l.id === id) || RATES.lessons[0];
 
 // Tournament team entry fees (per team) from the Arena Price List, Winter
 // 26/27: priced by category and length, with no handicap bands.
@@ -226,14 +229,14 @@ const TOURNAMENT_ENTRY_2026 = {
   ],
 };
 const ENTRY_CATEGORY_LABEL = { member: 'Members', nonmember: 'Non-Members', military: 'Military' };
-const entryOptions = (cat) => TOURNAMENT_ENTRY_2026[cat] || [];
+const entryOptions = (cat) => RATES.entry[cat] || [];
 const entryOptionById = (cat, id) => entryOptions(cat).find(o => o.id === id) || null;
 
 // Membership categories. The Winter 26/27 list includes chukka fees in every
 // membership, Day Membership too (£40 a day, at most four a season).
 // `chukkasIncluded` drives the
 // booking branch: included → added straight to the roster; not included (or no
-// membership) → sent to checkout to pay per chukka.
+// membership) → priced per chukka.
 const MEMBERSHIP_TYPES_2026 = [
   { id: 'none',             label: 'No membership · pays per chukka',    chukkasIncluded: false },
   { id: 'civ-full',         label: 'Civ · Full Playing (incl chukkas)',  chukkasIncluded: true },
@@ -250,6 +253,54 @@ const MEMBERSHIP_TYPES_2026 = [
   { id: 'mil-unit',         label: 'Mil · Unit Membership',              chukkasIncluded: true,  mil: true },
 ];
 const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || MEMBERSHIP_TYPES_2026[0];
+
+// ── The rate card in force ──────────────────────────────────────────────────
+// The printed card above is the default. A captain can change any figure from
+// More → Rate card (RateCardEditor.jsx); the changes are one shared document,
+// `rate-card`, laid over the defaults by id, so a line the document does not
+// mention keeps its printed price and a new printed line appears by itself.
+// Everything that prices reads RATES — never the printed constants — so a
+// saved change reaches every booking screen at once.
+const RATE_CARD_DEFAULTS = {
+  lessons: LESSON_TYPES_2026,
+  chukkaFee: { civ: 15, mil: 10 },
+  ponyHire: PONY_HIRE_2026,
+  milPonyDiscount: MILITARY_DISCOUNT_PER_CHUKKA,
+  entry: TOURNAMENT_ENTRY_2026,
+};
+const PONY_HIRE_LABELS = { club: 'Club chukka', '-6 to -2': '−6 to −2 match', '-2 to 0': '−2 to 0 match', '0 to 2': '0 to 2 match', '2 to 4': '2 to 4 match' };
+const rateMoney = (v, fallback) => {
+  const n = Number(v);
+  return v !== '' && v != null && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : fallback;
+};
+const mergeRateCard = (doc) => {
+  if (!doc || typeof doc !== 'object') return RATE_CARD_DEFAULTS;
+  const byId = (arr) => new Map((Array.isArray(arr) ? arr : []).filter(x => x && x.id).map(x => [x.id, x]));
+  const L = byId(doc.lessons);
+  const lessons = RATE_CARD_DEFAULTS.lessons.map((d) => {
+    const o = L.get(d.id);
+    if (!o) return d;
+    const out = { id: d.id, label: String(o.label || d.label).trim() || d.label, civ: rateMoney(o.civ, d.civ), mil: rateMoney(o.mil, d.mil) };
+    // `own: null` in the document takes the own-pony price away.
+    const own = o.own === null ? null : (o.own || d.own);
+    if (own) out.own = { civ: rateMoney(own.civ, d.own ? d.own.civ : 0), mil: rateMoney(own.mil, d.own ? d.own.mil : 0) };
+    return out;
+  });
+  const cf = doc.chukkaFee || {};
+  const ph = doc.ponyHire || {};
+  const entry = Object.fromEntries(Object.entries(RATE_CARD_DEFAULTS.entry).map(([cat, opts]) => {
+    const E = byId(doc.entry && doc.entry[cat]);
+    return [cat, opts.map(d => { const o = E.get(d.id); return o ? { id: d.id, label: String(o.label || d.label).trim() || d.label, fee: rateMoney(o.fee, d.fee) } : d; })];
+  }));
+  return {
+    lessons,
+    chukkaFee: { civ: rateMoney(cf.civ, RATE_CARD_DEFAULTS.chukkaFee.civ), mil: rateMoney(cf.mil, RATE_CARD_DEFAULTS.chukkaFee.mil) },
+    ponyHire: Object.fromEntries(Object.entries(RATE_CARD_DEFAULTS.ponyHire).map(([k, v]) => [k, rateMoney(ph[k], v)])),
+    milPonyDiscount: rateMoney(doc.milPonyDiscount, RATE_CARD_DEFAULTS.milPonyDiscount),
+    entry,
+  };
+};
+let RATES = RATE_CARD_DEFAULTS;
 
 // A player accumulates live-match goals while a game is scored. Whenever a team
 // or squad is reused — pulled into another fixture/match, copied to another
@@ -319,7 +370,7 @@ const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
 //
 // Club-specific on purpose, beside the rate card and for the same reason: the
 // names and the prices are one club's, and a shared list would put another
-// club's evening on somebody's invoice.
+// club's evening on somebody's bill.
 //
 // `start` is only where the captain's editor opens: the club's usual time for
 // that evening, taken from the same constants as the day tabs. It sits here, below
@@ -395,7 +446,7 @@ const VIEW_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
 // Tabs only a captain may sit on: a restore or a locked PIN bounces off these
 // back to Chukkas. 'lessons' belongs here too — without it, locking the PIN
 // while in the lessons diary left you there.
-const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams', 'lessons'];
+const CAPTAIN_ONLY_TABS = ['shop', 'players', 'teams', 'lessons', 'rates'];
 // More itself is not captain-only — a member opens it to find the PIN — but it
 // stays lit while you are inside any captain area.
 const CAPTAIN_TABS = ['more', ...CAPTAIN_ONLY_TABS];
@@ -1237,6 +1288,10 @@ export default function PoloChukkas() {
   // Coaching windows and their bookings — see lessons.js. Captain-only for
   // now; the tab is gated below.
   const [lessonSlots, setLessonSlots] = useState([]);
+  // The captains' changes to the printed rate card (see mergeRateCard). RATES
+  // is set from it on every render, before anything prices.
+  const [rateCardDoc, setRateCardDoc] = useState(null);
+  RATES = useMemo(() => mergeRateCard(rateCardDoc), [rateCardDoc]);
   // Captain can manually close sign-ups for a day (e.g. when it's full), on top
   // of the automatic time-based cutoff. Persisted per day and synced.
   const [manualClosed, setManualClosed] = useState(() => Object.fromEntries(DAY_KEYS.map(k => [k, false])));
@@ -1316,7 +1371,6 @@ const [email, setEmail] = useState('');           // signup: waiting-list contac
 const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pony (affects price) — off by default
   const [error, setError] = useState('');
   const [bookingMsg, setBookingMsg] = useState('');   // post-signup cost confirmation
-  const [dueMethod, setDueMethod] = useState({});      // per-due payment-method picker in Checkout
 
   // Throw-in time editor (captain mode)
   // The match-details editor opens well below the fold on a long fixture, so
@@ -1396,13 +1450,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [subsidies, setSubsidies] = useState([]);
   const [subsidyEditor, setSubsidyEditor] = useState(null); // null | draft
   const [subError, setSubError] = useState('');
-  const [playersView, setPlayersView] = useState('players'); // 'players' | 'subsidies' | 'checkout'
-  const [transactions, setTransactions] = useState([]);
-  const [checkout, setCheckout] = useState({ playerId: '', day: 'wed', chukkas: '4', ponyLevel: 'club', method: 'cash', note: '' });
-  const [coError, setCoError] = useState('');
-  const [lesson, setLesson] = useState({ playerId: '', lessonId: 'ind-1hr', method: 'cash', note: '' });
-  const [lessonError, setLessonError] = useState('');
-  const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-1d', method: 'transfer', note: '' });
+  const [playersView, setPlayersView] = useState('players'); // 'players' | 'subsidies' | 'admins'
+  // Tournament entries registered from the Teams tab. Nothing is charged:
+  // the fee is shown, and paid by card once online payment is live.
+  const [teamEntries, setTeamEntries] = useState([]);
+  const [teamReg, setTeamReg] = useState({ fixtureId: '', team: '', contact: '', mobile: '', category: 'member', optionId: 'm-1d', note: '' });
   const [teamRegError, setTeamRegError] = useState('');
 
   // Fixtures state
@@ -1667,6 +1719,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  // ── The booking terms (terms.js, TermsSheet.jsx) ───────────────────────
+  // Read from the footer, any booking screen, or a link (?terms=1). With
+  // sign-in on, a member accepts them once — the version and the moment go
+  // on their profile — and again whenever TERMS_VERSION changes; until then
+  // the accept screen stands in front of the app. Sign-in is off for the
+  // club, so today only the reading side applies.
+  const [termsOpen, setTermsOpen] = useState(() => {
+    try { return new URL(window.location.href).searchParams.get('terms') === '1'; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('terms')) { url.searchParams.delete('terms'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
+    } catch (e) { /* nothing to tidy */ }
+  }, []);
+  const openTerms = () => setTermsOpen(true);
+  const needTerms = !!(auth.enabled && auth.ready && auth.user && auth.profileReady
+    && !(auth.profile && auth.profile.termsVersion === TERMS_VERSION));
   const [liveFixtureId, setLiveFixtureId] = useState(() => (restoredView && restoredView.liveFixtureId) || null);
   const [liveDayId, setLiveDayId] = useState(() => (restoredView && restoredView.liveDayId) || null);
   const [liveMatchId, setLiveMatchId] = useState(() => (restoredView && restoredView.liveMatchId) || null);
@@ -2430,11 +2500,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       // document and no live listener, so before negative caching it was a
       // guaranteed server round-trip on every single load.
       const one = (key) => window.storage.get(key, true).catch(() => null);
-      const [w, cm, m, p, s, t, gp, nt, ls] = await Promise.all([
+      const [w, cm, m, p, s, t, gp, nt, ls, rc] = await Promise.all([
         one('wa-link'), one('committee'), one('members'),
-        one('players'), one('subsidies'), one('transactions'), one('ground-pins'),
-        one('notice'), one('lesson-slots'),
+        one('players'), one('subsidies'), one('team-entries'), one('ground-pins'),
+        one('notice'), one('lesson-slots'), one('rate-card'),
       ]);
+      try {
+        const doc = rc && rc.value ? JSON.parse(rc.value) : null;
+        setRateCardDoc(doc && typeof doc === 'object' ? doc : null);
+      } catch (e) { setRateCardDoc(null); }
       try {
         if (w?.value) setWaLink(w.value);
       } catch (e) {}
@@ -2451,7 +2525,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         if (s?.value) { const arr = JSON.parse(s.value); if (Array.isArray(arr)) setSubsidies(arr); }
       } catch (e) {}
       try {
-        if (t?.value) { const arr = JSON.parse(t.value); if (Array.isArray(arr)) setTransactions(arr); }
+        if (t?.value) { const arr = JSON.parse(t.value); if (Array.isArray(arr)) setTeamEntries(arr); }
       } catch (e) {}
       try {
         if (gp?.value) { const o = JSON.parse(gp.value); if (o && typeof o === 'object') setGroundPins(o); }
@@ -2609,15 +2683,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // --- Lessons (see lessons.js) ---
   // One shared document of coaching windows. The board owns the diary; the
-  // money and the tokens stay here, where the rates, the military flag and
-  // the subsidy pots already live.
+  // money stays here, where the rates, the military flag and the subsidy
+  // pots already live.
+  // More → Rate card. `null` goes back to the printed card.
+  const saveRateCard = async (doc) => {
+    if (!captainMode) return;
+    if (!doc) {
+      setRateCardDoc(null);
+      await window.storage.delete('rate-card', true);
+      return;
+    }
+    const stamped = { ...doc, updatedAt: Date.now(), updatedBy: (auth.user && (auth.user.email || auth.user.displayName)) || 'captain' };
+    setRateCardDoc(stamped);
+    await window.storage.set('rate-card', JSON.stringify(stamped), true);
+  };
   const saveLessonSlots = async (next) => {
     setLessonSlots(next);
     try { await window.storage.set('lesson-slots', JSON.stringify(next), true); }
     catch (err) { setError('Lessons saved on this device only — check your connection.'); }
   };
-
-  const tokensOf = (player) => Math.max(0, Number(player && player.tokens) || 0);
 
   // What a lesson costs, with and without a pony. Pony hire is charged per
   // hour, as it is per chukka elsewhere: a lesson needs a fresh pony the same
@@ -2629,7 +2713,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const lt = lessonById(rateId);
     const priced = player ? priceLesson(player, lt.id) : { lessonLabel: lt.label, base: lt.civ, subsidyDeductions: [], total: lt.civ };
     const level = ponyLevel || 'club';
-    const pony = ponyHire ? (PONY_HIRE_2026[level] != null ? PONY_HIRE_2026[level] : PONY_HIRE_2026.club) * h : 0;
+    const pony = ponyHire ? (RATES.ponyHire[level] != null ? RATES.ponyHire[level] : RATES.ponyHire.club) * h : 0;
     const total = Math.max(0, priced.total + pony);
     const bits = [`${lt.label} £${fmtMoney(priced.base)}`];
     if (pony) bits.push(`pony hire £${fmtMoney(pony)} (${h} hr)`);
@@ -2661,10 +2745,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
              money: fmtMoney(bd.total), detail: bits.join(' · ') || 'Nothing to pay.' };
   };
 
-  // Book a place in a club session. Deliberately invoice-only, with no token
-  // path: a token buys an hour of COACHING, and these are chukkas priced off
-  // the club tariff. Spending somebody's coaching tokens on a chukka session
-  // without being asked is not a thing to do quietly.
+  // Book a place in a club session. The price is shown and the place
+  // accepted; nothing is charged until card payment is live.
   const bookClubSession = async ({ slot, player, ponyHire }) => {
     const kind = clubSessionById(slot.kind);
     if (!kind) return { error: 'That session is no longer offered.' };
@@ -2675,86 +2757,34 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       return { error: `${kind.label} is for handicap ${cfg.maxHandicap} and below; ${player.name} is ${player.handicap}.` };
     }
     const bd = quoteClubSession(player, kind.id, ponyHire);
-    let txId = '';
-    if (bd.total > 0) {
-      txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const dueTx = {
-        id: txId, date: Date.now(), kind: 'lesson', playerId: player.id, playerName: player.name, day: null,
-        lessonId: bd.lessonId || '', lessonLabel: kind.label, base: bd.gross, militaryRate: !!player.military,
-        ponyHire: bd.ponyHire * (bd.instructional ? 0 : kind.chukkas),
-        chukkas: kind.chukkas, instructional: !!bd.instructional,
-        subsidyDeductions: [],
-        total: bd.total, status: 'due', method: '', note: `${kind.label} ${slot.date} ${slot.start}`,
-      };
-      const nextTx = [dueTx, ...transactions];
-      setTransactions(nextTx);
-      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-    }
     const res = addClubSessionBooking(slot, {
       playerId: player.id, name: player.name, ponyHire: !!ponyHire,
-      paid: bd.total > 0 ? 'invoice' : 'free', tokensSpent: 0, txId,
       uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
     });
     if (!res.ok) return { error: res.error };
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
     return { message: bd.total > 0
-      ? `Booked for ${player.name} — £${bd.money} added to their invoices.`
+      ? `Booked for ${player.name} — £${bd.money}, payable by card once online payment is live.`
       : `Booked for ${player.name}.` };
   };
 
-  // Book a lesson. Tokens first where the player has enough, otherwise the
-  // cash price goes on their invoice — the same 'due' transaction the
-  // Payments tab already settles, so Stripe later has one thing to pay off.
+  // Book a lesson. The price is shown and the place accepted; nothing is
+  // charged until card payment is live.
   const bookLesson = async ({ slot, session, player, ponyHire }) => {
     const hours = Math.max(1, Number(session.hours) || 1);
     const bd = quoteLesson(player, session.type, hours, ponyHire);
-    const cost = tokenCost(hours);
-    const have = tokensOf(player);
-    const byToken = have >= cost;
-    let txId = '';
-    if (!byToken) {
-      txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const dueTx = {
-        id: txId, date: Date.now(), kind: 'lesson', playerId: player.id, playerName: player.name, day: null,
-        lessonId: bd.lessonId, lessonLabel: bd.lessonLabel, base: bd.base, militaryRate: !!player.military,
-        ponyHire: bd.pony,
-        subsidyDeductions: (bd.subsidyDeductions || []).filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
-        total: bd.total, status: 'due', method: '', note: `Lesson ${slot.date} ${session.start}`,
-      };
-      const nextTx = [dueTx, ...transactions];
-      setTransactions(nextTx);
-      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-    }
     const res = addLessonBooking(slot, {
       playerId: player.id, name: player.name, start: session.start, hours,
       type: session.type, ponyHire: !!ponyHire,
-      paid: byToken ? 'token' : 'invoice', tokensSpent: byToken ? cost : 0, txId,
       uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
     }, LESSON_SLOT_RATES);
     if (!res.ok) return { error: res.error };
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? res.slot : s)));
-    if (byToken) await savePlayerDb(playerDb.map(p => (p.id === player.id ? { ...p, tokens: have - cost } : p)));
-    return { message: byToken
-      ? `Booked for ${player.name} — ${cost} token${cost === 1 ? '' : 's'} used, ${have - cost} left.`
-      : `Booked for ${player.name} — £${bd.money} added to their invoices.` };
+    return { message: bd.total > 0 ? `Booked for ${player.name} — £${bd.money}, payable by card once online payment is live.` : `Booked for ${player.name}.` };
   };
 
-  // Cancelling puts back whatever was taken: the token, or the unpaid
-  // invoice. An invoice already settled is left alone — that is a refund,
-  // and a refund is the captain's decision, not the app's.
   const cancelLessonBooking = async (slot, booking) => {
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? removeLessonBooking(s, booking.id) : s)));
-    if (booking.paid === 'token' && booking.playerId) {
-      const back = Number(booking.tokensSpent) || tokenCost(booking.hours);
-      await savePlayerDb(playerDb.map(p => (p.id === booking.playerId ? { ...p, tokens: tokensOf(p) + back } : p)));
-    } else if (booking.paid === 'invoice' && booking.txId) {
-      const tx = transactions.find(t => t.id === booking.txId);
-      if (tx && tx.status === 'due') {
-        const nextTx = transactions.filter(t => t.id !== booking.txId);
-        setTransactions(nextTx);
-        try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-      }
-    }
   };
 
   // Captain's manual "we're full" switch, on top of the automatic 24-hour cutoff.
@@ -2870,9 +2900,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // Free text. Players with the same team may book each other in, once
     // sign-in is on — see myPlayer.
     team: '',
-    // Lesson tokens: one buys an hour of coaching. A stand-in until Stripe,
-    // so deliberately a plain count rather than a rate card — see lessons.js.
-    tokens: 0,
   });
   const teamNames = [...new Set(playerDb.map(p => (p.team || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const newPlayerId = (salt = '') => `p-${Date.now()}-${salt}${Math.random().toString(36).slice(2, 7)}`;
@@ -2902,16 +2929,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   // Fold one player into another. The merged record keeps the primary's id
-  // because everything else points at it — rosters, waiting lists, lesson
-  // bookings and every transaction — but the duplicate may have collected
+  // because everything else points at it — rosters, waiting lists and lesson
+  // bookings — but the duplicate may have collected
   // references of its own, so those are moved across before it is removed.
-  // Skipping that would quietly detach somebody's chukkas and their invoices.
+  // Skipping that would quietly detach somebody's chukkas and lessons.
   const mergePlayerInto = async (primaryId, otherId) => {
     const primary = playerDb.find(p => p.id === primaryId);
     const other = playerDb.find(p => p.id === otherId);
     if (!primary || !other || primary.id === other.id) return;
     const merged = mergePlayers(primary, other);
-    if (!window.confirm(`Merge "${other.name}" into "${primary.name}"?\n\nOne record is left, under "${merged.name}". Their chukkas, lessons and invoices are moved across. This cannot be undone.`)) return;
+    if (!window.confirm(`Merge "${other.name}" into "${primary.name}"?\n\nOne record is left, under "${merged.name}". Their chukkas and lessons are moved across. This cannot be undone.`)) return;
 
     await savePlayerDb(playerDb.filter(p => p.id !== other.id).map(p => (p.id === primary.id ? merged : p)));
 
@@ -2927,11 +2954,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (wl.some(e => e.playerId === other.id)) {
         await saveWaitlist(wl.map(e => (e.playerId === other.id ? { ...e, playerId: primary.id, name: merged.name } : e)), dk);
       }
-    }
-    if (transactions.some(t => t.playerId === other.id)) {
-      const nextTx = transactions.map(t => (t.playerId === other.id ? { ...t, playerId: primary.id, playerName: merged.name } : t));
-      setTransactions(nextTx);
-      try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
     }
     if (lessonSlots.some(sl => (sl.bookings || []).some(b => b.playerId === other.id))) {
       await saveLessonSlots(lessonSlots.map(sl => ({
@@ -2970,9 +2992,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       active: draft.active !== false,
       subsidies: Array.isArray(draft.subsidies) ? draft.subsidies : [],
       notes: (draft.notes || '').trim(),
-      // Lesson tokens. The record is an explicit whitelist, so a field that
-      // is not named here is dropped on every save — as this one was.
-      tokens: Math.max(0, parseInt(draft.tokens, 10) || 0),
       team: (draft.team || '').trim().replace(/\s+/g, ' '),
       // The account this player signs in as, and the ways they have used. Both
       // are set by signing in, not by this form — but the record is an explicit
@@ -3124,14 +3143,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const activeSubsidies = subsidies.filter(s => s.active !== false);
   const lowSubsidies = activeSubsidies.filter(s => (Number(s.balance) || 0) <= (Number(s.lowThreshold) || 0));
 
-  // --- Payments / checkout (manual mark-paid; Stripe slots in here later) ---
+  // --- Prices. Shown when booking; nothing is charged until card payment
+  // is live (Stripe slots in here). ---
   const chukkaFeeFor = (p) => {
     const mem = membershipById((p && p.membership) || 'none');
     if (mem.chukkasIncluded) return 0;
     // Winter 26/27 chukka fees: a non-member pays £15 a chukka, a military or
     // veteran non-member £10. Every winter membership includes them.
     const mil = !!(p && p.military) || !!mem.mil;
-    return mil ? 10 : 15;
+    return mil ? RATES.chukkaFee.mil : RATES.chukkaFee.civ;
   };
   const priceBooking = (player, chukkas, ponyLevel, dayKey = activeDay) => {
     const n = Math.max(0, parseInt(chukkas, 10) || 0);
@@ -3155,92 +3175,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         ponyHire: 0, chukkaFee: 0, gross: total, militaryDiscount: 0, total,
       };
     }
-    const ponyHire = wantsPony ? (PONY_HIRE_2026[ponyLevel] != null ? PONY_HIRE_2026[ponyLevel] : PONY_HIRE_2026.club) : 0;
+    const ponyHire = wantsPony ? (RATES.ponyHire[ponyLevel] != null ? RATES.ponyHire[ponyLevel] : RATES.ponyHire.club) : 0;
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
     if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
       return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, total: 0 };
     }
     const gross = (ponyHire + chukkaFee) * n;
-    const militaryDiscount = (wantsPony && player && player.military ? MILITARY_DISCOUNT_PER_CHUKKA : 0) * n; // the £5 is the pony-hire delta
+    const militaryDiscount = (wantsPony && player && player.military ? RATES.milPonyDiscount : 0) * n; // the £5 is the pony-hire delta
     const total = Math.max(0, gross - militaryDiscount);   // subsidies apply to lessons, not chukkas
     return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire, chukkaFee, gross, militaryDiscount, total };
   };
-  const addPlayerToRoster = async (dayKey, player, chukkas) => {
-    const list = rosters[dayKey] || [];
-    const norm = (player.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-    if (list.some(p => (p.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === norm)) return false;
-    const entry = {
-      id: Date.now(), name: player.name, mobile: player.mobile || undefined,
-      handicap: player.handicap == null ? 0 : Number(player.handicap),
-      chukkas: Math.max(1, Math.min(8, parseInt(chukkas, 10) || 1)),
-      availableFrom: '', availableTo: '', vip: false, noConsecutive: false,
-    };
-    await saveRoster([...list, entry], dayKey);
-    return true;
-  };
-  const recordPayment = async (player, bd, opts) => {
-    const o = opts || {};
-    const paid = (bd.subsidyDeductions || []).filter(d => d.amount > 0);
-    if (paid.length) {
-      const nextSubs = subsidies.map(s => {
-        const d = paid.find(x => x.id === s.id);
-        return d ? { ...s, balance: (Number(s.balance) || 0) - d.amount, spent: (Number(s.spent) || 0) + d.amount, updatedAt: Date.now() } : s;
-      });
-      await saveSubsidies(nextSubs);
-    }
-    const tx = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
-      playerId: player.id, playerName: player.name, chukkas: bd.chukkas, ponyLevel: bd.ponyLevel,
-      ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
-      instructional: !!bd.instructional, lessonLabel: bd.lessonLabel || '',
-      subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
-      total: bd.total, status: 'paid', day: o.day || null, method: o.method || 'manual', note: (o.note || '').trim(), paidDate: Date.now(),
-    };
-    const nextTx = [tx, ...transactions];
-    setTransactions(nextTx);
-    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-    if (o.addToRoster && o.day) await addPlayerToRoster(o.day, player, bd.chukkas);
-    return tx;
-  };
-  const markDuePaid = async (txId, method) => {
-    const tx = transactions.find(t => t.id === txId);
-    if (!tx || tx.status === 'paid') return;
-    if (tx.subsidyDeductions && tx.subsidyDeductions.length) {
-      const nextSubs = subsidies.map(s => {
-        const d = tx.subsidyDeductions.find(x => x.id === s.id);
-        if (!d) return s;
-        const take = Math.max(0, Math.min(d.amount, Number(s.balance) || 0)); // never push a pot negative
-        return { ...s, balance: (Number(s.balance) || 0) - take, spent: (Number(s.spent) || 0) + take, updatedAt: Date.now() };
-      });
-      await saveSubsidies(nextSubs);
-    }
-    const next = transactions.map(t => (t.id === txId ? { ...t, status: 'paid', method: method || 'cash', paidDate: Date.now() } : t));
-    setTransactions(next);
-    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
-  };
-  const voidDue = async (txId) => {
-    const tx = transactions.find(t => t.id === txId);
-    if (!tx) return;
-    if (!window.confirm(`Remove the £${fmtMoney(tx.total)} charge for ${tx.playerName}? Use this if they didn't play or you've taken them off the roster.`)) return;
-    const next = transactions.filter(t => t.id !== txId);
-    setTransactions(next);
-    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
-  };
-  const deleteTx = async (txId) => {
-    const next = transactions.filter(t => t.id !== txId);
-    setTransactions(next);
-    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
-  };
-  const clearHistory = async () => {
-    const paid = transactions.filter(t => t.status !== 'due');
-    if (!paid.length) return;
-    if (!window.confirm(`Clear ${paid.length} recorded payment${paid.length === 1 ? '' : 's'} from the history? This removes the records only — it does not refund subsidy pots or change outstanding dues.`)) return;
-    const next = transactions.filter(t => t.status === 'due');
-    setTransactions(next);
-    try { await window.storage.set('transactions', JSON.stringify(next), true); } catch (e) {}
-  };
-
-  // --- Lessons (coaching) pricing + payment. Subsidy pots apply here. ---
+  // --- Lessons (coaching) pricing. Subsidy pots apply here. ---
   const priceLesson = (player, lessonId) => {
     const lt = lessonById(lessonId);
     const mil = !!(player && player.military);
@@ -3257,57 +3202,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     });
     return { lessonId: lt.id, lessonLabel: lt.label, base, militaryRate: mil, subsidyDeductions, total: Math.max(0, running) };
   };
-  const recordLessonPayment = async (player, bd, opts) => {
-    const o = opts || {};
-    const paid = (bd.subsidyDeductions || []).filter(d => d.amount > 0);
-    if (paid.length) {
-      const nextSubs = subsidies.map(s => {
-        const d = paid.find(x => x.id === s.id);
-        return d ? { ...s, balance: (Number(s.balance) || 0) - d.amount, spent: (Number(s.spent) || 0) + d.amount, updatedAt: Date.now() } : s;
-      });
-      await saveSubsidies(nextSubs);
-    }
-    const tx = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'lesson',
-      playerId: player.id, playerName: player.name, lessonId: bd.lessonId, lessonLabel: bd.lessonLabel,
-      base: bd.base, militaryRate: bd.militaryRate,
-      subsidyDeductions: paid.map(d => ({ id: d.id, name: d.name, amount: d.amount })),
-      total: bd.total, status: 'paid', method: o.method || 'manual', note: (o.note || '').trim(), paidDate: Date.now(),
-    };
-    const nextTx = [tx, ...transactions];
-    setTransactions(nextTx);
-    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-    return tx;
-  };
-  const doLessonPaid = async () => {
-    setLessonError('');
-    const pl = playerDb.find(p => p.id === lesson.playerId);
-    if (!pl) { setLessonError('Pick a player first.'); return; }
-    const bd = priceLesson(pl, lesson.lessonId);
-    await recordLessonPayment(pl, bd, { method: lesson.method, note: lesson.note });
-    setLessonError(`Recorded £${fmtMoney(bd.total)} (${lesson.method}) for ${pl.name} — ${bd.lessonLabel}.`);
-    setLesson(prev => ({ ...prev, playerId: '', note: '' }));
-  };
-  const doLessonDue = async () => {
-    setLessonError('');
-    const pl = playerDb.find(p => p.id === lesson.playerId);
-    if (!pl) { setLessonError('Pick a player first.'); return; }
-    const bd = priceLesson(pl, lesson.lessonId);   // pots are drawn down on settle, not now
-    const dueTx = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'lesson',
-      playerId: pl.id, playerName: pl.name, day: null,
-      lessonId: bd.lessonId, lessonLabel: bd.lessonLabel, base: bd.base, militaryRate: bd.militaryRate,
-      subsidyDeductions: bd.subsidyDeductions.filter(d => d.amount > 0).map(d => ({ id: d.id, name: d.name, amount: d.amount })),
-      total: bd.total, status: 'due', method: '', note: (lesson.note || '').trim(),
-    };
-    const nextTx = [dueTx, ...transactions];
-    setTransactions(nextTx);
-    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-    setLessonError(`Booked ${bd.lessonLabel} for ${pl.name} — £${fmtMoney(bd.total)} added to invoices.`);
-    setLesson(prev => ({ ...prev, playerId: '', note: '' }));
-  };
-
-  // --- Tournament team registration + entry-fee payment (Teams tab). ---
+  // --- Tournament team registration (Teams tab). The fee is shown; nothing
+  // is charged until card payment is live. ---
   const priceEntry = (category, optionId) => {
     const o = entryOptionById(category, optionId) || entryOptions(category)[0];
     return { category, optionId: o ? o.id : '', label: o ? o.label : '', fee: o ? o.fee : 0 };
@@ -3318,53 +3214,31 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!entryOptionById(teamReg.category, teamReg.optionId)) { setTeamRegError('Pick an entry band.'); return false; }
     return true;
   };
-  const buildEntryTx = (status, method) => {
+  const saveTeamEntries = async (next) => {
+    setTeamEntries(next);
+    try { await window.storage.set('team-entries', JSON.stringify(next), true); }
+    catch (e) { setTeamRegError('Saved on this device only — check your connection.'); }
+  };
+  const doEntryRegister = async () => {
+    setTeamRegError('');
+    if (!validateEntry()) return;
     const fx = fixtures.find(f => f.id === teamReg.fixtureId);
     const bd = priceEntry(teamReg.category, teamReg.optionId);
-    return {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(), kind: 'entry',
+    const entry = {
+      id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
       fixtureId: teamReg.fixtureId, fixtureName: fx ? fx.name : '', fixtureDate: fx ? fx.date : '',
       team: (teamReg.team || '').trim(), contact: (teamReg.contact || '').trim(), mobile: (teamReg.mobile || '').trim(),
-      category: bd.category, optionId: bd.optionId, entryLabel: bd.label, total: bd.fee,
-      subsidyDeductions: [], status, method: status === 'paid' ? (method || 'transfer') : '',
-      note: (teamReg.note || '').trim(), paidDate: status === 'paid' ? Date.now() : null,
+      category: bd.category, optionId: bd.optionId, entryLabel: bd.label, fee: bd.fee,
+      note: (teamReg.note || '').trim(),
     };
-  };
-  const persistTx = async (tx) => {
-    const nextTx = [tx, ...transactions];
-    setTransactions(nextTx);
-    try { await window.storage.set('transactions', JSON.stringify(nextTx), true); } catch (e) {}
-  };
-  const doEntryPaid = async () => {
-    setTeamRegError('');
-    if (!validateEntry()) return;
-    const tx = buildEntryTx('paid', teamReg.method);
-    await persistTx(tx);
-    setTeamRegError(`Recorded £${fmtMoney(tx.total)} (${tx.method}) — ${tx.team} entered in ${tx.fixtureName || 'fixture'}.`);
+    await saveTeamEntries([entry, ...teamEntries]);
+    setTeamRegError(`Registered ${entry.team} for ${entry.fixtureName || 'fixture'} — entry fee £${fmtMoney(entry.fee)}.`);
     setTeamReg(prev => ({ ...prev, team: '', contact: '', mobile: '', note: '' }));
   };
-  const doEntryDue = async () => {
-    setTeamRegError('');
-    if (!validateEntry()) return;
-    const tx = buildEntryTx('due', '');
-    await persistTx(tx);
-    setTeamRegError(`Registered ${tx.team} for ${tx.fixtureName || 'fixture'} — £${fmtMoney(tx.total)} added to invoices.`);
-    setTeamReg(prev => ({ ...prev, team: '', contact: '', mobile: '', note: '' }));
-  };
-  const doMarkPaid = async () => {
-    setCoError('');
-    const pl = playerDb.find(p => p.id === checkout.playerId);
-    if (!pl) { setCoError('Pick a player first.'); return; }
-    const dayUp = (checkout.day || 'wed').toUpperCase();
-    const bd = priceBooking(pl, checkout.chukkas, checkout.ponyLevel, checkout.day);
-    if (bd.freeToRoster) {
-      const added = await addPlayerToRoster(checkout.day, pl, checkout.chukkas);
-      setCoError(added ? `${pl.name} added to ${dayUp} roster — no charge.` : `${pl.name} is already on the ${dayUp} roster.`);
-      return;
-    }
-    await recordPayment(pl, bd, { method: checkout.method, note: checkout.note, addToRoster: true, day: checkout.day });
-    setCoError(`Recorded £${fmtMoney(bd.total)} (${checkout.method}) for ${pl.name} and added to ${dayUp} roster.`);
-    setCheckout(prev => ({ ...prev, playerId: '', note: '' }));
+  const removeTeamEntry = async (id) => {
+    const t = teamEntries.find(x => x.id === id);
+    if (!t || !window.confirm(`Take ${t.team} out of ${t.fixtureName || 'this fixture'}?`)) return;
+    await saveTeamEntries(teamEntries.filter(x => x.id !== id));
   };
 
   // Fill the booking form from a saved member
@@ -3460,28 +3334,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     }
   };
 
-  // Interim (pre-Stripe): quote the cost and, if anything is owed, log a 'due'
-  // item the captain settles under Checkout. They go on the roster either way;
-  // the captain can remove them later if unpaid. Returns the amount owed as
-  // text, or '' when there is nothing to pay.
-  const chargeForBooking = (cleanedName, c, wantsPony, dayKey = activeDay) => {
+  // What a chukka booking will cost, as text: shown when the booking is
+  // made, but nothing is charged until card payment is live. '' when there
+  // is nothing to pay.
+  const bookingPrice = (cleanedName, c, wantsPony, dayKey = activeDay) => {
     const rec = playerDb.find(x => (x.name || '').trim().toLowerCase() === cleanedName.toLowerCase());
     const subject = rec || { membership: 'none', military: false, subsidies: [] };
     const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none', dayKey);
     if (bd.total <= 0) return '';
-    const dueTx = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date: Date.now(),
-      playerId: rec ? rec.id : null, playerName: cleanedName, day: dayKey,
-      chukkas: c, ponyLevel: wantsPony ? 'club' : 'none',
-      ponyHire: bd.ponyHire, chukkaFee: bd.chukkaFee, gross: bd.gross, militaryDiscount: bd.militaryDiscount,
-      instructional: !!bd.instructional, lessonLabel: bd.lessonLabel || '',
-      subsidyDeductions: [],
-      total: bd.total, status: 'due', method: '', note: '',
-    };
-    const nextTx = [dueTx, ...transactions];
-    setTransactions(nextTx);
-    window.storage.set('transactions', JSON.stringify(nextTx), true).catch(() => {});
-    return `\u00a3${fmtMoney(bd.total)} due${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}`;
+    return `\u00a3${fmtMoney(bd.total)}${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}`;
   };
 
   const handleAdd = () => {
@@ -3498,10 +3359,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const newPlayer = signupEntry(v);
     saveRoster([...players, newPlayer]);
     upsertMember(newPlayer);
-    const owed = chargeForBooking(v.cleanedName, v.c, ponyHire);
+    const price = bookingPrice(v.cleanedName, v.c, ponyHire);
     const who = newPlayer.bookedBy ? `${v.cleanedName} added` : 'Added';
-    setBookingMsg(owed
-      ? `${who} to the roster. ${owed} \u2014 please settle with the Captain.`
+    setBookingMsg(price
+      ? `${who} to the roster \u2014 ${price}, payable by card once online payment is live.`
       : `${who} to the roster \u2014 no charge.`);
     clearSignupForm();
     saveSchedule(null);
@@ -3546,8 +3407,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   // A cancellation has freed a place (or the captain has decided to squeeze
-  // someone in): move a waiting-list entry across to the roster. This is where
-  // the booking is charged, since joining the list costs nothing.
+  // someone in): move a waiting-list entry across to the roster.
   const promoteFromWaitlist = (id) => {
     const entry = waitingList.find(w => w.id === id);
     if (!entry) return;
@@ -3556,10 +3416,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     upsertMember(player);
     saveWaitlist(waitingList.filter(w => w.id !== id));
     saveSchedule(null);
-    const owed = chargeForBooking(player.name, player.chukkas, !!player.ponyHire);
+    const price = bookingPrice(player.name, player.chukkas, !!player.ponyHire);
     // Stamped with the day so the prompt cannot follow the captain onto
     // another tab, where its date and throw-in would be wrong.
-    setPromoted({ ...entry, owed, day: activeDay });
+    setPromoted({ ...entry, price, day: activeDay });
   };
 
   const removeFromWaitlist = (id) => {
@@ -3575,8 +3435,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       `Hi ${entry.name.split(' ')[0]},`,
       '',
       `A place has come up for the ${activeDayConfig.fullLabel} chukkas on ${getDateStr()}, throw-in ${fmtTime(throwInMin)}${ground ? ` (${ground})` : ''}. You\u2019re on the roster.`,
-      entry.owed ? `` : null,
-      entry.owed ? `${entry.owed} \u2014 please settle with the captain.` : null,
+      entry.price ? `` : null,
+      entry.price ? `The price is ${entry.price}, payable by card once online payment is live.` : null,
       '',
       'See you there,',
       'Tedworth Park Polo Club',
@@ -6642,8 +6502,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                   <div className="label-eyebrow" style={{ fontSize: '11px', marginBottom: '12px' }}>Captain area</div>
                   {[
                     { id: 'lessons', icon: '🎓', label: 'Lessons',  blurb: 'Coaching slots and who is booked in', go: () => setActiveTab('lessons') },
-                    { id: 'players', icon: '👥', label: 'Players',  blurb: 'The player database, handicaps and tokens', go: () => { setPlayersView('players'); setActiveTab('players'); } },
-                    { id: 'payments', icon: '💷', label: 'Payments', blurb: 'Take a payment and settle what is owed',   go: () => { setPlayersView('checkout'); setActiveTab('players'); } },
+                    { id: 'players', icon: '👥', label: 'Players',  blurb: 'The player database and handicaps', go: () => { setPlayersView('players'); setActiveTab('players'); } },
+                    { id: 'rates',   icon: '🏷️', label: 'Rate card', blurb: 'Prices for lessons, chukkas, pony hire and entries', go: () => setActiveTab('rates') },
                     { id: 'teams',   icon: '🏆', label: 'Teams',    blurb: 'Tournament entries and team sheets',        go: () => setActiveTab('teams') },
                     { id: 'shop',    icon: '🛍️', label: 'Shop',     blurb: 'Club shop (preview)',                       go: () => setActiveTab('shop') },
                   ].map(a => (
@@ -7331,7 +7191,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <span style={{ fontWeight: 600 }}>Hire a pony</span>
                       {/* On an instructional day the pony is inside the session
                           price, so the tick tells the yard what to have ready
-                          rather than changing what is owed. */}
+                          rather than changing the price. */}
                       <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>
                         {activeDayConfig.instructional
                           ? 'Included in the session price. Leave unticked if you bring your own.'
@@ -7351,8 +7211,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         {bd.freeToRoster
                           ? `No charge for ${c} chukka${c === 1 ? '' : 's'}${ponyHire ? '' : ' (own pony)'} — you'll be added to the roster.`
                           : bd.instructional
-                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable to the Captain.</>
-                            : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable to the Captain.</>}
+                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable by card once online payment is live — nothing is taken now.</>
+                            : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable by card once online payment is live — nothing is taken now.</>}
                         {!rec && <span style={{ color: 'var(--muted)' }}> (estimate assumes non-member rates)</span>}
                       </div>
                     );
@@ -7445,6 +7305,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     >
                       Privacy notice
                     </button>
+                    <TermsLine onOpen={openTerms} style={{ fontSize: '11px', marginTop: '4px' }} />
                   </div>
                 </div>
               </section>
@@ -7730,7 +7591,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       borderLeft: '4px solid var(--gold-bright)', borderRadius: '4px',
                       padding: '12px 14px', marginBottom: '14px', fontSize: '13px', lineHeight: 1.5,
                     }}>
-                      <strong>{promoted.name}</strong> is on the roster{promoted.owed ? ` · ${promoted.owed}` : ''}.
+                      <strong>{promoted.name}</strong> is on the roster{promoted.price ? ` · ${promoted.price}` : ''}.
                       {promoted.email ? (
                         <a
                           href={notifyMailto(promoted)}
@@ -9505,8 +9366,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' }}>
                 <button onClick={() => setPlayersView('players')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'players' ? 'none' : '1px solid var(--line)', background: playersView === 'players' ? 'var(--burgundy)' : 'transparent', color: playersView === 'players' ? 'var(--cream)' : 'var(--muted)' }}>Players</button>
                 <button onClick={() => setPlayersView('subsidies')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'subsidies' ? 'none' : '1px solid var(--line)', background: playersView === 'subsidies' ? 'var(--burgundy)' : (lowSubsidies.length > 0 ? '#fbf2f2' : 'transparent'), color: playersView === 'subsidies' ? 'var(--cream)' : (lowSubsidies.length > 0 ? 'var(--danger)' : 'var(--muted)') }}>Subsidies{lowSubsidies.length > 0 ? ` (${lowSubsidies.length})` : ''}</button>
-                <button onClick={() => setPlayersView('lessons')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'lessons' ? 'none' : '1px solid var(--line)', background: playersView === 'lessons' ? 'var(--burgundy)' : 'transparent', color: playersView === 'lessons' ? 'var(--cream)' : 'var(--muted)' }}>Lessons</button>
-                <button onClick={() => setPlayersView('checkout')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'checkout' ? 'none' : '1px solid var(--line)', background: playersView === 'checkout' ? 'var(--burgundy)' : 'transparent', color: playersView === 'checkout' ? 'var(--cream)' : 'var(--muted)' }}>Checkout</button>
                 {auth.enabled && isAdmin && (
                   <button onClick={() => setPlayersView('admins')} style={{ flex: 1, minWidth: '70px', padding: '9px 4px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase', cursor: 'pointer', border: playersView === 'admins' ? 'none' : '1px solid var(--line)', background: playersView === 'admins' ? 'var(--burgundy)' : 'transparent', color: playersView === 'admins' ? 'var(--cream)' : 'var(--muted)' }}>Admins</button>
                 )}
@@ -9559,7 +9418,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <div style={{ fontSize: '11px', color: membershipById(playerEditor.membership || 'none').chukkasIncluded ? 'var(--burgundy)' : 'var(--muted)', marginTop: '-4px', lineHeight: 1.45 }}>
                       {membershipById(playerEditor.membership || 'none').chukkasIncluded
                         ? '✓ Chukka fees included — booking adds them straight to the roster.'
-                        : 'Pays per chukka — booking sends them to checkout to pay first.'}
+                        : 'Pays per chukka — the price shows when they book.'}
                     </div>
                     <input className="input-field" type="email" placeholder="Email" value={playerEditor.email} onChange={e => setPlayerEditor({ ...playerEditor, email: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
                     {auth.enabled && (
@@ -9610,25 +9469,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         </div>
                       );
                     })()}
-                    {/* Lesson tokens. One token buys an hour of coaching; a
-                        booking spends them where the player has enough and
-                        otherwise raises an invoice. See lessons.js. */}
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <label htmlFor="pl-tokens" style={{ fontSize: '13px', color: 'var(--ink)' }}>Lesson tokens</label>
-                      <input id="pl-tokens" className="input-field" type="number" min="0" step="1"
-                        value={playerEditor.tokens == null ? 0 : playerEditor.tokens}
-                        onChange={e => setPlayerEditor({ ...playerEditor, tokens: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                        style={{ width: '90px', padding: '9px 11px', fontSize: '14px' }} />
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        {[1, 5, 10].map(n => (
-                          <button key={n} type="button" onClick={() => setPlayerEditor({ ...playerEditor, tokens: Math.max(0, (parseInt(playerEditor.tokens, 10) || 0) + n) })}
-                            style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: '4px', padding: '7px 10px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                            +{n}
-                          </button>
-                        ))}
-                      </div>
-                      <span style={{ fontSize: '11px', color: 'var(--muted)', flexBasis: '100%' }}>One token buys an hour of coaching.</span>
-                    </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={!!playerEditor.military} onChange={e => setPlayerEditor({ ...playerEditor, military: e.target.checked })} />
                       Military (eligible for subsidies)
@@ -9766,7 +9606,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Subsidies</div>
                   <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
-                    Pots the captain tops up through the year. Each gives a fixed £/chukka discount to the military players assigned to it; spending at checkout draws the pot down.
+                    Pots the captain tops up through the year. Each gives a fixed £/chukka discount to the military players assigned to it. The discount shows in the price; pots will draw down once card payment is live.
                   </div>
 
                   {subError && (
@@ -9846,279 +9686,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                 </div>
               )}
 
-              {playersView === 'checkout' && (() => {
-                const pl = playerDb.find(p => p.id === checkout.playerId) || null;
-                const bd = pl ? priceBooking(pl, checkout.chukkas, checkout.ponyLevel, checkout.day) : null;
-                const n = bd ? bd.chukkas : 0;
-                const dayLabels = { wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-                const ponyOpts = [['none', 'No pony hire (own pony)'], ['club', 'Club chukka'], ['-6 to -2', '−6 to −2 match'], ['-2 to 0', '−2 to 0 match'], ['0 to 2', '0 to 2 match'], ['2 to 4', '2 to 4 match']];
-                const methods = [['cash', 'Cash'], ['transfer', 'Bank transfer'], ['card', 'Card (manual)'], ['other', 'Other']];
-                return (
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '20px', letterSpacing: '0.5px', color: 'var(--burgundy)', textTransform: 'uppercase', marginBottom: '4px' }}>Checkout</div>
-                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
-                      Record a payment (cash, transfer or card) and add the player to a day's roster. Subsidy pots draw down automatically. Online card via Stripe wires in here later.
-                    </div>
-
-                    {coError && (
-                      <div style={{ fontSize: '12px', color: 'var(--burgundy)', padding: '8px 12px', background: 'var(--cream-pale)', borderRadius: '4px', borderLeft: '3px solid var(--gold)', marginBottom: '12px', lineHeight: 1.5 }}>{coError}</div>
-                    )}
-
-                    {(() => {
-                      const due = transactions.filter(t => t.status === 'due');
-                      if (due.length === 0) return null;
-                      const dayNames = { wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
-                      const methodOpts = [['cash', 'Cash'], ['transfer', 'Transfer'], ['card', 'Card'], ['other', 'Other']];
-                      return (
-                        <div style={{ marginBottom: '22px' }}>
-                          <div style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '4px' }}>To invoice ({due.length})</div>
-                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px', lineHeight: 1.5 }}>Outstanding charges — chukkas owed by players on a roster, plus lessons booked to settle later. Mark paid once settled (this draws down any subsidy pots), or Void the charge if it's no longer owed.</div>
-                          {DAY_KEYS.filter(dk => due.some(t => t.day === dk && t.kind !== 'lesson' && t.kind !== 'entry')).map(dk => (
-                            <div key={dk} style={{ marginBottom: '12px' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{dayNames[dk] || dk}</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {due.filter(t => t.day === dk && t.kind !== 'lesson' && t.kind !== 'entry').map(t => (
-                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
-                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
-                                    </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                      {t.instructional
-                                        ? `${t.lessonLabel || 'Instructional chukkas'} · one session, pony included`
-                                        : `${t.chukkas} chukka${t.chukkas === 1 ? '' : 's'}${t.ponyLevel === 'none' ? ' · own pony' : ' · pony hire'}`}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
-                                      <select value={dueMethod[t.id] || 'cash'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                                      </select>
-                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'cash')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
-                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                          {due.some(t => t.kind === 'lesson') && (
-                            <div style={{ marginBottom: '12px' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>Lessons</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {due.filter(t => t.kind === 'lesson').map(t => (
-                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.playerName}</span>
-                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
-                                    </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                      {t.lessonLabel || 'Lesson'}{t.militaryRate ? ' · mil rate' : ''}{t.subsidyDeductions && t.subsidyDeductions.length ? ` · ${t.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
-                                      <select value={dueMethod[t.id] || 'cash'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                                      </select>
-                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'cash')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
-                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {due.some(t => t.kind === 'entry') && (
-                            <div style={{ marginBottom: '12px' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>Tournament entries</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {due.filter(t => t.kind === 'entry').map(t => (
-                                  <div key={t.id} style={{ border: '1px solid var(--danger)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.team || 'Team'}</span>
-                                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--danger)' }}>£{fmtMoney(t.total)}</span>
-                                    </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                      {t.fixtureName || 'Fixture'} · {ENTRY_CATEGORY_LABEL[t.category] || t.category} · {t.entryLabel}{t.contact ? ` · ${t.contact}` : ''}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
-                                      <select value={dueMethod[t.id] || 'transfer'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                                        {methodOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                                      </select>
-                                      <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'transfer')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
-                                      <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '8px' }}>Take a payment manually</div>
-                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
-                      <select className="input-field select-field" value={checkout.playerId} onChange={e => {
-                        setCoError('');
-                        const pid = e.target.value;
-                        const player = playerDb.find(p => p.id === pid);
-                        let lvl = checkout.ponyLevel;
-                        if (player) {
-                          for (const dk of DAY_KEYS) {
-                            const entry = (rosters[dk] || []).find(r => (r.name || '').trim().toLowerCase() === (player.name || '').trim().toLowerCase());
-                            if (entry) { lvl = entry.ponyHire === false ? 'none' : 'club'; break; }
-                          }
-                        }
-                        setCheckout({ ...checkout, playerId: pid, ponyLevel: lvl });
-                      }} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
-                        <option value="">Select a registered player…</option>
-                        {playerDb.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => (
-                          <option key={p.id} value={p.id}>{p.name}{membershipById(p.membership || 'none').chukkasIncluded ? ' · member' : ''}</option>
-                        ))}
-                      </select>
-                    </label>
-
-                    {pl && (
-                      <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ fontSize: '12px', color: bd.freeToRoster ? 'var(--burgundy)' : 'var(--muted)' }}>
-                          {membershipById(pl.membership || 'none').label}{pl.military ? ' · military' : ''}
-                          {bd.freeToRoster ? ' — no charge' : ` — £${fmtMoney(bd.total)}`}
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <select className="input-field select-field" value={checkout.day} onChange={e => setCheckout({ ...checkout, day: e.target.value })} style={{ flex: 1, padding: '11px 8px', fontSize: '14px' }}>
-                            {DAY_KEYS.map(d => <option key={d} value={d}>{dayLabels[d] || d}</option>)}
-                          </select>
-                          <select className="input-field select-field" value={checkout.chukkas} onChange={e => setCheckout({ ...checkout, chukkas: e.target.value })} style={{ width: '110px', flexShrink: 0, padding: '11px 8px', fontSize: '14px' }}>
-                            {[1, 2, 3, 4, 5, 6, 7, 8].map(c => <option key={c} value={String(c)}>{c} chukka{c === 1 ? '' : 's'}</option>)}
-                          </select>
-                        </div>
-
-                        <select className="input-field select-field" value={checkout.ponyLevel} onChange={e => setCheckout({ ...checkout, ponyLevel: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
-                          {ponyOpts.map(([k, l]) => <option key={k} value={k}>{k === 'none' ? l : `Pony hire: ${l} (£${PONY_HIRE_2026[k]})`}</option>)}
-                        </select>
-
-                        {bd.freeToRoster ? (
-                          <div style={{ fontSize: '13px', color: 'var(--burgundy)', padding: '12px', background: 'var(--cream-pale)', borderRadius: '6px', border: '1px solid var(--line)' }}>
-                            No charge for this booking — they'll be added straight to the roster.
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
-                              {bd.instructional && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>{bd.lessonLabel} (pony included)</span><span>£{fmtMoney(bd.total)}</span></div>}
-                              {bd.ponyHire > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Pony hire × {n}</span><span>£{fmtMoney(bd.ponyHire * n)}</span></div>}
-                              {bd.chukkaFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>Chukka fee × {n}</span><span>£{fmtMoney(bd.chukkaFee * n)}</span></div>}
-                              {bd.militaryDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)' }}><span>Military discount × {n}</span><span>−£{fmtMoney(bd.militaryDiscount)}</span></div>}
-                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', marginTop: '6px', borderTop: '1px solid var(--line)', fontWeight: 700, fontSize: '15px', color: 'var(--burgundy)' }}><span>Total</span><span>£{fmtMoney(bd.total)}</span></div>
-                            </div>
-                            <select className="input-field select-field" value={checkout.method} onChange={e => setCheckout({ ...checkout, method: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px' }}>
-                              {methods.map(([k, l]) => <option key={k} value={k}>Paid by: {l}</option>)}
-                            </select>
-                            <input className="input-field" type="text" placeholder="Note (optional)" value={checkout.note} onChange={e => setCheckout({ ...checkout, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px' }} />
-                          </>
-                        )}
-
-                        <button onClick={doMarkPaid} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
-                          {bd.freeToRoster ? `Add to ${dayLabels[checkout.day] || checkout.day} roster` : `Mark paid £${fmtMoney(bd.total)} & add to roster`}
-                        </button>
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '22px 0 8px' }}>
-                      <div style={{ fontWeight: 600, fontSize: '12px', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)' }}>Recent payments</div>
-                      {transactions.filter(t => t.status !== 'due').length > 0 && (
-                        <button onClick={clearHistory} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '5px 10px', borderRadius: '4px', fontSize: '10px', letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Clear</button>
-                      )}
-                    </div>
-                    {transactions.filter(t => t.status !== 'due').length === 0 ? (
-                      <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '16px 12px' }}>No payments recorded yet.</div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {transactions.filter(t => t.status !== 'due').slice(0, 25).map(tx => (
-                          <div key={tx.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                              <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{tx.kind === 'entry' ? (tx.team || 'Team') : tx.playerName}</span>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(tx.total)}</span>
-                                <button onClick={() => deleteTx(tx.id)} title="Remove this record" style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '16px', lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                              {new Date(tx.date).toLocaleDateString('en-GB')} &middot; {tx.kind === 'lesson' ? (tx.lessonLabel || 'Lesson') : tx.kind === 'entry' ? `${tx.fixtureName ? tx.fixtureName + ' · ' : ''}entry` : tx.instructional ? (tx.lessonLabel || 'Instructional chukkas') : `${tx.chukkas} chukka${tx.chukkas === 1 ? '' : 's'}`} &middot; {tx.method}
-                              {tx.subsidyDeductions && tx.subsidyDeductions.length ? ` · ${tx.subsidyDeductions.map(d => `${d.name} −£${fmtMoney(d.amount)}`).join(', ')}` : ''}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {playersView === 'lessons' && (() => {
-                const sortedPl = [...playerDb].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                const pl = playerDb.find(p => p.id === lesson.playerId);
-                const bd = pl ? priceLesson(pl, lesson.lessonId) : null;
-                const ok = lessonError && (lessonError.indexOf('Recorded') === 0 || lessonError.indexOf('Booked') === 0);
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                      Book and take payment for a coaching session. Military players get the military rate; any subsidy pots assigned to the player are drawn down against the lesson.
-                    </div>
-                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Player
-                      <select className="select-field" value={lesson.playerId} onChange={e => { setLessonError(''); setLesson({ ...lesson, playerId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
-                        <option value="">— Select player —</option>
-                        {sortedPl.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}{p.military ? ' (Mil)' : ''}{(p.subsidies || []).length ? ' ★' : ''}</option>
-                        ))}
-                      </select>
-                    </label>
-                    {playerDb.length === 0 && (
-                      <div style={{ fontSize: '12px', color: 'var(--danger)' }}>No players yet — add them under the Players tab first.</div>
-                    )}
-                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Lesson
-                      <select className="select-field" value={lesson.lessonId} onChange={e => { setLessonError(''); setLesson({ ...lesson, lessonId: e.target.value }); }} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
-                        {LESSON_TYPES_2026.map(l => (
-                          <option key={l.id} value={l.id}>{l.label} — £{l.civ} / £{l.mil} mil</option>
-                        ))}
-                      </select>
-                    </label>
-                    {bd && (
-                      <div style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '12px 14px', background: 'var(--cream-pale)', fontSize: '13px', color: 'var(--ink)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                          <span>{bd.lessonLabel} ({bd.militaryRate ? 'military' : 'civilian'} rate)</span><span>£{fmtMoney(bd.base)}</span>
-                        </div>
-                        {bd.subsidyDeductions.map(d => (
-                          <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: d.capped ? 'var(--danger)' : 'var(--muted)' }}>
-                            <span>{d.name}{d.capped ? ' (pot capped)' : ''}</span><span>−£{fmtMoney(d.amount)}</span>
-                          </div>
-                        ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 0', marginTop: '4px', borderTop: '1px solid var(--line)', fontWeight: 700 }}>
-                          <span>Total</span><span>£{fmtMoney(bd.total)}</span>
-                        </div>
-                      </div>
-                    )}
-                    <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Method
-                      <select className="select-field" value={lesson.method} onChange={e => setLesson({ ...lesson, method: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }}>
-                        <option value="cash">Cash</option>
-                        <option value="transfer">Bank transfer</option>
-                        <option value="card">Card</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </label>
-                    <input className="input-field" placeholder="Note (optional)" value={lesson.note} onChange={e => setLesson({ ...lesson, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '13px' }} />
-                    {lessonError && (
-                      <div style={{ fontSize: '12px', color: ok ? 'var(--burgundy)' : 'var(--danger)', background: ok ? '#f2f6f2' : '#fbf2f2', border: `1px solid ${ok ? 'var(--line)' : 'var(--danger)'}`, borderRadius: '6px', padding: '9px 12px' }}>{lessonError}</div>
-                    )}
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={doLessonPaid} disabled={!pl} style={{ flex: 1, background: pl ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
-                        {pl && bd ? `Mark paid £${fmtMoney(bd.total)}` : 'Mark paid'}
-                      </button>
-                      <button onClick={doLessonDue} disabled={!pl} style={{ flex: 1, background: 'transparent', color: pl ? 'var(--burgundy)' : 'var(--muted)', border: `1px solid ${pl ? 'var(--burgundy)' : 'var(--line)'}`, padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: pl ? 'pointer' : 'not-allowed' }}>
-                        Book — invoice later
-                      </button>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-4px' }}>“Book — invoice later” adds the charge to the Checkout “To invoice” list; pots are drawn down when you settle it.</div>
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -10137,14 +9704,26 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               players={playerDb.filter(p => p.active !== false)}
               rates={LESSON_SLOT_RATES}
               quote={quoteLesson}
-              tokensOf={tokensOf}
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
               clubSessions={CLUB_SESSIONS}
               quoteSession={quoteClubSession}
               onBookSession={bookClubSession}
+              onOpenTerms={openTerms}
             />
             </>
+          )}
+
+          {activeTab === 'rates' && captainMode && (
+            <RateCardEditor
+              rates={RATES}
+              defaults={RATE_CARD_DEFAULTS}
+              doc={rateCardDoc}
+              ponyLabels={PONY_HIRE_LABELS}
+              entryLabels={ENTRY_CATEGORY_LABEL}
+              ownPony={false}
+              onSave={saveRateCard}
+            />
           )}
 
           {activeTab === 'teams' && captainMode && (() => {
@@ -10152,17 +9731,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             const sel = entryOptionById(teamReg.category, teamReg.optionId) || opts[0];
             const fee = sel ? sel.fee : 0;
             const ready = !!(teamReg.fixtureId && (teamReg.team || '').trim() && sel);
-            const ok = teamRegError && (teamRegError.indexOf('Recorded') === 0 || teamRegError.indexOf('Registered') === 0);
+            const ok = teamRegError && teamRegError.indexOf('Registered') === 0;
             const knownTeams = Array.from(new Set([
               ...Object.values(teamsDb || {}).map(t => t && t.name).filter(Boolean),
               ...Object.values(teamSignups || {}).flatMap(list => Array.isArray(list) ? list.map(s => s && s.team) : []).filter(Boolean),
             ])).sort((a, b) => a.localeCompare(b));
-            const entries = transactions.filter(t => t.kind === 'entry');
+            const entries = teamEntries;
             const fixtureIds = Array.from(new Set(entries.map(e => e.fixtureId)));
             return (
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.5 }}>
-                  Register a team into a tournament and take the entry fee. Fees come from the Winter 26/27 arena price list, by category and length. Pay now, or invoice later and settle from Checkout.
+                  Register a team into a tournament. The entry fee comes from the rate card, by category and length; it is paid by card once online payment is live, so nothing is taken now.
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Fixture
@@ -10205,24 +9784,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       </div>
                     </div>
                   )}
-                  <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Method
-                    <select className="input-field select-field" value={teamReg.method} onChange={e => setTeamReg({ ...teamReg, method: e.target.value })} style={{ padding: '11px 8px', fontSize: '14px', marginTop: '4px' }}>
-                      <option value="cash">Cash</option>
-                      <option value="transfer">Bank transfer</option>
-                      <option value="card">Card</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </label>
                   <input className="input-field" placeholder="Note (optional)" value={teamReg.note} onChange={e => setTeamReg({ ...teamReg, note: e.target.value })} style={{ padding: '11px 13px', fontSize: '13px' }} />
                   {teamRegError && (
                     <div style={{ fontSize: '12px', color: ok ? 'var(--burgundy)' : 'var(--danger)', background: ok ? '#f2f6f2' : '#fbf2f2', border: `1px solid ${ok ? 'var(--line)' : 'var(--danger)'}`, borderRadius: '6px', padding: '9px 12px' }}>{teamRegError}</div>
                   )}
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={doEntryPaid} disabled={!ready} style={{ flex: 1, background: ready ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: ready ? 'pointer' : 'not-allowed' }}>
-                      {ready ? `Mark paid £${fmtMoney(fee)}` : 'Mark paid'}
-                    </button>
-                    <button onClick={doEntryDue} disabled={!ready} style={{ flex: 1, background: 'transparent', color: ready ? 'var(--burgundy)' : 'var(--muted)', border: `1px solid ${ready ? 'var(--burgundy)' : 'var(--line)'}`, padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: ready ? 'pointer' : 'not-allowed' }}>
-                      Register — invoice later
+                    <button onClick={doEntryRegister} disabled={!ready} style={{ flex: 1, background: ready ? 'var(--burgundy)' : 'var(--line)', color: 'var(--cream)', border: 'none', padding: '13px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: ready ? 'pointer' : 'not-allowed' }}>
+                      Register team
                     </button>
                   </div>
                 </div>
@@ -10237,30 +9805,17 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                           <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '6px' }}>{fxLabel}</div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {list.map(t => (
-                              <div key={t.id} style={{ border: `1px solid ${t.status === 'due' ? 'var(--danger)' : 'var(--line)'}`, borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+                              <div key={t.id} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
                                   <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>{t.team}</span>
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontWeight: 700, fontSize: '14px', color: t.status === 'due' ? 'var(--danger)' : 'var(--burgundy)' }}>£{fmtMoney(t.total)}</span>
-                                    <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: t.status === 'due' ? 'var(--danger)' : 'var(--burgundy)' }}>{t.status === 'due' ? 'Due' : 'Paid'}</span>
-                                  </span>
+                                  <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--burgundy)' }}>£{fmtMoney(t.fee)}</span>
                                 </div>
                                 <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                  {ENTRY_CATEGORY_LABEL[t.category] || t.category} · {t.entryLabel}{t.contact ? ` · ${t.contact}` : ''}{t.mobile ? ` · ${t.mobile}` : ''}{t.status !== 'due' && t.method ? ` · ${t.method}` : ''}
+                                  {ENTRY_CATEGORY_LABEL[t.category] || t.category} · {t.entryLabel}{t.contact ? ` · ${t.contact}` : ''}{t.mobile ? ` · ${t.mobile}` : ''}{t.note ? ` · ${t.note}` : ''}
                                 </div>
-                                {t.status === 'due' ? (
-                                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
-                                    <select value={dueMethod[t.id] || 'transfer'} onChange={e => setDueMethod({ ...dueMethod, [t.id]: e.target.value })} className="input-field select-field" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                                      <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card</option><option value="other">Other</option>
-                                    </select>
-                                    <button onClick={() => markDuePaid(t.id, dueMethod[t.id] || 'transfer')} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Mark paid</button>
-                                    <button onClick={() => voidDue(t.id)} title="Remove this charge" style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Void</button>
-                                  </div>
-                                ) : (
-                                  <div style={{ marginTop: '8px', textAlign: 'right' }}>
-                                    <button onClick={() => deleteTx(t.id)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '6px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Remove record</button>
-                                  </div>
-                                )}
+                                <div style={{ marginTop: '8px', textAlign: 'right' }}>
+                                  <button onClick={() => removeTeamEntry(t.id)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', padding: '6px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Remove</button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -10294,6 +9849,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               }}
             >
               Privacy
+            </button>
+            <span style={{ opacity: 0.3 }}>·</span>
+            <button onClick={openTerms}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer', padding: 0, opacity: 0.7 }}>
+              Terms
             </button>
             <span style={{ opacity: 0.3 }}>·</span>
             {auth.enabled && auth.ready && (
@@ -10418,6 +9978,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         {auth.enabled && (
           <AuthSheet open={authSheetOpen} onClose={() => setAuthSheetOpen(false)} auth={auth} startAt={authSheetStart} handicapOptions={HANDICAP_OPTIONS} linkedPlayer={myPlayer} providerHintFor={providerHintFor} />
         )}
+        {needTerms && !authSheetOpen ? (
+          <TermsSheet mode="accept" onAccept={() => window.auth.acceptTerms(TERMS_VERSION)}
+            onSignOut={() => { if (window.auth && window.auth.signOut) window.auth.signOut().catch(() => {}); }} />
+        ) : termsOpen ? (
+          <TermsSheet mode="read" onClose={() => setTermsOpen(false)} onOpenPrivacy={() => { setTermsOpen(false); setPrivacyOpen(true); }} />
+        ) : null}
         {pinModalOpen && (
           <div className="share-backdrop" onClick={() => setPinModalOpen(false)}>
             <div className="share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '340px' }}>
