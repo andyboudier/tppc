@@ -7837,8 +7837,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         {bd.freeToRoster
                           ? `No charge for ${c} chukka${c === 1 ? '' : 's'}${ponyHire ? '' : ' (own pony)'} — you'll be added to the roster.`
                           : bd.instructional
-                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable to the Captain.</>
-                            : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable to the Captain.</>}
+                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable by card once online payment is live — nothing is taken now.</>
+                            : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable by card once online payment is live — nothing is taken now.</>}
                         {!rec && <span style={{ color: 'var(--muted)' }}> (estimate assumes non-member rates)</span>}
                       </div>
                     );
