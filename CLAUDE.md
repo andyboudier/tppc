@@ -416,7 +416,25 @@ same `LessonsBoard` with the captain's tools off, booking as their own record;
 an admin gets the diary and the sign-in bench as before. Home's own AuthSheet
 is handed `enabled: true` like the bench, so it works whichever way the switch
 is set; `tppc-signed-in` in localStorage tells a later load to wake sign-in
-early. An admin sees the next session's list, waiting lists and lessons above their own card. Home is drawn dark in the club's colours
+early. An admin sees the next session's list, waiting lists and lessons above their own card.
+
+**Enter a tournament** sits under Book a lesson on Home and walks a member
+through a team entry in three steps (`TournamentSheet` in HomeDashboard.jsx,
+`homeTour` in PoloChukkas.jsx): pick the tournament, name the team and its
+players, then review the fee and confirm. It is the Fixtures tab's own team
+entry — the entry lands in `team-signups` with its `fee` and `bookedBy`, the
+team is remembered in `teams-db`, and pricing is `priceTeamEntry` — so the
+team shows under Teams Entered and on the captain's draw like any other. One
+squad plays every day (a captain can still set per-day squads on Fixtures).
+Listed are fixtures that have not finished, are not events, and whose entries
+are still open — they close the night before the first day, as Register
+interest does — so a party or a course left untagged appears there until the
+organiser ticks "This is an event". The member is player 1; names are offered
+from the player database with their handicap and membership, a team they have
+played in brings its squad back, and the team handicap is the players' sum.
+No payment is taken yet: the review shows the total and each player's share
+and says it is payable by card once online payment is live; that confirm is
+where a Stripe link would go. Undo withdraws the entry. Home is drawn dark in the club's colours
 (`.polo-app.home-on`); the working tabs are unchanged.
 
 **The whole app wears Home's look** (`luxTheme.js`, the `lux` class on

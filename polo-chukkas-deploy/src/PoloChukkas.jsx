@@ -5699,6 +5699,110 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     closed: isInterestClosed(fx), live,
   }));
 
+  // ── Enter a tournament from Home ──────────────────────────────────────
+  // The same team entry the Fixtures tab takes — team-signups, priced by
+  // priceTeamEntry from the rate card, remembered in teams-db — walked
+  // through on Home in three steps: pick the tournament, name the team,
+  // review and pay. One squad plays every day; a captain can still set
+  // per-day squads from the Fixtures tab. Entries close the night before
+  // the first day, as Register interest does, and events take no teams.
+  const homeEntryPlayer = (rec) => {
+    const h = rec.handicap == null || rec.handicap === '' || isNaN(Number(rec.handicap)) ? null : Number(rec.handicap);
+    return {
+      id: rec.id, name: rec.name, rank: rec.rank || '',
+      handicap: h == null ? '' : String(h), handicapText: h == null ? '' : fmtH(h),
+      member: (rec.membership || 'none') !== 'none',
+    };
+  };
+  const homeFindPlayer = (name) => {
+    const q = String(name || '').trim().toLowerCase();
+    const rec = q ? playerDb.find(x => (x.name || '').trim().toLowerCase() === q) : null;
+    return rec ? homeEntryPlayer(rec) : null;
+  };
+  const inSquad = (team, name) => Object.values((team && team.days) || {})
+    .some(sq => (sq || []).some(x => x && (x.name || '').trim().toLowerCase() === String(name || '').trim().toLowerCase()));
+  const homeTournaments = fixtures
+    .map(fx => ({ fx, range: parseFixtureDateRange(fx) }))
+    .filter(({ fx, range }) => !fx.event && range && range.end.getTime() > Date.now() && !isInterestClosed(fx))
+    .sort((a, b) => a.range.start - b.range.start)
+    .map(({ fx, range }) => {
+      const closes = interestClosesAt(fx);
+      const teams = teamSignups[fx.id] || [];
+      return {
+        id: fx.id, name: fx.name, date: fx.date, level: fx.level || '', military: !!fx.military,
+        start: range.start, days: fixtureDays(fx).length,
+        mon: range.start.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(), dayNum: range.start.getDate(),
+        teams: teams.length,
+        entered: !!(homePlayer && teams.some(t => inSquad(t, homePlayer.name))),
+        closes: closes ? closes.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '') : '',
+      };
+    });
+  const homeTour = {
+    list: homeTournaments,
+    find: homeFindPlayer,
+    suggest: (typed, taken) => squadSuggestions(typed, taken).map(homeEntryPlayer),
+    // Teams this member has played in, their own team first, for one-tap
+    // naming; picking one brings its last squad with it.
+    myTeams: () => {
+      if (!homePlayer) return [];
+      const known = knownTeams();
+      const out = [];
+      const add = (n) => { const t = String(n || '').trim(); if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t); };
+      add(homePlayer.team);
+      Object.values(known).forEach(t => { if ((t.players || []).some(x => x && (x.name || '').trim().toLowerCase() === homePlayer.name.trim().toLowerCase())) add(t.name); });
+      return out.slice(0, 6);
+    },
+    known: (name) => {
+      const t = knownTeams()[String(name || '').trim().toLowerCase()];
+      if (!t) return null;
+      return {
+        name: t.name, handicap: t.handicap,
+        players: (t.players || []).filter(x => x && (x.name || '').trim()).map(x => homeFindPlayer(x.name)
+          || { name: x.name.trim(), handicap: x.handicap == null ? '' : String(x.handicap), handicapText: x.handicap == null ? '' : fmtH(Number(x.handicap)), member: null }),
+      };
+    },
+    quote: (fxId, rows) => {
+      const fx = fixtures.find(f => f.id === fxId);
+      if (!fx) return null;
+      const q = priceTeamEntry(fx, rows);
+      return {
+        ...q, totalText: homeMoney(q.total),
+        memberFeeText: homeMoney(q.memberFee), nonFeeText: homeMoney(q.nonFee),
+        shares: q.shares.map(x => ({ ...x, shareText: homeMoney(x.share) })),
+      };
+    },
+    enter: (fxId, { team, handicap, mobile, rows }) => {
+      const fx = fixtures.find(f => f.id === fxId);
+      if (!fx) return { error: 'That tournament is no longer listed.' };
+      if (isInterestClosed(fx)) return { error: 'Entries for this tournament have closed.' };
+      const name = String(team || '').trim();
+      if (!name) return { error: 'Give your team a name.' };
+      if ((teamSignups[fx.id] || []).some(x => (x.team || '').trim().toLowerCase() === name.toLowerCase())) {
+        return { error: `A team called ${name} is already entered. Pick another name.` };
+      }
+      const squad = (rows || [])
+        .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
+        .filter(r => r.name);
+      if (!squad.length) return { error: 'Add at least one player.' };
+      const days = {};
+      fixtureDays(fx).forEach(d => { days[d.key] = squad.map(x => ({ ...x })); });
+      const fee = priceTeamEntry(fx, rows);
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const entry = {
+        id: Date.now(), team: name,
+        handicap: handicap === '' || handicap == null || isNaN(parseInt(handicap, 10)) ? null : parseInt(handicap, 10),
+        perDay: false, days,
+        fee: { total: r2(fee.total), military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: r2(x.share) })) },
+      };
+      if (myName) { entry.contact = myName; entry.bookedBy = myName; }
+      if (String(mobile || '').trim()) entry.mobile = String(mobile).trim();
+      saveTeamSignups({ ...teamSignups, [fx.id]: [...(teamSignups[fx.id] || []), entry] });
+      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad } });
+      return { entry, fixtureId: fx.id, totalText: homeMoney(entry.fee.total) };
+    },
+    withdraw: (fxId, entryId) => removeTeam(fxId, entryId),
+  };
+
   // The captain's first look: the next session's list, and what is waiting.
   const homeCaptain = captainMode && homeSessions.length ? (() => {
     const s = homeSessions[0];
@@ -7237,6 +7341,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onOpenTerms={openTerms}
               openChukkas={homeOpenChukkas}
               openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
+              tour={homeTour}
               openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}
               openFixture={homeOpenFixture}
               openLive={() => setActiveTab('live')}

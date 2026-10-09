@@ -100,6 +100,9 @@ const I = {
   lock: 'M8 10V7a4 4 0 018 0v3M6 10h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z',
   live: 'M20 13a8 8 0 11-16 0 8 8 0 0116 0zM12 9v4l2.5 2.5M10 2h4',
   cap: 'M2 9l10-5 10 5-10 5L2 9zM6 11v5c3 2 9 2 12 0v-5',
+  cup: 'M7 4h10v4a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M12 13v4M8 21h8M9 17h6',
+  plus: 'M12 5v14M5 12h14',
+  x: 'M6 6l12 12M18 6L6 18',
   camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1zM12 17a4 4 0 100-8 4 4 0 000 8z',
 };
 
@@ -887,6 +890,374 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
   );
 }
 
+// ── Enter a tournament ──────────────────────────────────────────────────────
+// Three steps, the way Book a chukka is two: pick the tournament, name the
+// team and its players, then review the fee and confirm. Everything is the
+// Fixtures tab's own team entry (`tour`, built in PoloChukkas.jsx), so the
+// team appears under Teams Entered there and on the draw the captain builds.
+// The fee comes from the rate card: a share of the member or non-member team
+// fee per player, or one flat military fee — and the person entering pays it
+// all and collects the shares.
+const ENTRY_HANDICAPS = [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const MAX_SQUAD = 6;
+const blankRow = () => ({ name: '', handicap: '', member: null });
+const fmtHc = (n) => (n > 0 ? `+${n}` : n < 0 ? `\u2212${-n}` : '0');
+
+function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixture }) {
+  const list = tour.list;
+  const [step, setStep] = useState(initialId ? 'team' : 'pick');
+  const [fxId, setFxId] = useState(initialId || null);
+  const [team, setTeam] = useState('');
+  const [rows, setRows] = useState(() => {
+    const self = tour.find(me.name) || { name: me.name, handicap: me.handicapRaw == null ? '' : String(me.handicapRaw), member: null };
+    return [{ name: self.name, handicap: self.handicap, member: self.member }, blankRow(), blankRow(), blankRow()];
+  });
+  const [mobile, setMobile] = useState(me.mobile || '');
+  const [focusRow, setFocusRow] = useState(-1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(null);
+  const [myTeams] = useState(() => tour.myTeams());
+  const headRef = useRef(null);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('hd-sheet-open');
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.body.classList.remove('hd-sheet-open');
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { headRef.current && headRef.current.focus(); }, [step, done]);
+
+  const fx = list.find(t => t.id === fxId) || null;
+  const named = rows.filter(r => r.name.trim());
+  const q = fx ? tour.quote(fx.id, rows) : null;
+  const teamHandicap = named.reduce((n, r) => n + (r.handicap === '' || isNaN(Number(r.handicap)) ? 0 : Number(r.handicap)), 0);
+
+  const setRow = (i, patch) => { setError(''); setRows(rs => rs.map((r, k) => (k === i ? { ...r, ...patch } : r))); };
+  const typeName = (i, v) => {
+    const hit = tour.find(v);
+    setRow(i, hit ? { name: v, handicap: hit.handicap, member: hit.member } : { name: v, member: null });
+  };
+  const pick = (i, p) => { setRow(i, { name: p.name, handicap: p.handicap, member: p.member }); setFocusRow(-1); };
+  const pickTeam = (name) => {
+    setTeam(name); setError('');
+    const t = tour.known(name);
+    if (t && t.players.length) {
+      const squad = t.players.slice(0, MAX_SQUAD).map(p => ({ name: p.name, handicap: p.handicap, member: p.member }));
+      while (squad.length < 4) squad.push(blankRow());
+      setRows(squad);
+    }
+  };
+
+  const next = () => {
+    setError('');
+    if (step === 'pick') { if (fx) setStep('team'); return; }
+    if (step === 'team') {
+      if (!team.trim()) { setError('Give your team a name.'); return; }
+      if (!named.length) { setError('Add at least one player.'); return; }
+      setStep('review');
+    }
+  };
+  const back = () => { setError(''); if (step === 'review') setStep('team'); else if (step === 'team' && !initialId) setStep('pick'); else onClose(); };
+
+  const confirm = async () => {
+    if (!fx || busy) return;
+    setBusy(true); setError('');
+    const r = await tour.enter(fx.id, { team, handicap: named.length ? teamHandicap : '', mobile, rows });
+    setBusy(false);
+    if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); return; }
+    setDone({ ...r, fx, quote: q, team: team.trim(), players: named.map(x => x.name.trim()) });
+  };
+  const undo = async () => {
+    if (!done) return;
+    setBusy(true);
+    await tour.withdraw(done.fixtureId, done.entry.id);
+    setBusy(false);
+    setDone(null); setStep('review');
+  };
+
+  const head = (title, sub) => (
+    <div className="hd-sheet-inner hd-row" style={{ padding: '18px 20px 6px' }}>
+      <button type="button" onClick={back} aria-label={step === 'pick' || (step === 'team' && initialId) ? 'Back to Home' : 'Back'} className="hd-btn" style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)' }}>
+        <Icon d={I.back} size={20} />
+      </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="hd-eyebrow">{sub}</div>
+        <h2 ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: '24px', fontWeight: 500, lineHeight: 1.2, margin: 0, outline: 'none' }}>{title}</h2>
+      </div>
+    </div>
+  );
+  // Where you are in the three steps.
+  const STEPS = [['pick', 'Tournament'], ['team', 'Team'], ['review', 'Review & pay']];
+  const at = STEPS.findIndex(x => x[0] === step);
+  const progress = (
+    <div className="hd-sheet-inner" aria-hidden="true" style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '6px' }}>
+      {STEPS.map(([k, label], i) => (
+        <div key={k}>
+          <div style={{ height: 3, borderRadius: 2, background: i <= at ? 'var(--hd-gold2)' : 'var(--hd-line)' }} />
+          <div style={{ fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '5px', color: i === at ? 'var(--hd-cream)' : 'var(--hd-dim)' }}>{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (done) {
+    const f = done.fx;
+    const addToCalendar = () => {
+      const start = new Date(f.start); start.setHours(10, 0, 0, 0);
+      const blob = new Blob([icsFor({ title: `${f.name} · ${done.team}`, start, minutes: 8 * 60, location: 'Tedworth Park Polo Club', note: `${done.team}: ${done.players.join(', ')}` })], { type: 'text/calendar' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `tppc-${String(f.id)}.ics`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    };
+    const shareText = `${done.team} are entered in ${f.name} (${f.date}) — ${done.players.join(', ')}.${done.quote && done.quote.total > 0 ? ` Entry ${done.totalText}${done.quote.shares.length > 1 ? `; shares: ${done.quote.shares.map(x => `${x.name} ${x.shareText}`).join(', ')}` : ''}.` : ''}`;
+    const share = async () => {
+      if (navigator.share) { try { await navigator.share({ text: shareText }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+      window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener');
+    };
+    return (
+      <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-labelledby="hd-tdone-title">
+        <div className="hd-sheet-body">
+          <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '56px' }}>
+            <div style={{ position: 'relative', width: 96, height: 96 }}>
+              <div className="hd-ring" style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid var(--hd-gold2)' }} />
+              <div className="hd-pop" style={{ position: 'relative', width: 96, height: 96, borderRadius: '50%', background: 'var(--hd-burg)', border: '1.5px solid var(--hd-gold2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon d={I.cup} size={44} stroke="var(--hd-cream)" />
+              </div>
+            </div>
+            <div className="hd-in" style={{ '--d': '.25s', textAlign: 'center', marginTop: '26px' }}>
+              <h2 id="hd-tdone-title" ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: '30px', fontWeight: 500, lineHeight: 1.15, margin: 0, outline: 'none' }}>
+                {done.team} {/s$/i.test(done.team) ? 'are' : 'is'} entered
+              </h2>
+              <div style={{ fontSize: '14px', color: 'var(--hd-muted)', marginTop: '8px' }}>{f.name} &middot; {f.date}</div>
+            </div>
+            <div className="hd-card hd-in" style={{ '--d': '.4s', width: '100%', marginTop: '26px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', borderRadius: '18px' }}>
+              {done.quote && done.quote.shares.map(x => (
+                <div key={x.name} style={{ display: 'flex', gap: '8px' }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>{x.name}{!done.quote.military && <span style={{ color: 'var(--hd-muted)', fontSize: '12px' }}> &middot; {x.member ? 'member' : 'non-member'}</span>}</span>
+                  <span style={{ color: 'var(--hd-muted)' }}>{x.shareText}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', borderTop: '1px solid var(--hd-line)', paddingTop: '10px' }}>
+                <span style={{ color: 'var(--hd-muted)', flex: 1 }}>Entry fee</span>
+                <span style={{ color: 'var(--hd-gold2)' }}>{done.quote && done.quote.total > 0 ? done.totalText : 'No charge'}</span>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>
+                {done.quote && done.quote.total > 0 ? 'Payable by card once online payment is live — nothing is taken now. You pay the whole entry and collect each player’s share from them. ' : ''}
+                Your team shows under Teams Entered on the Fixtures tab, and the draw follows once the captain publishes it.
+              </div>
+            </div>
+            <div className="hd-in" style={{ '--d': '.4s', width: '100%', marginTop: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <button type="button" className="hd-btn" onClick={addToCalendar}><Icon d={I.cal} stroke="var(--hd-gold2)" />Add to calendar</button>
+              <button type="button" className="hd-btn" onClick={share}><Icon d={I.share} stroke="var(--hd-gold2)" />Tell the team</button>
+            </div>
+          </div>
+        </div>
+        <div className="hd-sheet-foot">
+          <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+            <button type="button" className="hd-primary" onClick={onClose}><span>Back to Home</span></button>
+            <button type="button" className="hd-link" onClick={() => { onClose(); onOpenFixture(f.id); }} style={{ minHeight: '44px', fontSize: '14px' }}>See it on Fixtures</button>
+            <button type="button" className="hd-link" onClick={undo} disabled={busy} style={{ minHeight: '44px', fontSize: '14px' }}>{busy ? 'Withdrawing…' : 'Undo this entry'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const taken = rows.map(r => r.name);
+  return (
+    <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-label="Enter a tournament">
+      {head(step === 'pick' ? 'Enter a tournament' : step === 'team' ? 'Your team' : 'Review & pay',
+        step === 'pick' ? `${me.name}${me.handicapText != null ? ` · ${me.handicapText}` : ''}` : fx ? `${fx.name} · ${fx.date}` : '')}
+      {progress}
+      <div className="hd-sheet-body">
+        <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {step === 'pick' && (
+            <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Taking entries</legend>
+              {list.length === 0 && (
+                <div style={{ fontSize: '14px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>No tournaments are taking entries just now. The Fixtures tab has the season&rsquo;s full list.</div>
+              )}
+              {list.map(t => {
+                const on = t.id === fxId;
+                return (
+                  <button key={t.id} type="button" className="hd-choice hd-row" aria-pressed={on} onClick={() => { setFxId(t.id); setError(''); }} style={{ minHeight: '64px', padding: '10px 14px', alignItems: 'center' }}>
+                    <span style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
+                      <span style={{ display: 'block', fontSize: '11px', letterSpacing: '1px', color: 'var(--hd-muted)' }}>{t.mon}</span>
+                      <span className="hd-serif" style={{ display: 'block', fontSize: '21px' }}>{t.dayNum}</span>
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '15px', fontWeight: 500 }}>{t.name}</span>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-muted)' }}>
+                        {t.date}{t.level ? ` · ${t.level}` : ''}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-dim)', marginTop: '2px' }}>
+                        {t.teams ? `${t.teams} team${t.teams === 1 ? '' : 's'} entered` : 'No teams yet'}{t.closes ? ` · entries close ${t.closes}` : ''}
+                      </span>
+                    </span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                      {t.military && <span className="hd-pill hd-pill-gold">Military</span>}
+                      {t.entered && <span className="hd-pill hd-pill-ok">You&rsquo;re in</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </fieldset>
+          )}
+
+          {step === 'team' && fx && (
+            <>
+              <div>
+                <label className="hd-eyebrow" htmlFor="hd-team-name" style={{ display: 'block', marginBottom: '8px' }}>Team name</label>
+                <input id="hd-team-name" style={fld} value={team} autoComplete="off" placeholder="e.g. Tedworth Tigers"
+                  onChange={e => { setTeam(e.target.value); setError(''); }} onBlur={e => { const t = tour.known(e.target.value); if (t && !named.slice(1).length) pickTeam(t.name); }} />
+                {myTeams.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    {myTeams.map(n => (
+                      <button key={n} type="button" className="hd-choice" aria-pressed={team.trim().toLowerCase() === n.toLowerCase()} onClick={() => pickTeam(n)}
+                        style={{ width: 'auto', minHeight: '40px', padding: '0 14px', fontSize: '13px' }}>{n}</button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px', lineHeight: 1.45 }}>
+                  {myTeams.length ? 'Tap a team you’ve played in to bring its players back.' : 'A team you’ve entered before brings its players back when you type its name.'}
+                </div>
+              </div>
+
+              <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Players{fx.days > 1 ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; the same team both days</span> : null}</legend>
+                {rows.map((r, i) => {
+                  const sugg = focusRow === i ? tour.suggest(r.name, taken.filter((_, k) => k !== i)) : [];
+                  return (
+                    <div key={i} style={{ background: 'var(--hd-card)', border: '1px solid var(--hd-line)', borderRadius: '14px', padding: '10px' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input style={{ ...fld, flex: 1, minWidth: 0 }} value={r.name} placeholder={i === 0 ? 'Player 1' : `Player ${i + 1}`} aria-label={`Player ${i + 1}`} autoComplete="off"
+                          onFocus={() => setFocusRow(i)} onBlur={() => setTimeout(() => setFocusRow(f => (f === i ? -1 : f)), 150)}
+                          onChange={e => typeName(i, e.target.value)} />
+                        <select style={{ ...fld, width: 74, flexShrink: 0, padding: '0 6px' }} aria-label={`Player ${i + 1} handicap`} value={r.handicap}
+                          onChange={e => setRow(i, { handicap: e.target.value })}>
+                          <option value="">HC</option>
+                          {ENTRY_HANDICAPS.map(h => <option key={h} value={String(h)}>{fmtHc(h)}</option>)}
+                        </select>
+                        {rows.length > 1 && (
+                          <button type="button" className="hd-btn" aria-label={`Remove player ${i + 1}`} onClick={() => setRows(rs => rs.filter((_, k) => k !== i))}
+                            style={{ width: 40, height: 40, minHeight: 40, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)', flexShrink: 0 }}>
+                            <Icon d={I.x} size={16} />
+                          </button>
+                        )}
+                      </div>
+                      {sugg.length > 0 && (
+                        <div role="listbox" aria-label={`Players matching ${r.name}`} style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+                          {sugg.map(p => (
+                            <button key={p.id} type="button" role="option" aria-selected="false" className="hd-choice hd-row" onMouseDown={e => e.preventDefault()} onClick={() => pick(i, p)}
+                              style={{ minHeight: '44px', padding: '6px 12px', fontSize: '14px' }}>
+                              <span style={{ flex: 1, minWidth: 0 }}>{p.rank ? `${p.rank} ` : ''}{p.name}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>{p.handicapText}{p.handicapText ? ' · ' : ''}{p.member ? 'Member' : 'Non-member'}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {r.name.trim() && !fx.military && (
+                        <div role="group" aria-label={`Player ${i + 1} membership`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '8px' }}>
+                          {[[true, 'Member'], [false, 'Non-member']].map(([v, label]) => (
+                            <button key={label} type="button" className="hd-choice" aria-pressed={r.member === v}
+                              onClick={() => setRow(i, { member: v })} style={{ minHeight: '38px', textAlign: 'center', fontSize: '13px' }}>{label}</button>
+                          ))}
+                        </div>
+                      )}
+                      {r.name.trim() && !fx.military && r.member == null && (
+                        <div style={{ fontSize: '11px', color: 'var(--hd-dim)', marginTop: '6px' }}>Not on the club&rsquo;s list &mdash; priced as a non-member unless you say otherwise.</div>
+                      )}
+                    </div>
+                  );
+                })}
+                {rows.length < MAX_SQUAD && (
+                  <button type="button" className="hd-btn" onClick={() => setRows(rs => [...rs, blankRow()])} style={{ minHeight: '44px', borderRadius: '14px', border: '1px dashed var(--hd-line)', background: 'transparent' }}>
+                    <Icon d={I.plus} size={16} stroke="var(--hd-gold2)" />Add a player
+                  </button>
+                )}
+                <div className="hd-row" style={{ fontSize: '13px', color: 'var(--hd-muted)' }}>
+                  <span style={{ flex: 1 }}>Team handicap</span>
+                  <span className="hd-serif" style={{ fontSize: '20px', color: 'var(--hd-cream)' }}>{named.length ? fmtHc(teamHandicap) : '—'}</span>
+                </div>
+              </fieldset>
+
+              <div>
+                <label className="hd-eyebrow" htmlFor="hd-team-mobile" style={{ display: 'block', marginBottom: '8px' }}>Your mobile</label>
+                <input id="hd-team-mobile" style={fld} inputMode="tel" value={mobile} placeholder="07…" onChange={e => setMobile(e.target.value)} />
+                <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px' }}>So the captain can reach the team about the draw. Only the captain sees it.</div>
+              </div>
+            </>
+          )}
+
+          {step === 'review' && fx && q && (
+            <>
+              <div className="hd-card" style={{ padding: '16px 18px', borderRadius: '18px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
+                <div className="hd-row" style={{ alignItems: 'baseline' }}>
+                  <span className="hd-serif" style={{ fontSize: '20px', flex: 1, minWidth: 0 }}>{team.trim()}</span>
+                  <span style={{ color: 'var(--hd-muted)', fontSize: '13px' }}>{fmtHc(teamHandicap)}</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--hd-muted)', marginTop: '-6px' }}>{fx.name} &middot; {fx.date}{fx.military ? ' · Military' : ''}</div>
+                <div style={{ borderTop: '1px solid var(--hd-line)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {q.shares.map((x, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '8px' }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>{x.name}
+                        {!q.military && <span style={{ color: 'var(--hd-muted)', fontSize: '12px' }}> &middot; {x.member ? 'member' : 'non-member'}</span>}
+                        {named[i] && named[i].handicap !== '' && <span style={{ color: 'var(--hd-muted)', fontSize: '12px' }}> &middot; {fmtHc(Number(named[i].handicap))}</span>}
+                      </span>
+                      <span style={{ color: 'var(--hd-muted)' }}>{x.shareText}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--hd-dim)', lineHeight: 1.5, borderTop: '1px solid var(--hd-line)', paddingTop: '10px' }}>
+                  {q.military
+                    ? `A military tournament is one team fee (${q.totalText}, ${q.len === 2 ? 'two days' : 'one day'}), whoever plays.`
+                    : `Each player carries a share of their own team fee: ${q.memberFeeText} for a members’ team, ${q.nonFeeText} for non-members (${q.len === 2 ? 'two days' : 'one day'}).`}
+                </div>
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--hd-muted)', lineHeight: 1.5 }}>
+                You pay the whole entry and collect each player&rsquo;s share from them directly.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="hd-sheet-foot">
+        <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {fx && q && step !== 'pick' && (
+            <div>
+              <div className="hd-row" style={{ alignItems: 'baseline', gap: '8px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--hd-muted)', flex: 1 }}>{named.length} player{named.length === 1 ? '' : 's'} &middot; {q.len === 2 ? 'two days' : 'one day'}</div>
+                <div className="hd-serif" style={{ fontSize: '26px', color: 'var(--hd-gold2)' }}>{q.total > 0 ? q.totalText : named.length ? 'No charge' : '—'}</div>
+              </div>
+              {step === 'review' && q.total > 0 && <div style={{ fontSize: '12px', color: 'var(--hd-muted)', marginTop: '2px' }}>Payable by card once online payment is live &mdash; nothing is taken now.</div>}
+            </div>
+          )}
+          {error && <div role="alert" style={{ fontSize: '13px', color: '#f0b9b9', lineHeight: 1.45 }}>{error}</div>}
+          {step === 'review' ? (
+            <button type="button" className="hd-primary hd-shimmer" disabled={busy} onClick={confirm}>
+              <span>{busy ? 'Entering…' : q && q.total > 0 ? `Confirm & pay ${q.totalText}` : 'Confirm entry'}</span>
+            </button>
+          ) : (
+            <button type="button" className="hd-primary hd-shimmer" disabled={step === 'pick' ? !fx : false} onClick={next}>
+              <span>{step === 'pick' ? (fx ? `Next: your team` : 'Pick a tournament') : 'Next: review & pay'}</span>
+            </button>
+          )}
+          <TermsLine onOpen={onOpenTerms} style={{ textAlign: 'center', color: 'var(--hd-muted)' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Pieces of Home ──────────────────────────────────────────────────────────
 function NextChukka({ s, directions, onOpen }) {
   const url = s.ground ? directions(s.ground) : null;
@@ -981,12 +1352,13 @@ export default function HomeDashboard(props) {
     ready, account, me, onSignIn, onSignOut, onSavePhoto, people, sessionsFor,
     profile, handicapOptions = [], onSaveProfile, onChangePassword, onResetEmail, onLinkProvider,
     sessions, fixtures, captain, quote, book, undo,
-    openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions,
+    openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions, tour,
     // An email's "Amend or cancel" link: the booking to show (null when there
     // is none, or nobody is signed in yet) and whether one is waiting on sign-in.
     manage, manageWaiting, onManageAmend, onManageCancel, onManageClose, onOpenTerms,
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
+  const [entering, setEntering] = useState(false); // the Enter a tournament walk-through
   const [photoOpen, setPhotoOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -1098,6 +1470,13 @@ export default function HomeDashboard(props) {
             style={{ minHeight: '52px', borderRadius: '16px', border: '1px solid var(--hd-gold)', fontFamily: "'Fraunces',Georgia,serif", fontSize: '18px' }}>
             <Icon d={I.cap} size={20} stroke="var(--hd-gold2)" />Book a lesson
           </button>
+          {tour && (
+            <button type="button" className="hd-btn" onClick={() => (me ? setEntering(true) : openFixtures())}
+              style={{ minHeight: '52px', borderRadius: '16px', border: '1px solid var(--hd-gold)', fontFamily: "'Fraunces',Georgia,serif", fontSize: '18px' }}>
+              <Icon d={I.cup} size={20} stroke="var(--hd-gold2)" />Enter a tournament
+              {tour.list.length > 0 && <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: '12px', color: 'var(--hd-muted)', marginLeft: '2px' }}>&middot; {tour.list.length} open</span>}
+            </button>
+          )}
         </div>
 
         {next && <NextChukka s={next} directions={directions} onOpen={() => openChukkas(next.key)} />}
@@ -1143,6 +1522,10 @@ export default function HomeDashboard(props) {
 
       {manage && (
         <ManageSheet key={manage.key} m={manage} onAmend={onManageAmend} onCancel={onManageCancel} onClose={onManageClose} onOpenTerms={onOpenTerms} />
+      )}
+
+      {entering && me && tour && (
+        <TournamentSheet me={me} tour={tour} onClose={() => setEntering(false)} onOpenTerms={onOpenTerms} onOpenFixture={openFixture} />
       )}
 
       {booking && me && (
