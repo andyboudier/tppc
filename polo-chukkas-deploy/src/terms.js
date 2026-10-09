@@ -6,13 +6,13 @@
 // in a way members should see: everyone signed in is asked to accept again
 // before their next booking (see `needTerms` in PoloChukkas.jsx).
 
-export const TERMS_VERSION = '2026-10-draft-1';
+export const TERMS_VERSION = '2026-10-draft-2';
 export const TERMS_DRAFT = true; // shows "Draft — awaiting committee review"
 
 // The points a member reads before ticking "I accept".
 export const TERMS_SUMMARY = [
   'Sessions are for a set date, so there is no 14-day cooling-off period. You can cancel free of charge until the cut-off shown in the app.',
-  'Prices come from the club’s rate card and are shown before you book. Unpaid charges go on your account as an invoice.',
+  'Prices come from the club’s rate card and are shown before you book. You pay by card through Stripe when you book or, where the club agrees, by invoice later.',
   'Polo carries a real risk of falls and injury. Wear an HPA-standard helmet and tell the coach about any medical condition.',
   'If you bring your own pony, you are responsible for its fitness, vaccinations and insurance.',
   'We use your details to run bookings, as the privacy notice explains.',
@@ -40,14 +40,13 @@ export const TERMS_SECTIONS = [
     '3.1 Prices are those on the club’s current rate card, which the app shows before you confirm a booking. The price shown when you book is the price you pay. [Committee to confirm whether prices include VAT.]',
     '3.2 Military and veteran rates apply to players the club has recorded as military or veteran. The club may ask for proof.',
     '3.3 A membership that includes chukka fees covers chukka fees only. Pony hire and lessons are charged separately unless the rate card says otherwise.',
-    '3.4 Unless you pay at the time of booking, the charge is added to your account as an invoice. Invoices are due within [14] days or before your next booking, whichever is sooner. [Committee to confirm.]',
-    '3.5 Lesson tokens are bought in advance; one token buys one hour of coaching. A token is used automatically when you book a lesson and have enough. Tokens are not refundable for cash, but a cancelled lesson returns its token (section 4). [Committee to confirm whether tokens expire, for example 12 months after purchase.]',
-    '3.6 Subsidies from a fund the club manages are applied to lessons only, and only while the fund has money in it.',
-    '3.7 We may suspend booking for anyone with an overdue balance until it is paid.',
+    '3.4 You pay when you book, by card through Stripe, the club’s payment provider. The club never sees or stores your full card details. Where the club agrees, you may pay later instead: the charge is added to your account as an invoice, due within [14] days or before your next booking, whichever is sooner. [Committee to confirm.]',
+    '3.5 Subsidies from a fund the club manages are applied to lessons only, and only while the fund has money in it.',
+    '3.6 We may suspend booking for anyone with an overdue balance until it is paid.',
   ] },
   { h: '4. Cancelling or changing your booking', p: [
     '4.1 No 14-day cooling-off period. Chukkas, lessons, club sessions, courses and instructional tournaments are leisure services for a specific date. Under regulation 28(1)(b) of the Consumer Contracts (Information, Cancellation and Additional Charges) Regulations 2013, the 14-day right to cancel does not apply to them. Your rights to cancel are those in this section.',
-    '4.2 You can cancel or change a booking in the app, from the “Amend or cancel” link in your confirmation email, or by contacting the club. If you cancel before [the day’s booking cut-off / 48 hours before the start], there is no charge: an unpaid invoice is removed, and a lesson token is returned. [Committee to confirm the notice period.]',
+    '4.2 You can cancel or change a booking in the app, from the “Amend or cancel” link in your confirmation email, or by contacting the club. If you cancel before [the day’s booking cut-off / 48 hours before the start], there is no charge: a card payment is refunded to the same card, and an unpaid invoice is removed. [Committee to confirm the notice period.]',
     '4.3 If you cancel after that point, or do not turn up, the full charge stands. We will waive it if your place is filled from the waiting list or by another rider.',
     '4.4 A change of chukkas, pony or times that alters the price is re-priced. If you have already paid, the club will settle the difference with you.',
     '4.5 We may waive a late-cancellation charge for illness, injury, a pony going lame or service duties. Tell us as soon as you can; the club may ask for evidence.',
@@ -55,7 +54,7 @@ export const TERMS_SECTIONS = [
   { h: '5. If the club cancels or changes a session', p: [
     '5.1 We may cancel, shorten or move a session for weather, ground or arena conditions, the welfare of the ponies, safety, or too few riders. We will tell you as early as we can, through the app notice, email or phone.',
     '5.2 A group lesson that does not reach its minimum number may be run as a smaller group at the same price, changed to an individual lesson at the individual rate, or cancelled. We will tell you which and ask you before charging you more.',
-    '5.3 If we cancel, you can have a full refund of what you paid for that session, or a credit or token to use later. Any unpaid invoice for it is removed.',
+    '5.3 If we cancel, you can have a full refund of what you paid for that session, or a credit to use later. Any unpaid invoice for it is removed.',
     '5.4 If a session is cut short after it has started, we will refund or credit the part not played. Exception: if it was stopped because of your own conduct (section 7).',
     '5.5 We are not responsible for travel, accommodation or other costs you incur because a session is cancelled for reasons outside our control. This does not limit your statutory rights if the cancellation was our fault.',
   ] },
@@ -91,7 +90,7 @@ export const TERMS_SECTIONS = [
     '10.3 HPA membership may include some cover; check what yours provides. [Committee to confirm the minimum cover the club requires and whether proof is needed before playing.]',
   ] },
   { h: '11. Your information, photos and messages', p: [
-    '11.1 We use your details to run your bookings, draw teams, invoice you and keep you safe. We do this under UK GDPR and the Data Protection Act 2018, as set out in the club’s privacy notice in the app. Your name, handicap and team are shown on the day’s list and in the draw to other members.',
+    '11.1 We use your details to run your bookings, draw teams, take payment and keep you safe. Card payments are processed by Stripe, which handles your card details under its own privacy policy. We do this under UK GDPR and the Data Protection Act 2018, as set out in the club’s privacy notice in the app. Your name, handicap and team are shown on the day’s list and in the draw to other members.',
     '11.2 We send booking confirmations, changes, cancellations and reminders by email, and safety-critical news through the app notice. These are part of the service, not marketing. We send marketing only if you have agreed to it.',
     '11.3 The club may photograph or film sessions and events and use the pictures on its website and social media. If you would rather not appear, tell the club and we will not use pictures in which you can be identified.',
   ] },
