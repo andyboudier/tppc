@@ -7,6 +7,30 @@
 // before their next booking (see `needTerms` in PoloChukkas.jsx).
 
 export const TERMS_VERSION = '2026-10-draft-3';
+
+// Who the club is, and how its dark screens look. TermsSheet.jsx, the Home
+// dashboard (HomeDashboard.jsx, luxTheme.js) and the email-link page
+// (AuthActionPage.jsx) all read it, so those files are the same in every app
+// and only this block changes from club to club.
+//   name / short / place   the full name, the short name for calendar
+//                          titles, and the town for the foot of an email
+//   slug                   a prefix for this app's own device keys and
+//                          calendar files (tppc-…), never shown
+//   crest / crestRound     the badge, and whether to set it in a white round
+//   burgundy               the app's own --burgundy, which the dark theme
+//                          re-points at gold wherever it is written inline
+//   colors                 the dark palette: bg, card, card2 (a raised card),
+//                          line, burg (buttons), gold, gold2 (brighter, for
+//                          text), cream (text), muted, dim (the footer)
+export const TERMS_CLUB = {
+  name: 'Tedworth Park Polo Club', short: 'Tedworth Park', place: 'Tidworth, Wiltshire', slug: 'tppc',
+  crest: '/tppc-crest.png', crestRound: true,
+  burgundy: '#6b1f2a',
+  colors: {
+    bg: '#120d0b', card: '#1f1714', card2: '#2a1f1a', line: '#3d2e24', burg: '#6b1f2a',
+    gold: '#b8924a', gold2: '#d4a85a', cream: '#f4ecd8', muted: '#b3a48c', dim: '#9c8d77',
+  },
+};
 export const TERMS_DRAFT = true; // shows "Draft — awaiting committee review"
 
 // The points a member reads before ticking "I accept".

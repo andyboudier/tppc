@@ -5,7 +5,9 @@
 // Nothing here stores anything new in the club's database. Who the member is
 // comes from their sign-in, matched to the club's player list by accountLink.js.
 
-const USUAL_KEY = 'tppc-home-usual';
+import { TERMS_CLUB } from './terms';
+
+const USUAL_KEY = `${TERMS_CLUB.slug}-home-usual`;
 
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -20,7 +22,7 @@ export const isMine = (entry, me) => !!(entry && me) && (
 // it is the sign-in screen — and so does a member who is signed in, whichever
 // tab they land on. This flag, set once someone has signed in on this device,
 // is how a load that restores to Fixtures still knows to wake it.
-const SIGNED_IN_KEY = 'tppc-signed-in';
+const SIGNED_IN_KEY = `${TERMS_CLUB.slug}-signed-in`;
 export const hadSignIn = () => {
   try { return localStorage.getItem(SIGNED_IN_KEY) === '1'; } catch (e) { return false; }
 };
@@ -106,8 +108,8 @@ const icsText = (s) => String(s || '').replace(/[\\;,]/g, (m) => `\\${m}`).repla
 export const icsFor = ({ title, start, minutes = 60, location = '', note = '' }) => {
   const end = new Date(start.getTime() + minutes * 60000);
   return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TPPC//Chukkas//EN', 'BEGIN:VEVENT',
-    `UID:${start.getTime()}-${Math.random().toString(36).slice(2, 8)}@tppc`,
+    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${TERMS_CLUB.name}//Chukkas//EN`, 'BEGIN:VEVENT',
+    `UID:${start.getTime()}-${Math.random().toString(36).slice(2, 8)}@${TERMS_CLUB.slug}`,
     `DTSTAMP:${icsStamp(new Date())}`,
     `DTSTART:${icsStamp(start)}`, `DTEND:${icsStamp(end)}`,
     `SUMMARY:${icsText(title)}`,

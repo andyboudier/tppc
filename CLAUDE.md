@@ -458,6 +458,18 @@ browser writes for inline hex). Inline white panels, ink fills and native
 controls are caught the same way. The exported draw table keeps its paper
 look. Take the class off and the app is exactly as it was.
 
+**The club's identity is one block, `TERMS_CLUB` in `terms.js`** — name,
+short name, place, `slug`, crest (and whether it is set in a white round), the
+app's own `burgundy`, and the dark palette (`colors`). `HomeDashboard.jsx`,
+`luxTheme.js`, `AuthActionPage.jsx`, `TermsSheet.jsx` and `home.js` all read
+it and name no club, so those files are the same in every app and only
+`terms.js` differs; the `.hd` variables, the `lux` overlay's variables and the
+inline-burgundy selector are all built from it. `slug` prefixes the device
+keys (`tppc-signed-in`, `tppc-home-usual`) and the calendar files. The
+`RateCardEditor.jsx` is shared the same way, with the card's shape passed in
+as props (see the TPPC notes). Druids' and Vaux's `terms.js` carry their own
+block, so the Home and the dark theme come out in their colours.
+
 **Profile pictures.** The sign-in's photo (Google gives one; Apple and email do
 not) shows on Home by default. A member can set their own — shrunk in the
 browser to a 256px JPEG and kept on their own `users/{uid}` profile as

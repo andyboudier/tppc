@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { TERMS_SECTIONS, TERMS_SUMMARY, TERMS_DRAFT } from './terms';
+import { TERMS_SECTIONS, TERMS_SUMMARY, TERMS_DRAFT, TERMS_CLUB } from './terms';
 
 // The booking terms, full screen in the club's dark look.
 //   mode 'read'   — the terms, with a close button (footer link, booking
@@ -8,10 +8,9 @@ import { TERMS_SECTIONS, TERMS_SUMMARY, TERMS_DRAFT } from './terms';
 //                   text a tap away, and an unticked "I accept" box. Continue
 //                   stays off until it is ticked; the member may sign out.
 
-const C = {
-  bg: '#120d0b', card: '#1f1714', line: '#3d2e24', burg: '#6b1f2a',
-  gold: '#b8924a', gold2: '#d4a85a', cream: '#f4ecd8', muted: '#b3a48c',
-};
+// The club's name, crest and dark colours come from its own terms.js, so this
+// file is the same in every app.
+const C = TERMS_CLUB.colors;
 const primary = (on) => ({
   width: '100%', minHeight: 56, borderRadius: 16, background: C.burg, border: `1px solid ${C.gold}`, color: C.cream,
   fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.5,
@@ -58,9 +57,9 @@ export default function TermsSheet({ mode = 'read', onClose, onAccept, onSignOut
         fontFamily: "'Outfit', system-ui, sans-serif", padding: 'calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 32px)' }}>
       <div style={{ maxWidth: 560, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <img src="/tppc-crest.png" alt="" width="56" height="56" style={{ width: 56, height: 56, borderRadius: '50%', background: '#fff', boxShadow: `0 0 0 1.5px ${C.gold}` }} />
+          <img src={TERMS_CLUB.crest} alt="" width="56" height="56" style={{ width: 56, height: 56, objectFit: 'contain', ...(TERMS_CLUB.crestRound ? { borderRadius: '50%', background: '#fff', boxShadow: `0 0 0 1.5px ${C.gold}` } : {}) }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase', color: C.muted }}>Tedworth Park Polo Club</div>
+            <div style={{ fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase', color: C.muted }}>{TERMS_CLUB.name}</div>
             <h1 id="terms-title" ref={headRef} tabIndex={-1} style={{ fontFamily: "'Fraunces', Georgia, serif", fontWeight: 500, fontSize: 28, margin: 0, outline: 'none' }}>Booking terms</h1>
           </div>
           {mode === 'read' && (
