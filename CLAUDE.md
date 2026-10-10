@@ -142,7 +142,7 @@ loads.
 
 With a provider installed (the PoloACT demo does this with Firebase Auth):
 `captainMode` means *admin* (rosters, draw, players, tournaments, shop,
-payments), `canScore` (the PIN, or an admin) gates live scoring only, and a
+rate card), `canScore` (the PIN, or an admin) gates live scoring only, and a
 signed-in member books as themselves and can remove only their own entry.
 `src/AuthSheet.jsx` is the sign-in sheet and the Admins panel. Both files are
 in the demo's resync list.
@@ -198,7 +198,10 @@ fixture editor has a Year box. The Fixtures tab groups months into seasons
 that is on or coming first. A finished season is archived: members see only
 the seasons that are on or to come, and an admin (`captainMode`) finds the rest
 under a "Previous seasons" fold at the foot of the list (`showFixtureArchive`);
-nothing is deleted, so archived fixtures keep their match details and sign-ups. The club's stored list
+nothing is deleted, so archived fixtures keep their match details and sign-ups.
+Opening the tab scrolls to where the season is now — the fixture on today,
+else the next to come, else the last played — landing on its month heading
+when it is the month's first (the same in all three clubs). The club's stored list
 gets the arena season added **once**, by the `arena-2026-27` entry in
 `seed-flags`; a captain's later deletions stay deleted. A new season's list is
 added the same way: a new array, a new flag. Prices are the Arena Price List,
@@ -333,6 +336,18 @@ Anything else fixed to the bottom must clear it: `.app-main` and `.app-footer`
 carry the padding (the footer is outside `main`), and `.refresh-fab` is lifted,
 or it sits on top of the More tab and makes it untappable. Vaux's active tab is
 `--cream` where the others are `--gold`.
+
+**Visitor numbers** come from Vercel Web Analytics: `main.jsx` loads
+`/_vercel/insights/script.js` on the web only (never in the native app, which
+has no Vercel behind it), and the switch is per Vercel project, in the
+dashboard under Analytics — the script 404s quietly until it is on. Page
+views and visitors, no cookies. A visit from the store app would look like
+Safari (the app's web view loads the same site), so `main.jsx` records those
+through `va('beforeSend')` under the page `/ios-app` or `/android-app` rather
+than `/` — the Pages list in Analytics splits app from browser. (A UTM
+source would be tidier, but Vercel sells that breakdown as an add-on; the
+page path is in the free plan.) The same lines are in all
+four apps, except that the demo has no Capacitor and so no app tag.
 
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names

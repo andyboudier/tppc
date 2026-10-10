@@ -1751,6 +1751,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  // ── The booking terms (terms.js, TermsSheet.jsx) ───────────────────────
+  // Read from the footer, any booking screen, or a link (?terms=1). With
+  // sign-in on, a member accepts them once — the version and the moment go
+  // on their profile — and again whenever TERMS_VERSION changes; until then
+  // the accept screen stands in front of the app. Sign-in is off for the
+  // club, so today only the reading side applies.
+  const [termsOpen, setTermsOpen] = useState(() => {
+    try { return new URL(window.location.href).searchParams.get('terms') === '1'; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('terms')) { url.searchParams.delete('terms'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
+    } catch (e) { /* nothing to tidy */ }
+  }, []);
+  const openTerms = () => setTermsOpen(true);
+  const needTerms = !!(auth.enabled && auth.ready && auth.user && auth.profileReady
+    && !(auth.profile && auth.profile.termsVersion === TERMS_VERSION));
   const [liveFixtureId, setLiveFixtureId] = useState(() => (restoredView && restoredView.liveFixtureId) || null);
   const [liveDayId, setLiveDayId] = useState(() => (restoredView && restoredView.liveDayId) || null);
   const [liveMatchId, setLiveMatchId] = useState(() => (restoredView && restoredView.liveMatchId) || null);
@@ -5514,23 +5532,6 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // change a booking is the same as who may make or take one off: the member,
   // their team, or an admin.
   const [manageReq, setManageReq] = useState(() => manageRequest());
-  // ── The booking terms (terms.js, TermsSheet.jsx) ───────────────────────
-  // Read from the footer, any booking screen, or a booking email's link
-  // (?terms=1). With sign-in on, a member accepts them once — the version
-  // and the moment go on their profile — and again whenever TERMS_VERSION
-  // changes; until then the accept screen stands in front of the app.
-  const [termsOpen, setTermsOpen] = useState(() => {
-    try { return new URL(window.location.href).searchParams.get('terms') === '1'; } catch (e) { return false; }
-  });
-  useEffect(() => {
-    try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('terms')) { url.searchParams.delete('terms'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
-    } catch (e) { /* nothing to tidy */ }
-  }, []);
-  const openTerms = () => setTermsOpen(true);
-  const needTerms = !!(auth.enabled && auth.ready && auth.user && auth.profileReady
-    && !(auth.profile && auth.profile.termsVersion === TERMS_VERSION));
   useEffect(() => { if (manageReq) clearManageRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (manageReq && homeSignedIn) { setActiveTab('home'); window.scrollTo(0, 0); }
