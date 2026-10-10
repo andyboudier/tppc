@@ -434,7 +434,17 @@ from the player database with their handicap and membership, a team they have
 played in brings its squad back, and the team handicap is the players' sum.
 No payment is taken yet: the review shows the total and each player's share
 and says it is payable by card once online payment is live; that confirm is
-where a Stripe link would go. Undo withdraws the entry. Home is drawn dark in the club's colours
+where a Stripe link would go. Undo withdraws the entry.
+
+**Your tournaments** on Home lists the member's own entries still to be
+played (`homeTour.mine`: every team they are in, or entered for someone else)
+with a Tournaments tile beside Chukkas and Lessons. **Edit team** opens the
+same sheet on the team step (`edit` prop): rename, add or remove players,
+change the mobile, then Save changes goes through `homeTour.update`, which
+keeps the entry's id (the draw points at it) and who booked it, re-prices the
+fee from the new squad and collapses a captain-set per-day squad into one.
+Withdraw is on that sheet, two taps. All of it until the first day starts;
+after that the card is read-only and says the captain makes changes. Home is drawn dark in the club's colours
 (`.polo-app.home-on`); the working tabs are unchanged.
 
 **The whole app wears Home's look** (`luxTheme.js`, the `lux` class on

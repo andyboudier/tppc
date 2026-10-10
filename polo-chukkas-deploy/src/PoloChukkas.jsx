@@ -5721,22 +5721,55 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
   const inSquad = (team, name) => Object.values((team && team.days) || {})
     .some(sq => (sq || []).some(x => x && (x.name || '').trim().toLowerCase() === String(name || '').trim().toLowerCase()));
+  // A fixture as Home's tournament screens see it.
+  const homeTourFx = (fx, range) => {
+    const closes = interestClosesAt(fx);
+    const teams = teamSignups[fx.id] || [];
+    return {
+      id: fx.id, name: fx.name, date: fx.date, level: fx.level || '', military: !!fx.military,
+      start: range.start, days: fixtureDays(fx).length,
+      mon: range.start.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(), dayNum: range.start.getDate(),
+      teams: teams.length,
+      entered: !!(homePlayer && teams.some(t => inSquad(t, homePlayer.name))),
+      closes: closes ? closes.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '') : '',
+    };
+  };
   const homeTournaments = fixtures
     .map(fx => ({ fx, range: parseFixtureDateRange(fx) }))
     .filter(({ fx, range }) => !fx.event && range && range.end.getTime() > Date.now() && !isInterestClosed(fx))
     .sort((a, b) => a.range.start - b.range.start)
-    .map(({ fx, range }) => {
-      const closes = interestClosesAt(fx);
-      const teams = teamSignups[fx.id] || [];
-      return {
-        id: fx.id, name: fx.name, date: fx.date, level: fx.level || '', military: !!fx.military,
-        start: range.start, days: fixtureDays(fx).length,
-        mon: range.start.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(), dayNum: range.start.getDate(),
-        teams: teams.length,
-        entered: !!(homePlayer && teams.some(t => inSquad(t, homePlayer.name))),
-        closes: closes ? closes.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '') : '',
-      };
+    .map(({ fx, range }) => homeTourFx(fx, range));
+  // The member's own entries still to be played: every team they are in, or
+  // entered on someone's behalf. Editable until the first day starts — after
+  // that the draw is made and a change is the captain's to make.
+  const homeMyEntries = (() => {
+    if (!homePlayer) return [];
+    const meName = homePlayer.name.trim().toLowerCase();
+    const out = [];
+    fixtures.forEach(fx => {
+      if (fx.event) return;
+      const range = parseFixtureDateRange(fx);
+      if (!range || range.end.getTime() < Date.now()) return;
+      (teamSignups[fx.id] || []).forEach(en => {
+        const booked = (en.bookedBy || '').trim().toLowerCase() === meName;
+        if (!booked && !inSquad(en, homePlayer.name)) return;
+        const squad = Object.values(en.days || {}).reduce((best, arr) => ((arr || []).length > best.length ? arr : best), []);
+        out.push({
+          fixtureId: fx.id, entryId: en.id, team: en.team, handicap: en.handicap ?? null,
+          mobile: en.mobile || '', bookedBy: en.bookedBy || '', perDay: !!en.perDay,
+          players: squad.map(p => ({ name: p.name, handicap: p.handicap == null ? '' : String(p.handicap), member: p.member == null ? null : !!p.member })),
+          feeText: en.fee && en.fee.total > 0 ? homeMoney(en.fee.total) : '',
+          live: range.start.getTime() <= Date.now(), closed: isInterestClosed(fx), canEdit: range.start.getTime() > Date.now(),
+          start: range.start, fx: homeTourFx(fx, range),
+        });
+      });
     });
+    return out.sort((a, b) => a.start - b.start);
+  })();
+  // One squad, validated, from the sheet's rows.
+  const homeSquadRows = (fx, rows) => (rows || [])
+    .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
+    .filter(r => r.name);
   const homeTour = {
     list: homeTournaments,
     find: homeFindPlayer,
@@ -5801,6 +5834,41 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       return { entry, fixtureId: fx.id, totalText: homeMoney(entry.fee.total) };
     },
     withdraw: (fxId, entryId) => removeTeam(fxId, entryId),
+    mine: homeMyEntries,
+    // Amend an entry from Home: team name, players, mobile. Keeps the entry's
+    // id (the draw points at it) and who booked it; the fee is worked out
+    // again from the new squad. A per-day squad the captain set becomes one
+    // squad for every day — Home edits one team, not one per day.
+    update: (fxId, entryId, { team, handicap, mobile, rows }) => {
+      const fx = fixtures.find(f => f.id === fxId);
+      if (!fx) return { error: 'That tournament is no longer listed.' };
+      const list = teamSignups[fx.id] || [];
+      const prev = list.find(e => e.id === entryId);
+      if (!prev) return { error: 'That entry has already been withdrawn.' };
+      const range = parseFixtureDateRange(fx);
+      if (range && range.start.getTime() <= Date.now()) return { error: 'The tournament has started, so the entry can only be changed by the captain now.' };
+      const name = String(team || '').trim();
+      if (!name) return { error: 'Give your team a name.' };
+      if (list.some(x => x.id !== entryId && (x.team || '').trim().toLowerCase() === name.toLowerCase())) {
+        return { error: `A team called ${name} is already entered. Pick another name.` };
+      }
+      const squad = homeSquadRows(fx, rows);
+      if (!squad.length) return { error: 'Keep at least one player, or withdraw the entry instead.' };
+      const days = {};
+      fixtureDays(fx).forEach(d => { days[d.key] = squad.map(x => ({ ...x })); });
+      const fee = priceTeamEntry(fx, rows);
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const entry = {
+        ...prev, team: name,
+        handicap: handicap === '' || handicap == null || isNaN(parseInt(handicap, 10)) ? null : parseInt(handicap, 10),
+        perDay: false, days,
+        fee: { total: r2(fee.total), military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: r2(x.share) })) },
+      };
+      if (String(mobile || '').trim()) entry.mobile = String(mobile).trim(); else delete entry.mobile;
+      saveTeamSignups({ ...teamSignups, [fx.id]: list.map(e => (e.id === entryId ? entry : e)) });
+      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad } });
+      return { entry, fixtureId: fx.id, totalText: homeMoney(entry.fee.total) };
+    },
   };
 
   // The captain's first look: the next session's list, and what is waiting.

@@ -903,16 +903,24 @@ const MAX_SQUAD = 6;
 const blankRow = () => ({ name: '', handicap: '', member: null });
 const fmtHc = (n) => (n > 0 ? `+${n}` : n < 0 ? `\u2212${-n}` : '0');
 
-function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixture }) {
+// `edit` is one of tour.mine: the sheet then opens on the team step for
+// that entry, saves through tour.update, and offers to withdraw.
+function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOpenFixture }) {
   const list = tour.list;
-  const [step, setStep] = useState(initialId ? 'team' : 'pick');
-  const [fxId, setFxId] = useState(initialId || null);
-  const [team, setTeam] = useState('');
+  const [step, setStep] = useState(edit || initialId ? 'team' : 'pick');
+  const [fxId, setFxId] = useState(edit ? edit.fixtureId : initialId || null);
+  const [team, setTeam] = useState(edit ? edit.team : '');
   const [rows, setRows] = useState(() => {
+    if (edit) {
+      const rs = edit.players.slice(0, MAX_SQUAD).map(p => ({ name: p.name, handicap: p.handicap, member: p.member }));
+      while (rs.length < 4) rs.push(blankRow());
+      return rs;
+    }
     const self = tour.find(me.name) || { name: me.name, handicap: me.handicapRaw == null ? '' : String(me.handicapRaw), member: null };
     return [{ name: self.name, handicap: self.handicap, member: self.member }, blankRow(), blankRow(), blankRow()];
   });
-  const [mobile, setMobile] = useState(me.mobile || '');
+  const [mobile, setMobile] = useState(edit && edit.mobile ? edit.mobile : me.mobile || '');
+  const [leaving, setLeaving] = useState(false); // withdraw asked once; the second tap does it
   const [focusRow, setFocusRow] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -934,7 +942,7 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { headRef.current && headRef.current.focus(); }, [step, done]);
 
-  const fx = list.find(t => t.id === fxId) || null;
+  const fx = edit ? edit.fx : list.find(t => t.id === fxId) || null;
   const named = rows.filter(r => r.name.trim());
   const q = fx ? tour.quote(fx.id, rows) : null;
   const teamHandicap = named.reduce((n, r) => n + (r.handicap === '' || isNaN(Number(r.handicap)) ? 0 : Number(r.handicap)), 0);
@@ -964,15 +972,25 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
       setStep('review');
     }
   };
-  const back = () => { setError(''); if (step === 'review') setStep('team'); else if (step === 'team' && !initialId) setStep('pick'); else onClose(); };
+  const back = () => { setError(''); if (step === 'review') setStep('team'); else if (step === 'team' && !initialId && !edit) setStep('pick'); else onClose(); };
 
   const confirm = async () => {
     if (!fx || busy) return;
     setBusy(true); setError('');
-    const r = await tour.enter(fx.id, { team, handicap: named.length ? teamHandicap : '', mobile, rows });
+    const r = edit
+      ? await tour.update(edit.fixtureId, edit.entryId, { team, handicap: named.length ? teamHandicap : '', mobile, rows })
+      : await tour.enter(fx.id, { team, handicap: named.length ? teamHandicap : '', mobile, rows });
     setBusy(false);
     if (!r || r.error) { setError((r && r.error) || 'That didn’t go through — please try again.'); return; }
-    setDone({ ...r, fx, quote: q, team: team.trim(), players: named.map(x => x.name.trim()) });
+    setDone({ ...r, fx, quote: q, team: team.trim(), players: named.map(x => x.name.trim()), edited: !!edit });
+  };
+  const withdraw = async () => {
+    if (!edit || busy) return;
+    if (!leaving) { setLeaving(true); return; }
+    setBusy(true);
+    await tour.withdraw(edit.fixtureId, edit.entryId);
+    setBusy(false);
+    onClose();
   };
   const undo = async () => {
     if (!done) return;
@@ -984,7 +1002,7 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
 
   const head = (title, sub) => (
     <div className="hd-sheet-inner hd-row" style={{ padding: '18px 20px 6px' }}>
-      <button type="button" onClick={back} aria-label={step === 'pick' || (step === 'team' && initialId) ? 'Back to Home' : 'Back'} className="hd-btn" style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)' }}>
+      <button type="button" onClick={back} aria-label={step === 'pick' || (step === 'team' && (initialId || edit)) ? 'Back to Home' : 'Back'} className="hd-btn" style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: '50%', background: 'var(--hd-card2)' }}>
         <Icon d={I.back} size={20} />
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -994,10 +1012,10 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
     </div>
   );
   // Where you are in the three steps.
-  const STEPS = [['pick', 'Tournament'], ['team', 'Team'], ['review', 'Review & pay']];
+  const STEPS = edit ? [['team', 'Team'], ['review', 'Review']] : [['pick', 'Tournament'], ['team', 'Team'], ['review', 'Review & pay']];
   const at = STEPS.findIndex(x => x[0] === step);
   const progress = (
-    <div className="hd-sheet-inner" aria-hidden="true" style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '6px' }}>
+    <div className="hd-sheet-inner" aria-hidden="true" style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: `repeat(${STEPS.length},1fr)`, gap: '6px' }}>
       {STEPS.map(([k, label], i) => (
         <div key={k}>
           <div style={{ height: 3, borderRadius: 2, background: i <= at ? 'var(--hd-gold2)' : 'var(--hd-line)' }} />
@@ -1035,7 +1053,7 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
             </div>
             <div className="hd-in" style={{ '--d': '.25s', textAlign: 'center', marginTop: '26px' }}>
               <h2 id="hd-tdone-title" ref={headRef} tabIndex={-1} className="hd-serif" style={{ fontSize: '30px', fontWeight: 500, lineHeight: 1.15, margin: 0, outline: 'none' }}>
-                {done.team} {/s$/i.test(done.team) ? 'are' : 'is'} entered
+                {done.edited ? `${done.team} updated` : `${done.team} ${/s$/i.test(done.team) ? 'are' : 'is'} entered`}
               </h2>
               <div style={{ fontSize: '14px', color: 'var(--hd-muted)', marginTop: '8px' }}>{f.name} &middot; {f.date}</div>
             </div>
@@ -1065,7 +1083,7 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
           <div className="hd-sheet-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
             <button type="button" className="hd-primary" onClick={onClose}><span>Back to Home</span></button>
             <button type="button" className="hd-link" onClick={() => { onClose(); onOpenFixture(f.id); }} style={{ minHeight: '44px', fontSize: '14px' }}>See it on Fixtures</button>
-            <button type="button" className="hd-link" onClick={undo} disabled={busy} style={{ minHeight: '44px', fontSize: '14px' }}>{busy ? 'Withdrawing…' : 'Undo this entry'}</button>
+            {!done.edited && <button type="button" className="hd-link" onClick={undo} disabled={busy} style={{ minHeight: '44px', fontSize: '14px' }}>{busy ? 'Withdrawing…' : 'Undo this entry'}</button>}
           </div>
         </div>
       </div>
@@ -1075,7 +1093,7 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
   const taken = rows.map(r => r.name);
   return (
     <div className="hd hd-sheet" role="dialog" aria-modal="true" aria-label="Enter a tournament">
-      {head(step === 'pick' ? 'Enter a tournament' : step === 'team' ? 'Your team' : 'Review & pay',
+      {head(step === 'pick' ? 'Enter a tournament' : step === 'team' ? (edit ? 'Edit your entry' : 'Your team') : edit ? 'Review changes' : 'Review & pay',
         step === 'pick' ? `${me.name}${me.handicapText != null ? ` · ${me.handicapText}` : ''}` : fx ? `${fx.name} · ${fx.date}` : '')}
       {progress}
       <div className="hd-sheet-body">
@@ -1195,6 +1213,17 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
                 <input id="hd-team-mobile" style={fld} inputMode="tel" value={mobile} placeholder="07…" onChange={e => setMobile(e.target.value)} />
                 <div style={{ fontSize: '12px', color: 'var(--hd-dim)', marginTop: '6px' }}>So the captain can reach the team about the draw. Only the captain sees it.</div>
               </div>
+              {edit && (
+                <div style={{ borderTop: '1px solid var(--hd-line)', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <button type="button" className="hd-btn" onClick={withdraw} disabled={busy}
+                    style={{ minHeight: '48px', borderRadius: '14px', border: `1px solid ${leaving ? '#f0b9b9' : 'var(--hd-line)'}`, color: leaving ? '#f0b9b9' : undefined }}>
+                    {busy ? 'Withdrawing…' : leaving ? `Yes, withdraw ${team.trim() || 'the team'}` : 'Withdraw from this tournament'}
+                  </button>
+                  <div style={{ fontSize: '12px', color: leaving ? '#f0b9b9' : 'var(--hd-dim)', lineHeight: 1.45 }}>
+                    {leaving ? `This takes ${team.trim() || 'your team'} out of ${fx.name}. Tap again to confirm, or go back to keep it.` : 'Takes the whole team out of the tournament. To change players, edit the list above instead.'}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1244,16 +1273,54 @@ function TournamentSheet({ me, tour, initialId, onClose, onOpenTerms, onOpenFixt
           {error && <div role="alert" style={{ fontSize: '13px', color: '#f0b9b9', lineHeight: 1.45 }}>{error}</div>}
           {step === 'review' ? (
             <button type="button" className="hd-primary hd-shimmer" disabled={busy} onClick={confirm}>
-              <span>{busy ? 'Entering…' : q && q.total > 0 ? `Confirm & pay ${q.totalText}` : 'Confirm entry'}</span>
+              <span>{busy ? (edit ? 'Saving…' : 'Entering…') : edit ? 'Save changes' : q && q.total > 0 ? `Confirm & pay ${q.totalText}` : 'Confirm entry'}</span>
             </button>
           ) : (
             <button type="button" className="hd-primary hd-shimmer" disabled={step === 'pick' ? !fx : false} onClick={next}>
-              <span>{step === 'pick' ? (fx ? `Next: your team` : 'Pick a tournament') : 'Next: review & pay'}</span>
+              <span>{step === 'pick' ? (fx ? `Next: your team` : 'Pick a tournament') : edit ? 'Next: review' : 'Next: review & pay'}</span>
             </button>
           )}
           <TermsLine onOpen={onOpenTerms} style={{ textAlign: 'center', color: 'var(--hd-muted)' }} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// The member's own entries still to be played, each with a way to amend or
+// withdraw it (until the first day; then the draw is the captain's).
+function MyTournaments({ items, onEdit, onOpen, delay }) {
+  return (
+    <div id="hd-my-tournaments" className="hd-in" style={{ '--d': delay, display: 'flex', flexDirection: 'column', gap: '8px', scrollMarginTop: '12px' }}>
+      <div className="hd-eyebrow" style={{ fontSize: '10px' }}>Your tournaments</div>
+      {items.map(en => (
+        <div key={`${en.fixtureId}-${en.entryId}`} className="hd-card" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="hd-row" style={{ gap: '10px', alignItems: 'center' }}>
+            <span style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
+              <span style={{ display: 'block', fontSize: '11px', letterSpacing: '1px', color: 'var(--hd-muted)' }}>{en.fx.mon}</span>
+              <span className="hd-serif" style={{ display: 'block', fontSize: '21px' }}>{en.fx.dayNum}</span>
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="hd-serif" style={{ display: 'block', fontSize: '17px', lineHeight: 1.2 }}>
+                {en.team}{en.handicap != null && <span style={{ color: 'var(--hd-muted)', fontSize: '13px', marginLeft: '6px', fontFamily: 'var(--hd-sans, inherit)' }}>{fmtHc(en.handicap)}</span>}
+              </span>
+              <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-muted)' }}>{en.fx.name} &middot; {en.fx.date}</span>
+            </span>
+            <span className={`hd-pill ${en.live ? 'hd-pill-gold' : 'hd-pill-ok'}`}>{en.live ? 'Playing' : 'Entered'}</span>
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--hd-muted)', lineHeight: 1.45 }}>
+            {en.players.length ? en.players.map(p => p.name).join(' \u00b7 ') : 'Squad to be confirmed'}{en.feeText ? ` \u00b7 ${en.feeText}` : ''}
+            {en.bookedBy ? <span style={{ color: 'var(--hd-dim)' }}> &middot; entered by {firstName(en.bookedBy)}</span> : null}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: en.canEdit ? '1fr 1fr' : '1fr', gap: '8px' }}>
+            {en.canEdit && (
+              <button type="button" className="hd-btn" onClick={() => onEdit(en)} style={{ minHeight: '42px', fontSize: '13px', borderRadius: '12px' }}>Edit team</button>
+            )}
+            <button type="button" className="hd-btn" onClick={() => onOpen(en.fixtureId)} style={{ minHeight: '42px', fontSize: '13px', borderRadius: '12px' }}>{en.canEdit ? 'On Fixtures' : 'See the draw'}</button>
+          </div>
+          {!en.canEdit && <div style={{ fontSize: '12px', color: 'var(--hd-dim)' }}>The tournament has started, so changes are the captain\u2019s now.</div>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1359,6 +1426,7 @@ export default function HomeDashboard(props) {
   } = props;
   const [booking, setBooking] = useState(null); // the day the sheet opened on
   const [entering, setEntering] = useState(false); // the Enter a tournament walk-through
+  const [editing, setEditing] = useState(null); // one of tour.mine, open for amending
   const [photoOpen, setPhotoOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -1439,7 +1507,7 @@ export default function HomeDashboard(props) {
                 are booked in Lessons, so they count there. */}
             <div style={{ marginTop: '16px', position: 'relative' }}>
               <div className="hd-eyebrow" style={{ fontSize: '10px', marginBottom: '8px' }}>All bookings</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: tour ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px' }}>
                 <button type="button" className="hd-stat hd-choice" disabled={!chukkaKey} onClick={() => chukkaKey && openChukkas(chukkaKey)}
                   aria-label={`Chukkas booked: ${chukkasBooked}. Open Chukkas.`} style={{ textAlign: 'center', background: 'var(--hd-card2)', border: 0 }}>
                   <b>{chukkasBooked}</b><span>Chukka{chukkasBooked === 1 ? '' : 's'}{waiting ? ` · ${waiting} waiting` : ''}</span>
@@ -1448,6 +1516,12 @@ export default function HomeDashboard(props) {
                   aria-label={`Lessons booked: ${me.lessonsBooked || 0}. Open Lessons.`} style={{ textAlign: 'center', background: 'var(--hd-card2)', border: 0 }}>
                   <b>{me.lessonsBooked || 0}</b><span>Lesson{me.lessonsBooked === 1 ? '' : 's'}</span>
                 </button>
+                {tour && (
+                  <button type="button" className="hd-stat hd-choice" onClick={() => { const el = document.getElementById('hd-my-tournaments'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setEntering(true); }}
+                    aria-label={`Tournaments entered: ${tour.mine.length}.`} style={{ textAlign: 'center', background: 'var(--hd-card2)', border: 0 }}>
+                    <b>{tour.mine.length}</b><span>Tournament{tour.mine.length === 1 ? '' : 's'}</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1498,6 +1572,10 @@ export default function HomeDashboard(props) {
           </div>
         )}
 
+        {me && tour && tour.mine.length > 0 && (
+          <MyTournaments items={tour.mine} onEdit={setEditing} onOpen={openFixture} delay=".25s" />
+        )}
+
         <Fixtures items={fixtures} onOpen={openFixture} onLive={openLive} delay=".28s" />
 
         <div className="hd-row" style={{ justifyContent: 'center', gap: '16px', fontSize: '12px', color: 'var(--hd-dim)', paddingTop: '4px', flexWrap: 'wrap' }}>
@@ -1526,6 +1604,10 @@ export default function HomeDashboard(props) {
 
       {entering && me && tour && (
         <TournamentSheet me={me} tour={tour} onClose={() => setEntering(false)} onOpenTerms={onOpenTerms} onOpenFixture={openFixture} />
+      )}
+
+      {editing && me && tour && (
+        <TournamentSheet key={editing.entryId} me={me} tour={tour} edit={editing} onClose={() => setEditing(null)} onOpenTerms={onOpenTerms} onOpenFixture={openFixture} />
       )}
 
       {booking && me && (
