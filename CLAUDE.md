@@ -322,9 +322,11 @@ or it sits on top of the More tab and makes it untappable. Vaux's active tab is
 has no Vercel behind it), and the switch is per Vercel project, in the
 dashboard under Analytics — the script 404s quietly until it is on. Page
 views and visitors, no cookies. A visit from the store app would look like
-Safari (the app's web view loads the same site), so `main.jsx` tags those
-through `va('beforeSend')` with `utm_source=ios-app` or `android-app` —
-Analytics → UTM source splits app from browser. The same lines are in all
+Safari (the app's web view loads the same site), so `main.jsx` records those
+through `va('beforeSend')` under the page `/ios-app` or `/android-app` rather
+than `/` — the Pages list in Analytics splits app from browser. (A UTM
+source would be tidier, but Vercel sells that breakdown as an add-on; the
+page path is in the free plan.) The same lines are in all
 four apps, except that the demo has no Capacitor and so no app tag.
 
 Outgoing email for all four apps goes through one route on the PoloACT hub
