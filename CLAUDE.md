@@ -503,7 +503,11 @@ One email per person listing their chukkas (session, time, ground, chukkas,
 pony, and their chukkas and shirt once the draw is published) and lessons.
 It reads `shared/<key>` over the Firestore REST API like the Watch apps, and
 counts a chukka roster only when `roster-week` is stamped for that very date.
-The day table in it mirrors DAY_CONFIG — keep the two in step. Safe by
+What is the club's own — the day table (it mirrors DAY_CONFIG; keep the two
+in step), how the day keys are suffixed, the Firebase project, the app's
+address, and the email crest — is `api/_club.js`, which also imports
+`TERMS_CLUB` from `src/terms.js` for the name, place and colours. The two
+email files name no club and are the same in every app. Safe by
 default: it emails only `REMINDERS_ALLOW` (Andy's address on dev) unless
 `REMINDERS_LIVE=1`, refuses any call without `CRON_SECRET`, and sends through
 Resend with `RESEND_API_KEY`. The two secrets are the owner's to set in Vercel;

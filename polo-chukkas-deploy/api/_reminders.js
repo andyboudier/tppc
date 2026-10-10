@@ -19,22 +19,22 @@
 // and APP_URL (optional). The Firebase project comes from VITE_FIREBASE_* like
 // the app itself, so the same file serves the club and the dev copy.
 //
-// The day table below mirrors DAY_CONFIG in src/PoloChukkas.jsx — the names,
-// weekdays and default throw-ins. Keep the two in step.
+// Everything that is the club's own — its name and colours, the chukka days,
+// how the day keys are suffixed, the Firebase project, where the app lives —
+// is in _club.js, so this file is the same in every app.
 
-const LIVE_PROJECT = { projectId: 'tedworth-park-polo', apiKey: '' };
+import { CLUB, CREST, PROJECT, APP_URL, DAYS, storageKey, SESSION_NAMES } from './_club.js';
+export { CLUB, DAYS, storageKey, SESSION_NAMES };
 
-export const DAYS = {
-  wed: { dow: 3, day: 'Wednesday', name: 'Wednesday Chukkas', start: '17:30' },
-  thu: { dow: 4, day: 'Thursday', name: 'Ladies Only', start: '10:00' },
-  fri: { dow: 5, day: 'Friday', name: 'Instructional Chukkas', start: '17:30' },
-  sat: { dow: 6, day: 'Saturday', name: 'Saturday Chukkas', start: '11:00' },
-  sun: { dow: 0, day: 'Sunday', name: 'Sunday Chukkas', start: '11:00' },
-};
-// TPPC stores Wednesday under the bare key and every other day suffixed.
-export const storageKey = (base, dk) => (dk === 'wed' ? base : `${base}-${dk}`);
-
-export const SESSION_NAMES = { ladies: 'Ladies Only', instructional: 'Instructional Chukkas' };
+const K = CLUB.colors;
+// The crest at the top of an email, in a white round where the club's is one.
+export const crestImg = (appUrl) =>
+  `<img src="${esc(`${appUrl}${CREST.src}`)}" width="72" height="72" alt="${esc(CLUB.name)}" style="${CREST.round ? 'border-radius:50%;background:#fff;' : ''}display:block">`;
+export const signOff = () => `${esc(CLUB.name)} · ${esc(CLUB.place)}`;
+export const settings = (env) => ({
+  appUrl: String(env.APP_URL || APP_URL).replace(/\/$/, ''),
+  from: env.REMINDER_FROM || `${CLUB.name} <hello@poloact.co.uk>`,
+});
 
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 export const normEmail = (s) => String(s || '').trim().toLowerCase();
@@ -53,8 +53,8 @@ export const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString
 
 // ── Reading the club's data ─────────────────────────────────────────────────
 export const projectOf = (env) => ({
-  projectId: env.VITE_FIREBASE_PROJECT_ID || LIVE_PROJECT.projectId,
-  apiKey: env.VITE_FIREBASE_API_KEY || LIVE_PROJECT.apiKey,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || PROJECT.projectId,
+  apiKey: env.VITE_FIREBASE_API_KEY || PROJECT.apiKey,
 });
 
 export const makeReader = (env, fetchImpl = fetch) => {
@@ -165,33 +165,32 @@ export function renderEmail({ when, target, person, appUrl }) {
   const subject = when === 'evening'
     ? `Tomorrow: ${person.items.map((i) => `${i.title} ${i.time}`).join(', ')}`
     : `Today: ${person.items.map((i) => `${i.title} ${i.time}`).join(', ')}`;
-  const crest = `${appUrl}/tppc-crest.png`;
   const rows = person.items.map((it) => `
-    <tr><td style="padding:16px 18px;border-top:1px solid #3d2e24">
-      <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#d4a85a;line-height:1">${esc(it.time)}</div>
-      <div style="font-size:16px;color:#f4ecd8;margin-top:6px">${esc(it.title)}${it.ground ? ` · ${esc(it.ground)}` : ''}</div>
-      ${itemLines(it).map((l) => `<div style="font-size:13px;color:#b3a48c;margin-top:4px">${esc(l)}</div>`).join('')}
+    <tr><td style="padding:16px 18px;border-top:1px solid ${K.line}">
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;color:${K.gold2};line-height:1">${esc(it.time)}</div>
+      <div style="font-size:16px;color:${K.cream};margin-top:6px">${esc(it.title)}${it.ground ? ` · ${esc(it.ground)}` : ''}</div>
+      ${itemLines(it).map((l) => `<div style="font-size:13px;color:${K.muted};margin-top:4px">${esc(l)}</div>`).join('')}
     </td></tr>`).join('');
-  const html = `<!doctype html><html><body style="margin:0;background:#120d0b;font-family:Helvetica,Arial,sans-serif">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#120d0b;padding:28px 12px"><tr><td align="center">
+  const html = `<!doctype html><html><body style="margin:0;background:${K.bg};font-family:Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${K.bg};padding:28px 12px"><tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px">
       <tr><td align="center" style="padding-bottom:18px">
-        <img src="${esc(crest)}" width="72" height="72" alt="Tedworth Park Polo Club" style="border-radius:50%;background:#fff;display:block">
+        ${crestImg(appUrl)}
       </td></tr>
-      <tr><td style="background:#1f1714;border:1px solid #3d2e24;border-radius:18px;overflow:hidden">
+      <tr><td style="background:${K.card};border:1px solid ${K.line};border-radius:18px;overflow:hidden">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr><td style="padding:20px 18px 14px">
-            <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#b3a48c">${esc(lead)}</div>
-            <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;color:#f4ecd8;margin-top:6px">Hello ${esc(firstName(person.name))}, here&rsquo;s your ${when === 'evening' ? 'reminder' : 'day'}</div>
+            <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:${K.muted}">${esc(lead)}</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;color:${K.cream};margin-top:6px">Hello ${esc(firstName(person.name))}, here&rsquo;s your ${when === 'evening' ? 'reminder' : 'day'}</div>
           </td></tr>
           ${rows}
         </table>
       </td></tr>
       <tr><td align="center" style="padding:22px 0 8px">
-        <a href="${esc(appUrl)}" style="display:inline-block;background:#6b1f2a;border:1px solid #b8924a;color:#f4ecd8;text-decoration:none;font-family:Georgia,'Times New Roman',serif;font-size:17px;padding:13px 26px;border-radius:14px">Open the app</a>
+        <a href="${esc(appUrl)}" style="display:inline-block;background:${K.burg};border:1px solid ${K.gold};color:${K.cream};text-decoration:none;font-family:Georgia,'Times New Roman',serif;font-size:17px;padding:13px 26px;border-radius:14px">Open the app</a>
       </td></tr>
-      <tr><td align="center" style="font-size:12px;color:#9c8d77;line-height:1.6;padding:6px 10px">
-        Can&rsquo;t make it? Take yourself off the list in the app so someone else can have your place.<br>Tedworth Park Polo Club · Tidworth, Wiltshire
+      <tr><td align="center" style="font-size:12px;color:${K.dim || K.muted};line-height:1.6;padding:6px 10px">
+        Can&rsquo;t make it? Take yourself off the list in the app so someone else can have your place.<br>${signOff()}
       </td></tr>
     </table>
   </td></tr></table></body></html>`;
@@ -214,8 +213,7 @@ export async function runReminders({ when, env, now = new Date(), dry = false, d
 
   const allow = String(env.REMINDERS_ALLOW || '').split(',').map(normEmail).filter(Boolean);
   const live = env.REMINDERS_LIVE === '1';
-  const appUrl = String(env.APP_URL || 'https://tppc-dev.poloact.co.uk').replace(/\/$/, '');
-  const from = env.REMINDER_FROM || 'Tedworth Park Polo Club <hello@poloact.co.uk>';
+  const { appUrl, from } = settings(env);
   const report = { when, date: target.iso, booked: people.length, noEmail, sent: [], held: [], failed: [] };
 
   for (const person of people) {
