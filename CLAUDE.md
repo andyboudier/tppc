@@ -317,6 +317,12 @@ carry the padding (the footer is outside `main`), and `.refresh-fab` is lifted,
 or it sits on top of the More tab and makes it untappable. Vaux's active tab is
 `--cream` where the others are `--gold`.
 
+**Visitor numbers** come from Vercel Web Analytics: `main.jsx` loads
+`/_vercel/insights/script.js` on the web only (never in the native app, which
+has no Vercel behind it), and the switch is per Vercel project, in the
+dashboard under Analytics — the script 404s quietly until it is on. Page
+views and visitors, no cookies. The same lines are in all four apps.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
