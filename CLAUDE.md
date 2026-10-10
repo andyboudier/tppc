@@ -370,7 +370,7 @@ the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
 **Druids and Vaux have taken the dev design ahead of TPPC** (Druids #61, Vaux
-#70, both on a `claude/dev-design` branch, draft until the owner says go):
+#70, merged and live on 10 October 2026 with sign-in **on**):
 the Home tab, member roles, email links finished in the app, booking and
 reminder emails, the lessons rework, the tournament walk-through and the
 fixtures archive. TPPC live stays as it is until the owner moves it across,
@@ -387,12 +387,18 @@ main component is not a clean patch — a third of the hunks reject against a
 club's file — so `scripts/port_club.py` in the session scratchpad did the
 rest by anchor; the club differences it keeps are no club sessions, no
 waiting list, no membership-record fields, Druids' student tier, and Vaux's
-military tournaments (its own card prices them). Sign-in is still **off** in
-both until `VITE_SIGN_IN_LIVE=1` is set on the Vercel project, so merging
-changes nothing a member sees at sign-in. Note that tppc-dev is behind this
-repo by #80–#86 (arena season, fixtures opening on today, the shared terms
-sheet and rate card editor, events, analytics); merge main into tppc-dev
-before bringing the design back here.
+military tournaments (its own card prices them). Sign-in is switched on by
+`VITE_SIGN_IN_LIVE=1` on the Vercel project (set on `druids-tpd4` and `vaux`,
+with `VITE_FIXED_ADMIN_EMAILS`, `REMINDERS_ALLOW` and `APP_URL`); unset it and
+the app is the captain-PIN-only one again. Those two clubs sign the app in
+**anonymously** so that their Firestore rules accept its writes (TPPC's rules
+do not need it), and the two sessions share one Firebase Auth: an anonymous
+user reads as signed out in `authFirebase.js`, and `firebase.js` signs in
+anonymously whenever the state settles on nobody — at start and again after
+a member signs out — never once at load, which would displace a member
+coming back from a Google or Apple redirect (Druids #62, Vaux #71). TPPC main
+(#80–#86) is merged into tppc-dev (tppc-dev #34), so the design can be brought
+back here by the merge above whenever the owner says.
 
 ### Things that differ between the apps, and must not be "fixed"
 
