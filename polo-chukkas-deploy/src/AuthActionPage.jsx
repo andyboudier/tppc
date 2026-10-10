@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { authErrorText } from './auth';
+import { TERMS_CLUB } from './terms';
 
 // Links from the club's emails, finished inside the app rather than on
 // Firebase's own page: choose a new password, confirm or restore an email
@@ -11,10 +12,9 @@ import { authErrorText } from './auth';
 // `ready` is true once the sign-in provider has woken; nothing is called
 // before that.
 
-const C = {
-  bg: '#120d0b', card: '#1f1714', card2: '#2a1f1a', line: '#3d2e24', burg: '#6b1f2a',
-  gold: '#b8924a', gold2: '#d4a85a', cream: '#f4ecd8', muted: '#b3a48c', dim: '#9c8d77',
-};
+// The club's dark colours, from its own terms.js, so this file is the same in
+// every app.
+const C = { card2: TERMS_CLUB.colors.card, dim: TERMS_CLUB.colors.muted, ...TERMS_CLUB.colors };
 const field = {
   width: '100%', minHeight: 52, padding: '0 16px', borderRadius: 14, background: C.card2,
   border: `1px solid ${C.line}`, color: C.cream, fontSize: 16, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
@@ -106,9 +106,9 @@ export default function AuthActionPage({ action, ready, onDone, onRequestNew }) 
         fontFamily: "'Outfit', system-ui, sans-serif", padding: 'calc(env(safe-area-inset-top,0px) + 48px) 20px 40px' }}>
       <div style={{ maxWidth: 420, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 12 }}>
-          <img src="/tppc-crest.png" alt="Tedworth Park Polo Club" width="96" height="96"
-            style={{ width: 96, height: 96, borderRadius: '50%', background: '#fff', boxShadow: `0 0 0 1.5px ${C.gold}` }} />
-          <div style={{ fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase', color: C.muted, marginTop: 6 }}>Tedworth Park Polo Club</div>
+          <img src={TERMS_CLUB.crest} alt={TERMS_CLUB.name} width="96" height="96"
+            style={{ width: 96, height: 96, objectFit: 'contain', ...(TERMS_CLUB.crestRound ? { borderRadius: '50%', background: '#fff', boxShadow: `0 0 0 1.5px ${C.gold}` } : {}) }} />
+          <div style={{ fontSize: 11, letterSpacing: 2.5, textTransform: 'uppercase', color: C.muted, marginTop: 6 }}>{TERMS_CLUB.name}</div>
           <h1 id="aa-title" ref={headRef} tabIndex={-1} style={{ fontFamily: "'Fraunces', Georgia, serif", fontWeight: 500, fontSize: 30, lineHeight: 1.15, margin: 0, outline: 'none' }}>{title}</h1>
         </div>
 

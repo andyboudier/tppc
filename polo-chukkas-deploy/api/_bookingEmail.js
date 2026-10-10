@@ -21,7 +21,7 @@
 // only to an address on REMINDERS_ALLOW, or to anyone once REMINDERS_LIVE=1.
 
 import {
-  DAYS, storageKey, longDate, londonParts, makeReader, projectOf, recordFor, json,
+  DAYS, storageKey, longDate, londonParts, makeReader, projectOf, recordFor, json, crestImg, signOff, settings, CLUB,
   esc, firstName, normEmail, normName, SESSION_NAMES,
 } from './_reminders.js';
 
@@ -141,32 +141,32 @@ export function renderBookingEmail({ req, found, person, appUrl }) {
   const cta = cancelled
     ? { href: appUrl, label: 'Book again' }
     : { href: manageLink(appUrl, req), label: 'Amend or cancel' };
-  const crest = `${appUrl}/tppc-crest.png`;
-  const html = `<!doctype html><html><body style="margin:0;background:#120d0b;font-family:Helvetica,Arial,sans-serif">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#120d0b;padding:28px 12px"><tr><td align="center">
+  const K = CLUB.colors;
+  const html = `<!doctype html><html><body style="margin:0;background:${K.bg};font-family:Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${K.bg};padding:28px 12px"><tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px">
       <tr><td align="center" style="padding-bottom:18px">
-        <img src="${esc(crest)}" width="72" height="72" alt="Tedworth Park Polo Club" style="border-radius:50%;background:#fff;display:block">
+        ${crestImg(appUrl)}
       </td></tr>
-      <tr><td style="background:#1f1714;border:1px solid #3d2e24;border-radius:18px;overflow:hidden">
+      <tr><td style="background:${K.card};border:1px solid ${K.line};border-radius:18px;overflow:hidden">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr><td style="padding:20px 18px 14px">
-            <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:${cancelled ? '#e8a0a0' : '#b3a48c'}">${esc(head)}</div>
-            <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;color:#f4ecd8;margin-top:6px">Hello ${esc(firstName(person.name))}</div>
-            <div style="font-size:14px;color:#b3a48c;margin-top:6px;line-height:1.5">${esc(lead)}</div>
+            <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:${cancelled ? '#e8a0a0' : K.muted}">${esc(head)}</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;color:${K.cream};margin-top:6px">Hello ${esc(firstName(person.name))}</div>
+            <div style="font-size:14px;color:${K.muted};margin-top:6px;line-height:1.5">${esc(lead)}</div>
           </td></tr>
-          <tr><td style="padding:16px 18px;border-top:1px solid #3d2e24">
-            <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;color:${cancelled ? '#9c8d77' : '#d4a85a'};line-height:1.2${cancelled ? ';text-decoration:line-through' : ''}">${esc(found.title)}</div>
-            <div style="font-size:15px;color:#f4ecd8;margin-top:6px">${esc(when)}${found.ground ? ` · ${esc(found.ground)}` : ''}</div>
-            ${lines.map((l) => `<div style="font-size:13px;color:#b3a48c;margin-top:4px">${esc(l)}</div>`).join('')}
+          <tr><td style="padding:16px 18px;border-top:1px solid ${K.line}">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;color:${cancelled ? (K.dim || K.muted) : K.gold2};line-height:1.2${cancelled ? ';text-decoration:line-through' : ''}">${esc(found.title)}</div>
+            <div style="font-size:15px;color:${K.cream};margin-top:6px">${esc(when)}${found.ground ? ` · ${esc(found.ground)}` : ''}</div>
+            ${lines.map((l) => `<div style="font-size:13px;color:${K.muted};margin-top:4px">${esc(l)}</div>`).join('')}
           </td></tr>
         </table>
       </td></tr>
       <tr><td align="center" style="padding:22px 0 8px">
-        <a href="${esc(cta.href)}" style="display:inline-block;background:#6b1f2a;border:1px solid #b8924a;color:#f4ecd8;text-decoration:none;font-family:Georgia,'Times New Roman',serif;font-size:17px;padding:13px 26px;border-radius:14px">${esc(cta.label)}</a>
+        <a href="${esc(cta.href)}" style="display:inline-block;background:${K.burg};border:1px solid ${K.gold};color:${K.cream};text-decoration:none;font-family:Georgia,'Times New Roman',serif;font-size:17px;padding:13px 26px;border-radius:14px">${esc(cta.label)}</a>
       </td></tr>
-      <tr><td align="center" style="font-size:12px;color:#9c8d77;line-height:1.6;padding:6px 10px">
-        ${cancelled ? '' : 'Can&rsquo;t make it after all? Cancel in the app as early as you can: it frees your place, and the booking terms explain when a charge applies.<br>'}This booking is made under the club&rsquo;s <a href="${esc(appUrl)}/?terms=1" style="color:#d4a85a">booking terms</a>.<br>Tedworth Park Polo Club · Tidworth, Wiltshire
+      <tr><td align="center" style="font-size:12px;color:${K.dim || K.muted};line-height:1.6;padding:6px 10px">
+        ${cancelled ? '' : 'Can&rsquo;t make it after all? Cancel in the app as early as you can: it frees your place, and the booking terms explain when a charge applies.<br>'}This booking is made under the club&rsquo;s <a href="${esc(appUrl)}/?terms=1" style="color:${K.gold2}">booking terms</a>.<br>${signOff()}
       </td></tr>
     </table>
   </td></tr></table></body></html>`;
@@ -236,8 +236,7 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
   if (!live && !allow.includes(to)) return { status: 200, body: { sent: false, why: 'Not on the test list.' } };
   if (!env.RESEND_API_KEY) return { status: 200, body: { sent: false, why: 'No RESEND_API_KEY.' } };
 
-  const appUrl = String(env.APP_URL || 'https://tppc-dev.poloact.co.uk').replace(/\/$/, '');
-  const from = env.REMINDER_FROM || 'Tedworth Park Polo Club <hello@poloact.co.uk>';
+  const { appUrl, from } = settings(env);
   const mail = renderBookingEmail({ req, found, person, appUrl });
   const r = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST',

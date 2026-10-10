@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { TermsLine } from './TermsSheet';
 import { greeting, firstName, readUsual, writeUsual, icsFor, initialsOf } from './home';
 import { authErrorText } from './auth';
+import { TERMS_CLUB } from './terms';
 
 // The Home tab: who you are to the club at a glance, your next chukka, and
 // booking in two taps — Book, then Confirm. The model is in home.js and every
@@ -15,14 +16,17 @@ import { authErrorText } from './auth';
 // point at something, and stops for anyone who has asked their phone for
 // less motion.
 
+// The palette is the club's own (TERMS_CLUB.colors in terms.js), so this file
+// is the same in every app.
+const K = TERMS_CLUB.colors;
 const CSS = `
-.hd { --hd-bg:#120d0b; --hd-card:#1f1714; --hd-card2:#2a1f1a; --hd-line:#3d2e24; --hd-burg:#6b1f2a;
-  --hd-gold:#b8924a; --hd-gold2:#d4a85a; --hd-cream:#f4ecd8; --hd-muted:#b3a48c; --hd-dim:#9c8d77;
+.hd { --hd-bg:${K.bg}; --hd-card:${K.card}; --hd-card2:${K.card2 || K.card}; --hd-line:${K.line}; --hd-burg:${K.burg};
+  --hd-gold:${K.gold}; --hd-gold2:${K.gold2}; --hd-cream:${K.cream}; --hd-muted:${K.muted}; --hd-dim:${K.dim || K.muted};
   color:var(--hd-cream); font-family:'Outfit',system-ui,sans-serif; position:relative; }
 .hd * { box-sizing:border-box; }
 .hd a { color:var(--hd-gold2); }
 .hd-dots { position:absolute; left:-16px; right:-16px; top:-24px; height:260px; pointer-events:none;
-  background-image:radial-gradient(rgba(212,168,90,.16) 1px,transparent 1px); background-size:14px 14px;
+  background-image:radial-gradient(color-mix(in srgb, var(--hd-gold2) 16%, transparent) 1px,transparent 1px); background-size:14px 14px;
   -webkit-mask-image:linear-gradient(#000,transparent); mask-image:linear-gradient(#000,transparent); }
 .hd-serif { font-family:'Fraunces',Georgia,serif; }
 .hd-eyebrow { font-size:11px; letter-spacing:2.5px; text-transform:uppercase; color:var(--hd-muted); }
@@ -32,10 +36,10 @@ const CSS = `
 .hd-btn:hover { border-color:var(--hd-gold); }
 .hd-btn:focus-visible, .hd-choice:focus-visible, .hd-link:focus-visible { outline:2px solid var(--hd-gold2); outline-offset:2px; }
 .hd-link { background:none; border:0; padding:0; font:inherit; color:var(--hd-gold2); cursor:pointer; text-decoration:none; }
-.hd-link:hover { color:#e8c47e; }
+.hd-link:hover { color:var(--hd-cream); }
 .hd-primary { position:relative; overflow:hidden; width:100%; min-height:56px; border-radius:16px; background:var(--hd-burg);
   border:1px solid var(--hd-gold); color:var(--hd-cream); font-family:'Fraunces',Georgia,serif; font-size:20px; cursor:pointer;
-  display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 10px 30px -12px rgba(107,31,42,.9); }
+  display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 10px 30px -12px color-mix(in srgb, var(--hd-burg) 90%, transparent); }
 .hd-primary:disabled { opacity:.55; cursor:default; }
 .hd-primary > span { position:relative; }
 .hd-shimmer::before { content:''; position:absolute; inset:0; background-image:linear-gradient(105deg,transparent 35%,rgba(244,236,216,.28) 50%,transparent 65%);
@@ -106,12 +110,13 @@ const I = {
   camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1zM12 17a4 4 0 100-8 4 4 0 000 8z',
 };
 
-// The club's own badge, cut from the app icon as a round (public/tppc-crest.png)
-// and set in a thin gold ring so it sits on the dark ground like a medal.
+// The club's own badge (TERMS_CLUB.crest). TPPC's is cut from the app icon as
+// a round and set in a thin gold ring so it sits on the dark ground like a
+// medal; a club whose crest is not a round shows it as it is.
 const Crest = ({ size = 44 }) => (
-  <img src="/tppc-crest.png" alt="Tedworth Park Polo Club" width={size} height={size}
-    style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'block', background: '#fff',
-      boxShadow: '0 0 0 1.5px var(--hd-gold), 0 6px 18px -6px rgba(0,0,0,.6)' }} />
+  <img src={TERMS_CLUB.crest} alt={TERMS_CLUB.name} width={size} height={size}
+    style={{ width: size, height: size, flexShrink: 0, display: 'block', objectFit: 'contain',
+      ...(TERMS_CLUB.crestRound ? { borderRadius: '50%', background: '#fff', boxShadow: '0 0 0 1.5px var(--hd-gold), 0 6px 18px -6px rgba(0,0,0,.6)' } : {}) }} />
 );
 
 // ── Profile picture ─────────────────────────────────────────────────────────
@@ -541,7 +546,7 @@ function Logon({ onSignIn, openFixtures, openLive }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', paddingTop: '6px' }}>
       <div className="hd-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px' }}>
         <Crest size={120} />
-        <div className="hd-eyebrow" style={{ marginTop: '8px' }}>Tedworth Park Polo Club</div>
+        <div className="hd-eyebrow" style={{ marginTop: '8px' }}>{TERMS_CLUB.name}</div>
         <h2 className="hd-serif" style={{ fontSize: '32px', fontWeight: 500, lineHeight: 1.12, margin: 0 }}>Welcome back</h2>
         <p style={{ fontSize: '14px', color: 'var(--hd-muted)', maxWidth: '320px', lineHeight: 1.55, margin: 0 }}>
           Sign in to book chukkas and lessons, see your team when the draw is out, and keep track of what you owe.
@@ -660,10 +665,10 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
     const s = done.session;
     const where = s.ground ? ` · ${s.ground}` : '';
     const addToCalendar = () => {
-      const blob = new Blob([icsFor({ title: `${s.name} · Tedworth Park`, start: s.start, minutes: 60 + 15 * Math.max(0, done.chukkas - 2), location: s.ground || 'Tedworth Park Polo Club', note: `${done.chukkas} chukka${done.chukkas === 1 ? '' : 's'}` })], { type: 'text/calendar' });
+      const blob = new Blob([icsFor({ title: `${s.name} · ${TERMS_CLUB.short}`, start: s.start, minutes: 60 + 15 * Math.max(0, done.chukkas - 2), location: s.ground || TERMS_CLUB.name, note: `${done.chukkas} chukka${done.chukkas === 1 ? '' : 's'}` })], { type: 'text/calendar' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `tppc-${s.key}.ics`;
+      a.download = `${TERMS_CLUB.slug}-${s.key}.ics`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
@@ -1029,10 +1034,10 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
     const f = done.fx;
     const addToCalendar = () => {
       const start = new Date(f.start); start.setHours(10, 0, 0, 0);
-      const blob = new Blob([icsFor({ title: `${f.name} · ${done.team}`, start, minutes: 8 * 60, location: 'Tedworth Park Polo Club', note: `${done.team}: ${done.players.join(', ')}` })], { type: 'text/calendar' });
+      const blob = new Blob([icsFor({ title: `${f.name} · ${done.team}`, start, minutes: 8 * 60, location: TERMS_CLUB.name, note: `${done.team}: ${done.players.join(', ')}` })], { type: 'text/calendar' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `tppc-${String(f.id)}.ics`;
+      a.download = `${TERMS_CLUB.slug}-${String(f.id)}.ics`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
@@ -1135,7 +1140,7 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
             <>
               <div>
                 <label className="hd-eyebrow" htmlFor="hd-team-name" style={{ display: 'block', marginBottom: '8px' }}>Team name</label>
-                <input id="hd-team-name" style={fld} value={team} autoComplete="off" placeholder="e.g. Tedworth Tigers"
+                <input id="hd-team-name" style={fld} value={team} autoComplete="off" placeholder={`e.g. ${TERMS_CLUB.short.split(' ')[0]} Tigers`}
                   onChange={e => { setTeam(e.target.value); setError(''); }} onBlur={e => { const t = tour.known(e.target.value); if (t && !named.slice(1).length) pickTeam(t.name); }} />
                 {myTeams.length > 0 && (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
@@ -1490,7 +1495,7 @@ export default function HomeDashboard(props) {
 
         {me ? (
           <div className="hd-card hd-in" style={{ '--d': '.06s', padding: '18px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg,#2a1a17 0%,#1f1714 55%,#1a1311 100%)' }}>
-            <div aria-hidden="true" style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle,rgba(212,168,90,.18),transparent 70%)' }} />
+            <div aria-hidden="true" style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle,color-mix(in srgb, var(--hd-gold2) 18%, transparent),transparent 70%)' }} />
             <div className="hd-row" style={{ alignItems: 'center', position: 'relative', gap: '14px' }}>
               <Avatar src={account.photo} name={me.name} size={58} onClick={() => setPhotoOpen(true)} />
               <div style={{ flex: 1, minWidth: 0 }}>

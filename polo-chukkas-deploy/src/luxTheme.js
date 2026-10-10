@@ -17,26 +17,39 @@
 // Applied with the `lux` class on .polo-app, and rendered after the app's own
 // stylesheet so equal selectors win. Take the class off and the app is exactly
 // as it was — which is how the clubs can keep their light look if they want it.
+//
+// The colours are the club's own dark palette, TERMS_CLUB in terms.js, so this
+// file is the same in every app.
+
+import { TERMS_CLUB } from './terms';
+
+const K = TERMS_CLUB.colors;
+const hex = (h) => String(h || '').replace('#', '').match(/.{2}/g).map((x) => parseInt(x, 16)).join(', ');
+// The app's own burgundy as the browser serialises it (rgb(107, 31, 42) for
+// TPPC): it is written inline in a few places and needs re-pointing at gold.
+const BURG = hex(TERMS_CLUB.burgundy || K.burg);
 
 export const LUX_CSS = `
 .polo-app.lux {
-  --cream-warm: #2a1f1a;
-  --cream-pale: #1f1714;
-  --ink: #f4ecd8;
-  --muted: #b3a48c;
-  --line: #3d2e24;
+  --cream-warm: ${K.card2 || K.card};
+  --cream-pale: ${K.card};
+  --ink: ${K.cream};
+  --muted: ${K.muted};
+  --line: ${K.line};
   --danger: #e07070;
   --white-team: #efe6d0;
-  --lux-bg: #120d0b;
-  --lux-card: #1f1714;
-  --lux-card2: #2a1f1a;
-  --lux-gold: #d4a85a;
+  --burgundy: ${K.burg};
+  --lux-bg: ${K.bg};
+  --lux-card: ${K.card};
+  --lux-card2: ${K.card2 || K.card};
+  --lux-gold: ${K.gold2};
+  --lux-dim: ${K.dim || K.muted};
   background: var(--lux-bg);
   color: var(--ink);
   color-scheme: dark;
 }
-.polo-app.lux .app-footer { background: var(--lux-bg) !important; border-top-color: var(--line) !important; color: #9c8d77 !important; }
-.polo-app.lux .app-footer button { color: #9c8d77 !important; }
+.polo-app.lux .app-footer { background: var(--lux-bg) !important; border-top-color: var(--line) !important; color: var(--lux-dim) !important; }
+.polo-app.lux .app-footer button { color: var(--lux-dim) !important; }
 .polo-app.lux .refresh-fab { background: var(--lux-card) !important; border-color: var(--gold) !important; color: var(--lux-gold) !important; }
 .polo-app.lux .label-eyebrow { color: var(--muted); }
 
@@ -64,13 +77,13 @@ export const LUX_CSS = `
 
 /* Inputs */
 .polo-app.lux .input-field { background-color: var(--lux-card2); border-color: var(--line); color: var(--ink); border-radius: 12px; }
-.polo-app.lux .input-field:focus { background-color: var(--lux-card2); border-color: var(--lux-gold); box-shadow: 0 0 0 3px rgba(212, 168, 90, 0.18); }
-.polo-app.lux .input-field::placeholder { color: #7d6f5c; }
+.polo-app.lux .input-field:focus { background-color: var(--lux-card2); border-color: var(--lux-gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lux-gold) 18%, transparent); }
+.polo-app.lux .input-field::placeholder { color: var(--lux-dim); }
 /* The arrow is drawn once, at the right. Kept here as well as on the base
    .select-field because .input-field:focus is the stronger rule: without
    these the arrow tiled across the whole box the moment it was tapped. */
 .polo-app.lux .select-field, .polo-app.lux .select-field:focus { background-repeat: no-repeat; background-position: right 16px center; }
-.polo-app.lux .select-field { background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3e%3cpath fill='none' stroke='%23b3a48c' stroke-width='1.5' d='M1 1.5l5 5 5-5'/%3e%3c/svg%3e"); }
+.polo-app.lux .select-field { background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3e%3cpath fill='none' stroke='%23${K.muted.replace('#', '')}' stroke-width='1.5' d='M1 1.5l5 5 5-5'/%3e%3c/svg%3e"); }
 .polo-app.lux select option { background: var(--lux-card); color: var(--ink); }
 /* Controls styled inline rather than with .input-field (Live's pickers, the
    captain's small editors): same dark field, whatever their inline colours. */
@@ -84,14 +97,14 @@ export const LUX_CSS = `
 .polo-app.lux input[type="date"], .polo-app.lux input[type="time"] { color-scheme: dark; }
 
 /* Buttons */
-.polo-app.lux .btn-primary { border: 1px solid var(--gold); border-radius: 14px; box-shadow: 0 10px 24px -14px rgba(107, 31, 42, .9); }
+.polo-app.lux .btn-primary { border: 1px solid var(--gold); border-radius: 14px; box-shadow: 0 10px 24px -14px rgba(${BURG}, .9); }
 .polo-app.lux .btn-secondary { color: var(--lux-gold); border-color: var(--gold); border-radius: 14px; }
 .polo-app.lux .btn-secondary:hover { background: var(--burgundy); color: var(--cream); }
 
 /* Chukkas tab */
 .polo-app.lux .day-menu-btn { background: var(--lux-card); border-color: var(--line); color: var(--ink); border-radius: 14px; }
 .polo-app.lux .day-menu-btn:hover { border-color: var(--gold); }
-.polo-app.lux .day-menu-btn.active { background: #2a1a17; border-color: var(--lux-gold); }
+.polo-app.lux .day-menu-btn.active { background: var(--lux-card2); border-color: var(--lux-gold); }
 .polo-app.lux .day-menu-btn.active .day-menu-day { color: var(--lux-gold); }
 .polo-app.lux .day-menu-btn.active .day-menu-blurb { color: var(--muted); }
 .polo-app.lux .player-row { background: var(--lux-card); border-color: var(--line); border-radius: 14px; }
@@ -110,7 +123,7 @@ export const LUX_CSS = `
 .polo-app.lux .chukka-head { background: var(--lux-card2); border-color: var(--line); }
 .polo-app.lux .chukka-num, .polo-app.lux .chukka-time { color: var(--ink); }
 .polo-app.lux .team-mini-row:hover { background: var(--lux-card2); }
-.polo-app.lux .team-mini-row.selected { background: #2a1a17; }
+.polo-app.lux .team-mini-row.selected { background: var(--lux-card2); }
 .polo-app.lux .action-bar { background: var(--lux-card); border-color: var(--line); }
 .polo-app.lux .action-btn { background: var(--lux-card2); color: var(--ink); border-color: var(--line); }
 .polo-app.lux .action-btn:hover:not(:disabled) { border-color: var(--lux-gold); color: var(--lux-gold); }
@@ -140,9 +153,9 @@ export const LUX_CSS = `
 .polo-app.lux .share-textarea { background: var(--lux-card2); color: var(--ink); border-color: var(--line); }
 .polo-app.lux .team-mini-row.white .hcp { color: #4a1419; }
 /* Hex burgundy written inline (the browser serialises #6b1f2a as rgb). */
-.polo-app.lux [style^="color: rgb(107, 31, 42)"],
-.polo-app.lux [style*="; color: rgb(107, 31, 42)"] { color: var(--lux-gold) !important; }
-.polo-app.lux [style*="solid rgb(107, 31, 42)"], .polo-app.lux [style*="solid rgba(107, 31, 42"] { border-color: rgba(184, 146, 74, .5) !important; }
+.polo-app.lux [style^="color: rgb(${BURG})"],
+.polo-app.lux [style*="; color: rgb(${BURG})"] { color: var(--lux-gold) !important; }
+.polo-app.lux [style*="solid rgb(${BURG})"], .polo-app.lux [style*="solid rgba(${BURG}"] { border-color: color-mix(in srgb, var(--gold) 50%, transparent) !important; }
 /* The Blue team's text on the dark ground. */
 .polo-app.lux [style^="color: var(--blue)"],
 .polo-app.lux [style*="; color: var(--blue)"] { color: #9db8dc !important; }

@@ -142,7 +142,7 @@ loads.
 
 With a provider installed (the PoloACT demo does this with Firebase Auth):
 `captainMode` means *admin* (rosters, draw, players, tournaments, shop,
-payments), `canScore` (the PIN, or an admin) gates live scoring only, and a
+rate card), `canScore` (the PIN, or an admin) gates live scoring only, and a
 signed-in member books as themselves and can remove only their own entry.
 `src/AuthSheet.jsx` is the sign-in sheet and the Admins panel. Both files are
 in the demo's resync list.
@@ -198,7 +198,10 @@ fixture editor has a Year box. The Fixtures tab groups months into seasons
 that is on or coming first. A finished season is archived: members see only
 the seasons that are on or to come, and an admin (`captainMode`) finds the rest
 under a "Previous seasons" fold at the foot of the list (`showFixtureArchive`);
-nothing is deleted, so archived fixtures keep their match details and sign-ups. The club's stored list
+nothing is deleted, so archived fixtures keep their match details and sign-ups.
+Opening the tab scrolls to where the season is now — the fixture on today,
+else the next to come, else the last played — landing on its month heading
+when it is the month's first (the same in all three clubs). The club's stored list
 gets the arena season added **once**, by the `arena-2026-27` entry in
 `seed-flags`; a captain's later deletions stay deleted. A new season's list is
 added the same way: a new array, a new flag. Prices are the Arena Price List,
@@ -334,6 +337,18 @@ carry the padding (the footer is outside `main`), and `.refresh-fab` is lifted,
 or it sits on top of the More tab and makes it untappable. Vaux's active tab is
 `--cream` where the others are `--gold`.
 
+**Visitor numbers** come from Vercel Web Analytics: `main.jsx` loads
+`/_vercel/insights/script.js` on the web only (never in the native app, which
+has no Vercel behind it), and the switch is per Vercel project, in the
+dashboard under Analytics — the script 404s quietly until it is on. Page
+views and visitors, no cookies. A visit from the store app would look like
+Safari (the app's web view loads the same site), so `main.jsx` records those
+through `va('beforeSend')` under the page `/ios-app` or `/android-app` rather
+than `/` — the Pages list in Analytics splits app from browser. (A UTM
+source would be tidier, but Vercel sells that breakdown as an add-on; the
+page path is in the free plan.) The same lines are in all
+four apps, except that the demo has no Capacitor and so no app tag.
+
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
 itself with `CLUB_ID` and the hub maps that to an office address through
@@ -458,6 +473,18 @@ browser writes for inline hex). Inline white panels, ink fills and native
 controls are caught the same way. The exported draw table keeps its paper
 look. Take the class off and the app is exactly as it was.
 
+**The club's identity is one block, `TERMS_CLUB` in `terms.js`** — name,
+short name, place, `slug`, crest (and whether it is set in a white round), the
+app's own `burgundy`, and the dark palette (`colors`). `HomeDashboard.jsx`,
+`luxTheme.js`, `AuthActionPage.jsx`, `TermsSheet.jsx` and `home.js` all read
+it and name no club, so those files are the same in every app and only
+`terms.js` differs; the `.hd` variables, the `lux` overlay's variables and the
+inline-burgundy selector are all built from it. `slug` prefixes the device
+keys (`tppc-signed-in`, `tppc-home-usual`) and the calendar files. The
+`RateCardEditor.jsx` is shared the same way, with the card's shape passed in
+as props (see the TPPC notes). Druids' and Vaux's `terms.js` carry their own
+block, so the Home and the dark theme come out in their colours.
+
 **Profile pictures.** The sign-in's photo (Google gives one; Apple and email do
 not) shows on Home by default. A member can set their own — shrunk in the
 browser to a 256px JPEG and kept on their own `users/{uid}` profile as
@@ -491,7 +518,11 @@ One email per person listing their chukkas (session, time, ground, chukkas,
 pony, and their chukkas and shirt once the draw is published) and lessons.
 It reads `shared/<key>` over the Firestore REST API like the Watch apps, and
 counts a chukka roster only when `roster-week` is stamped for that very date.
-The day table in it mirrors DAY_CONFIG — keep the two in step. Safe by
+What is the club's own — the day table (it mirrors DAY_CONFIG; keep the two
+in step), how the day keys are suffixed, the Firebase project, the app's
+address, and the email crest — is `api/_club.js`, which also imports
+`TERMS_CLUB` from `src/terms.js` for the name, place and colours. The two
+email files name no club and are the same in every app. Safe by
 default: it emails only `REMINDERS_ALLOW` (Andy's address on dev) unless
 `REMINDERS_LIVE=1`, refuses any call without `CRON_SECRET`, and sends through
 Resend with `RESEND_API_KEY`. The two secrets are the owner's to set in Vercel;
