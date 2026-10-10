@@ -369,6 +369,31 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
+**Druids and Vaux have taken the dev design ahead of TPPC** (Druids #61, Vaux
+#70, both on a `claude/dev-design` branch, draft until the owner says go):
+the Home tab, member roles, email links finished in the app, booking and
+reminder emails, the lessons rework, the tournament walk-through and the
+fixtures archive. TPPC live stays as it is until the owner moves it across,
+which is the merge above. The dev design names no club: `TERMS_CLUB` in each
+`terms.js` is the one block that is the club's — name, short name, place, a
+`slug` for device keys and calendar files, the crest, the app's own
+burgundy and the dark palette — and `HomeDashboard.jsx`, `luxTheme.js`,
+`AuthActionPage.jsx`, `home.js` and `TermsSheet.jsx` read it (tppc-dev #34),
+so those files are byte-identical across the apps. The emails do the same
+through `api/_club.js`, which also holds what `src` cannot give a serverless
+function: the day table (it mirrors `DAY_CONFIG`; keep the two in step), the
+day-key suffix rule, the Firebase project and the app's address. Porting the
+main component is not a clean patch — a third of the hunks reject against a
+club's file — so `scripts/port_club.py` in the session scratchpad did the
+rest by anchor; the club differences it keeps are no club sessions, no
+waiting list, no membership-record fields, Druids' student tier, and Vaux's
+military tournaments (its own card prices them). Sign-in is still **off** in
+both until `VITE_SIGN_IN_LIVE=1` is set on the Vercel project, so merging
+changes nothing a member sees at sign-in. Note that tppc-dev is behind this
+repo by #80–#86 (arena season, fixtures opening on today, the shared terms
+sheet and rate card editor, events, analytics); merge main into tppc-dev
+before bringing the design back here.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider
