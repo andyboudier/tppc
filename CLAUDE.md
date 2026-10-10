@@ -369,6 +369,37 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
+**Druids and Vaux have taken the dev design ahead of TPPC** (Druids #61, Vaux
+#70, merged and live on 10 October 2026 with sign-in **on**):
+the Home tab, member roles, email links finished in the app, booking and
+reminder emails, the lessons rework, the tournament walk-through and the
+fixtures archive. TPPC live stays as it is until the owner moves it across,
+which is the merge above. The dev design names no club: `TERMS_CLUB` in each
+`terms.js` is the one block that is the club's — name, short name, place, a
+`slug` for device keys and calendar files, the crest, the app's own
+burgundy and the dark palette — and `HomeDashboard.jsx`, `luxTheme.js`,
+`AuthActionPage.jsx`, `home.js` and `TermsSheet.jsx` read it (tppc-dev #34),
+so those files are byte-identical across the apps. The emails do the same
+through `api/_club.js`, which also holds what `src` cannot give a serverless
+function: the day table (it mirrors `DAY_CONFIG`; keep the two in step), the
+day-key suffix rule, the Firebase project and the app's address. Porting the
+main component is not a clean patch — a third of the hunks reject against a
+club's file — so `scripts/port_club.py` in the session scratchpad did the
+rest by anchor; the club differences it keeps are no club sessions, no
+waiting list, no membership-record fields, Druids' student tier, and Vaux's
+military tournaments (its own card prices them). Sign-in is switched on by
+`VITE_SIGN_IN_LIVE=1` on the Vercel project (set on `druids-tpd4` and `vaux`,
+with `VITE_FIXED_ADMIN_EMAILS`, `REMINDERS_ALLOW` and `APP_URL`); unset it and
+the app is the captain-PIN-only one again. Those two clubs sign the app in
+**anonymously** so that their Firestore rules accept its writes (TPPC's rules
+do not need it), and the two sessions share one Firebase Auth: an anonymous
+user reads as signed out in `authFirebase.js`, and `firebase.js` signs in
+anonymously whenever the state settles on nobody — at start and again after
+a member signs out — never once at load, which would displace a member
+coming back from a Google or Apple redirect (Druids #62, Vaux #71). TPPC main
+(#80–#86) is merged into tppc-dev (tppc-dev #34), so the design can be brought
+back here by the merge above whenever the owner says.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider
