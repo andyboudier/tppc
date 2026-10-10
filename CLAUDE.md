@@ -321,7 +321,11 @@ or it sits on top of the More tab and makes it untappable. Vaux's active tab is
 `/_vercel/insights/script.js` on the web only (never in the native app, which
 has no Vercel behind it), and the switch is per Vercel project, in the
 dashboard under Analytics — the script 404s quietly until it is on. Page
-views and visitors, no cookies. The same lines are in all four apps.
+views and visitors, no cookies. A visit from the store app would look like
+Safari (the app's web view loads the same site), so `main.jsx` tags those
+through `va('beforeSend')` with `utm_source=ios-app` or `android-app` —
+Analytics → UTM source splits app from browser. The same lines are in all
+four apps, except that the demo has no Capacitor and so no app tag.
 
 Outgoing email for all four apps goes through one route on the PoloACT hub
 (`app/api/tournament-entry`, sending via `lib/mail.ts` → Resend). An app names
