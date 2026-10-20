@@ -2823,8 +2823,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!kind) return { error: 'That session is no longer offered.' };
     const cfg = DAY_CONFIG[kind.dayKey] || {};
     // The same gates the day tab applies — beginners-only means beginners-only
-    // whichever way somebody reaches the session, and the captain's own tick
-    // on a player record holds everywhere.
+    // whichever way somebody reaches the session. The captain's own tick on a
+    // player record holds for everyone, admin included: it is the captain's
+    // decision about that player, and untick it to book them. An admin can
+    // still book past the handicap gate, as on the Chukkas form.
+    if (cfg.instructional && player.noInstructional) {
+      return { error: `${player.name || 'This player'} is marked not able to book instructional chukkas. Untick that on their player record to book them in.` };
+    }
     if (!captainMode) {
       const blocked = instructionalBlockReason(player, kind.dayKey);
       if (blocked) return { error: blocked };
@@ -5527,6 +5532,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const you = self ? 'You\u2019re' : `${firstNameOf(rec.name)}\u2019s`;
     const cfg = DAY_CONFIG[k];
     const block = bookingBlock(k);
+    if (cfg.instructional && rec.noInstructional) {
+      return { error: self ? 'You are marked not able to book instructional chukkas — speak to the captain.' : `${rec.name} is marked not able to book instructional chukkas.` };
+    }
     if (!captainMode) {
       if (block && !(waitlist && block === 'full')) return { error: bookingClosedReason(k) };
       const hb = cfg.instructional ? instructionalBlockReason(rec, k) : handicapBlockReason(rec.handicap, k);

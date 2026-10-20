@@ -668,8 +668,10 @@ the military discount, on `priceLesson` and on the instructional branch of
 whatever their handicap with **Not able to book instructional chukkas** on
 the player record (`noInstructional`, in the `savePlayer` whitelist).
 `instructionalBlockReason` is the one gate, read by `bookClubSession`, by
-Home and by the Chukkas form; an admin booking by hand is held only to the
-handicap. Memberships gained **RNPA (incl chukkas)**, a military one.
+Home and by the Chukkas form. The tick holds for **everyone, admin
+included** — it is the captain's decision about that player, and the way to
+book them is to untick it; only the handicap gate is one an admin can book
+past, as on the Chukkas form. Memberships gained **RNPA (incl chukkas)**, a military one.
 
 **The Chukkas tab shows Wednesday, Saturday and Sunday** (`CHUKKA_TAB_DAYS`:
 the day menu, the default day and the restore guard). Thursday and Friday
