@@ -15,6 +15,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 //                  (TPPC and Vaux civilian/military; Druids standard/student)
 //   chukkaFeeLabels  one box per key of rates.chukkaFee
 //   discountKey / discountLabel   the per-chukka pony-hire discount
+//   discounts      several discounts instead of the one: [[key, label], …]
+//                  (TPPC: pony hire per chukka, lessons, instructional chukkas)
 //   ownPony        false for a club that sells no own-pony lesson price
 
 const S = {
@@ -29,7 +31,7 @@ const S = {
 const str = (v) => (v == null ? '' : String(v));
 const TIERS = [['civ', 'Civilian'], ['mil', 'Military']];
 const CHUKKA_FEE_LABELS = { civ: 'Civilian, per chukka', mil: 'Military / veteran, per chukka' };
-const toDraft = (r, tiers, discountKey) => ({
+const toDraft = (r, tiers, discounts) => ({
   lessons: r.lessons.map(l => {
     const row = { id: l.id, label: l.label };
     tiers.forEach(([t]) => { row[t] = str(l[t]); row[`own_${t}`] = l.own ? str(l.own[t]) : ''; });
@@ -37,7 +39,7 @@ const toDraft = (r, tiers, discountKey) => ({
   }),
   chukkaFee: Object.fromEntries(Object.entries(r.chukkaFee).map(([k, v]) => [k, str(v)])),
   ponyHire: Object.fromEntries(Object.entries(r.ponyHire).map(([k, v]) => [k, str(v)])),
-  discount: str(r[discountKey]),
+  discounts: Object.fromEntries(discounts.map(([k]) => [k, str(r[k])])),
   entry: Object.fromEntries(Object.entries(r.entry).map(([c, opts]) => [c, opts.map(o => ({ id: o.id, label: o.label, fee: str(o.fee) }))])),
 });
 const ok = (v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
@@ -62,9 +64,11 @@ export default function RateCardEditor({
   rates, defaults, doc, ponyLabels = {}, entryLabels = {}, onSave,
   tiers = TIERS, chukkaFeeLabels = CHUKKA_FEE_LABELS,
   discountKey = 'milPonyDiscount', discountLabel = 'Military discount, per chukka',
+  discounts = null,
   ownPony = true,
 }) {
-  const start = useMemo(() => toDraft(rates, tiers, discountKey), [rates]); // eslint-disable-line react-hooks/exhaustive-deps
+  const discountList = discounts || [[discountKey, discountLabel]];
+  const start = useMemo(() => toDraft(rates, tiers, discountList), [rates]); // eslint-disable-line react-hooks/exhaustive-deps
   const [d, setD] = useState(start);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ kind: '', text: '' });
@@ -80,7 +84,7 @@ export default function RateCardEditor({
   });
   if (Object.values(d.chukkaFee).some(v => !ok(v))) problems.push('Chukka fees need a price.');
   Object.entries(d.ponyHire).forEach(([k, v]) => { if (!ok(v)) problems.push(`Pony hire (${ponyLabels[k] || k}) needs a price.`); });
-  if (!ok(d.discount)) problems.push(`The ${discountLabel.replace(/,.*$/, '').toLowerCase()} needs a figure (0 for none).`);
+  discountList.forEach(([k, lab]) => { if (!ok(d.discounts[k])) problems.push(`The ${lab.replace(/[,·].*$/, '').toLowerCase()} needs a figure (0 for none).`); });
   Object.entries(d.entry).forEach(([c, opts]) => opts.forEach(o => { if (!o.label.trim() || !ok(o.fee)) problems.push(`${entryLabels[c] || c} entry: each line needs a name and a fee.`); }));
   const uniqueProblems = [...new Set(problems)];
 
@@ -101,7 +105,7 @@ export default function RateCardEditor({
       }),
       chukkaFee: Object.fromEntries(Object.entries(d.chukkaFee).map(([k, v]) => [k, n(v)])),
       ponyHire: Object.fromEntries(Object.entries(d.ponyHire).map(([k, v]) => [k, n(v)])),
-      [discountKey]: n(d.discount),
+      ...Object.fromEntries(discountList.map(([k]) => [k, n(d.discounts[k])])),
       entry: Object.fromEntries(Object.entries(d.entry).map(([c, opts]) => [c, opts.map(o => ({ id: o.id, label: o.label.trim(), fee: n(o.fee) }))])),
     };
     try { await onSave(out); setMsg({ kind: 'ok', text: 'Saved. New bookings use these prices from now on.' }); }
@@ -125,7 +129,7 @@ export default function RateCardEditor({
       </div>
 
       <div style={S.h}>Lessons and coaching</div>
-      <div style={{ ...S.hint, marginBottom: '8px' }}>{ownPony ? 'The first two prices include a club pony. The own-pony prices are used when the rider brings their own; leave them blank where there is no separate price.' : `${tiers.map(([, lab]) => lab).join(' and ')} prices for each lesson.`}</div>
+      <div style={{ ...S.hint, marginBottom: '8px' }}>{ownPony ? `The ${tiers.length === 1 ? 'price includes' : 'first prices include'} a club pony. The own-pony price${tiers.length === 1 ? ' is' : 's are'} used when the rider brings their own; leave ${tiers.length === 1 ? 'it' : 'them'} blank where there is no separate price.` : `${tiers.map(([, lab]) => lab).join(' and ')} prices for each lesson.`}</div>
       {d.lessons.map((l, i) => (
         <div key={l.id} style={S.card}>
           <label style={S.label} htmlFor={`rc-${l.id}-label`}>Name</label>
@@ -153,9 +157,23 @@ export default function RateCardEditor({
           {Object.keys(d.ponyHire).map(k => (
             <Money key={k} id={`rc-ph-${k}`} label={ponyLabels[k] || k} value={d.ponyHire[k]} onChange={v => setD(x => ({ ...x, ponyHire: { ...x.ponyHire, [k]: v } }))} />
           ))}
-          <Money id="rc-ph-discount" label={discountLabel} value={d.discount} onChange={v => setD(x => ({ ...x, discount: v }))} />
+          {discountList.length === 1 && <Money id="rc-ph-discount" label={discountList[0][1]} value={d.discounts[discountList[0][0]]} onChange={v => setD(x => ({ ...x, discounts: { ...x.discounts, [discountList[0][0]]: v } }))} />}
         </div>
       </div>
+
+      {discountList.length > 1 && (
+        <>
+          <div style={S.h}>Military discounts</div>
+          <div style={S.card}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' }}>
+              {discountList.map(([k, lab]) => (
+                <Money key={k} id={`rc-disc-${k}`} label={lab} value={d.discounts[k]} onChange={v => setD(x => ({ ...x, discounts: { ...x.discounts, [k]: v } }))} />
+              ))}
+            </div>
+            <div style={{ ...S.hint, marginTop: '8px' }}>Taken off for anyone with Military ticked on their player record. 0 for none.</div>
+          </div>
+        </>
+      )}
 
       <div style={S.h}>Tournament entry · per team</div>
       {Object.entries(d.entry).map(([c, opts]) => (

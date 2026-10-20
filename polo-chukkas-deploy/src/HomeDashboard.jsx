@@ -1424,7 +1424,7 @@ export default function HomeDashboard(props) {
     ready, account, me, onSignIn, onSignOut, onSavePhoto, people, sessionsFor,
     profile, handicapOptions = [], onSaveProfile, onChangePassword, onResetEmail, onLinkProvider,
     sessions, fixtures, captain, quote, book, undo,
-    openChukkas, openLessons, openFixtures, openFixture, openLive, goCaptain, directions, tour,
+    openChukkas, openLessons, lessonButton = 'Book a lesson', openFixtures, openFixture, openLive, goCaptain, directions, tour,
     // An email's "Amend or cancel" link: the booking to show (null when there
     // is none, or nobody is signed in yet) and whether one is waiting on sign-in.
     manage, manageWaiting, onManageAmend, onManageCancel, onManageClose, onOpenTerms,
@@ -1547,7 +1547,7 @@ export default function HomeDashboard(props) {
           </button>
           <button type="button" className="hd-btn" onClick={openLessons}
             style={{ minHeight: '52px', borderRadius: '16px', border: '1px solid var(--hd-gold)', fontFamily: "'Fraunces',Georgia,serif", fontSize: '18px' }}>
-            <Icon d={I.cap} size={20} stroke="var(--hd-gold2)" />Book a lesson
+            <Icon d={I.cap} size={20} stroke="var(--hd-gold2)" />{lessonButton}
           </button>
           {tour && (
             <button type="button" className="hd-btn" onClick={() => (me ? setEntering(true) : openFixtures())}
