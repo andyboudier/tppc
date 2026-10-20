@@ -247,18 +247,25 @@ so nothing Watch-shaped applies to it.
 
 Coaching lessons live behind a captain-only **Lessons** tab (`lessons.js` for
 the model, `LessonsBoard.jsx` for the diary; both in the demo's resync list,
-shared key `lesson-slots`). A slot is **one lesson, booked whole** — "10:00 to
-11:00 with Rosie on the Arena" — offered as individual, group or both. The
-first booking decides which it is (`takenAs`): an individual booking takes the
-slot and the group option disappears; a group booking does the same to the
-individual option, and further riders join up to `maxGroup`. The admin sets the
-group's minimum and maximum; the ground is the same dropdown as chukkas
+shared key `lesson-slots`). A slot is a **window sold by the hour** — "Rosie
+is free 09:00 to 12:00 on the Arena" — offered as individual, group or both.
+A booking claims a range inside it and the rest stays open: an individual
+lesson owns its hours (`blockedReason`), a group shares its range only with
+itself and further riders join it up to `maxGroup`, and a second group cannot
+overlap it. So a window of 09:00–12:00 with an individual lesson at 09:00
+still offers 10:00 and 11:00, for an hour or two, as either. `slotOptions`
+gives the card one entry per type with the free ranges (`combos`) and the
+groups that can be joined (`joinable`); the booking sheet has a start and a
+length picker for a fresh booking and a fixed range for a join. (It was
+"one lesson, booked whole" for a while; the club asked for the hours back.)
+The admin sets the group's minimum and maximum; the ground is the same dropdown as chukkas
 (`GROUND_OPTIONS`) and caps the group at **6 on the Arena, 8 anywhere else**
 (`groundCap`). A group below its minimum is flagged "x of min needed" and the
-admin settles it on the card: **run as a smaller group** (`runAsSmallerGroup`,
-min becomes the count), **make it individual** (`groupToIndividual`, one rider
-only, at the individual rate) or **cancel the group** (`cancelLessonBookings`,
-in one write). A member books a lesson or a session for themselves or a teammate
+admin settles it on the card, one box per short group (`shortGroups`): **run
+as a smaller group** (`runAsSmallerGroup`, min becomes the count), **make it
+individual** (`groupToIndividual`, a group of one, over the same hours, at
+the individual rate) or **cancel the group** (`cancelLessonBookings`, in one
+write). A member books a lesson or a session for themselves or a teammate
 (`teammates`, the same rule as chukkas; `mayBookFor` checks it again at
 booking), and sees what they could book plus anything they or their team are
 already in; an admin books anyone and sees every slot. A member can book a group lesson for several of their
@@ -422,8 +429,11 @@ in Lessons), the next open one preselected, with the rest of the Chukkas
 form beside it — Available from / to (the same member choices: start up to
 three chukkas in, leave from the fifth) and No consecutive chukkas, which is
 remembered with the usual chukkas and pony with what they booked
-last time, remembered on the phone — and **Book a lesson**, which opens
-Lessons. Booking goes through the same roster, waiting list and `raiseDue`
+last time, remembered on the phone — and **Book a lesson or instructional
+chukka** (`lessonButton`; plain "Book a lesson" for a club with no
+instructional session), which opens Lessons on **Everything**, landing on the
+next thing that can still be booked — a window with hours free or an
+instructional session with places (`openLessonsNext`). Booking goes through the same roster, waiting list and `raiseDue`
 (split out of `chargeForBooking`) as the Chukkas form, priced by
 `priceBooking`, and Undo takes the entry and its unpaid charge off again.
 Lessons is a member tab now (out of `CAPTAIN_ONLY_TABS`): a member gets the
@@ -630,6 +640,42 @@ cancellation; clause 4.2–4.3 waits on the committee's notice period.
 The printed constants are only defaults: the admins' changes are one shared
 document, `rate-card`, laid over them by id (`mergeRateCard`), and every price
 reads `RATES` — set from it on each render — never the constants. Lessons
-(with the own-pony price, which can be taken away with `own: null`),
-non-member chukka fees, pony hire per chukka and the military discount, and
-tournament entry. Every booking screen shows a change at once. "Back to the printed card" deletes the document.
+(one price a line, with the own-pony price, which can be taken away with
+`own: null`), non-member chukka fees, pony hire per chukka, the **military
+discounts** and tournament entry. Every booking screen shows a change at
+once. "Back to the printed card" deletes the document.
+
+**Military is a flat discount, not a second column.** The lesson lines carry
+one price (`civ`; the key stays for the saved documents) and a player with
+Military ticked gets `milLessonDiscount` (£5) off every lesson, own pony or
+club's, and `milInstructionalDiscount` (£5) off an instructional chukka
+session, both on the card under Military discounts with the pony-hire one
+(`MIL_DISCOUNTS`; the editor takes them as `discounts`, and `tiers` is the
+single Price column). `priceLesson` reports `list`, `militaryDiscount` and
+`base`; the instructional branch of `priceBooking` does the same. Druids and
+Vaux keep their two-tier cards — the editor's `discountKey` form still serves
+them.
+
+**Subsidies** (captain pots under Players → Subsidies) carry a discount per
+lesson and, since the arena season, a discount per **instructional chukka
+session** (`discountPerInstructional`, `subsidyInstructional`); either may be
+0 but not both. Both are capped at what the pot has left and come off after
+the military discount, on `priceLesson` and on the instructional branch of
+`priceBooking`. Pots are not drawn down until payments exist.
+
+**Instructional chukkas are for beginners.** Handicap 1 and over is refused
+(`DAY_CONFIG.fri.maxHandicap` is 0) and the captain can refuse one player
+whatever their handicap with **Not able to book instructional chukkas** on
+the player record (`noInstructional`, in the `savePlayer` whitelist).
+`instructionalBlockReason` is the one gate, read by `bookClubSession`, by
+Home and by the Chukkas form; an admin booking by hand is held only to the
+handicap. Memberships gained **RNPA (incl chukkas)**, a military one.
+
+**The Chukkas tab shows Wednesday, Saturday and Sunday** (`CHUKKA_TAB_DAYS`:
+the day menu, the default day and the restore guard). Thursday and Friday
+stay in `DAY_KEYS` because Ladies Only and Instructional are priced and
+stored by those days; they are booked from Lessons, where the filter chips
+are **Everything, Lessons** and one per club session (`CLUB_SESSIONS`), and a
+chip is also a jump to the next of that kind that can still be booked
+(`jumpTo`). A club with no sessions sees no chips. Home's `openDay` for a
+session day hands Lessons `focus.filter` so it lands on that kind.

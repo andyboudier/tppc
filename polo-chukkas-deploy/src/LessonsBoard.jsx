@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TermsLine } from './TermsSheet';
 import {
   MIN_GROUP, MAX_GROUP,
-  addDays, slotOptions, takenAs, groupShort, blankSlot, blockedReason, bookingsFor, bySlotTime,
+  addDays, slotOptions, groupRanges, shortGroups, blankSlot, blockedReason, bookingsFor, bySlotTime,
   copyWeek, dateLabel, dayLabel, groupBookings, mondayOf, newSlotId, normaliseSlot,
   parseHM, parseISO, rangeLabel, removeBooking, slotsOn, weekDays,
   windowHours, isoOf,
@@ -95,6 +95,13 @@ function PonyChoice({ value, onChange, withPony, without }) {
 
 function BookSheet({ slot, session, who, canPickPlayer, multi = false, players, quote, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
+  // A fresh booking picks its hours from what the window still has free
+  // (`session.combos`); joining a group takes the group's own range.
+  const combos = session.combos || [];
+  const [range, setRange] = useState(() => (combos.length ? { start: combos[0].start, hours: combos[0].hours } : { start: session.start, hours: session.hours }));
+  const starts = [...new Set(combos.map(c => c.start))];
+  const lengthsAt = (st) => combos.filter(c => c.start === st).map(c => c.hours);
+  const pickStart = (st) => { const ls = lengthsAt(st); setRange({ start: st, hours: ls.includes(range.hours) ? range.hours : ls[0] }); setError(''); };
   // A group lesson can be booked for several of the team at once.
   const spaces = Math.max(0, (Number(session.max) || 0) - (Number(session.joined) || 0));
   // A member's team, not an admin's whole list (that stays a dropdown).
@@ -106,10 +113,10 @@ function BookSheet({ slot, session, who, canPickPlayer, multi = false, players, 
 
   const chosenPlayers = many ? players.filter(p => picked.includes(p.id)) : [];
   const player = many ? chosenPlayers[0] : canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
-  const withPony = quote(player, session.type, session.hours, true);
-  const without = quote(player, session.type, session.hours, false);
+  const withPony = quote(player, session.type, range.hours, true);
+  const without = quote(player, session.type, range.hours, false);
   const chosen = pony ? withPony : without;
-  const each = many && pony !== null ? chosenPlayers.map(p => ({ p, q: quote(p, session.type, session.hours, pony) })) : [];
+  const each = many && pony !== null ? chosenPlayers.map(p => ({ p, q: quote(p, session.type, range.hours, pony) })) : [];
   const total = each.reduce((n, x) => n + (Number(x.q.total) || 0), 0);
   const toggle = (id) => {
     setError('');
@@ -120,17 +127,34 @@ function BookSheet({ slot, session, who, canPickPlayer, multi = false, players, 
     if (many ? !chosenPlayers.length : !player) { setError('Pick who the lesson is for.'); return; }
     if (pony === null) { setError('Choose a club pony or your own.'); return; }
     setBusy(true);
-    const res = await onConfirm(many ? { slot, session, players: chosenPlayers, ponyHire: pony } : { slot, session, player, ponyHire: pony });
+    const picked = { ...session, start: range.start, hours: range.hours };
+    const res = await onConfirm(many ? { slot, session: picked, players: chosenPlayers, ponyHire: pony } : { slot, session: picked, player, ponyHire: pony });
     setBusy(false);
     if (res && res.error) setError(res.error);
   };
 
   return (
     <div style={{ ...S.card, borderColor: 'var(--gold)' }}>
-      <div style={S.h}>{TYPE_LABEL[session.type]} lesson · {session.hours} hour{session.hours === 1 ? '' : 's'}</div>
-      <div style={{ fontSize: '15px', margin: '4px 0 2px' }}>{dateLabel(slot.date)}, {rangeLabel(session.start, session.hours)}</div>
+      <div style={S.h}>{TYPE_LABEL[session.type]} lesson · {range.hours} hour{range.hours === 1 ? '' : 's'}</div>
+      <div style={{ fontSize: '15px', margin: '4px 0 2px' }}>{dateLabel(slot.date)}, {rangeLabel(range.start, range.hours)}</div>
       {slot.coach && <div style={S.hint}>with {slot.coach}</div>}
-      {session.type === 'group' && (
+      {combos.length > 1 && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Start</span>
+            <select className="input-field select-field" value={range.start} onChange={(e) => pickStart(e.target.value)} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {starts.map(st => <option key={st} value={st}>{st}</option>)}
+            </select>
+          </label>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Length</span>
+            <select className="input-field select-field" value={range.hours} onChange={(e) => { setRange(r => ({ ...r, hours: Number(e.target.value) })); setError(''); }} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {lengthsAt(range.start).map(h => <option key={h} value={h}>{h} hour{h === 1 ? '' : 's'}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      {session.type === 'group' && session.joined > 0 && (
         <div style={{ ...S.hint, marginTop: '4px' }}>
           {session.joined} of {session.max} booked · {session.needs > 0
             ? `needs ${session.needs} more to go ahead (minimum ${session.min})`
@@ -507,19 +531,16 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
 
 // ── One lesson slot ─────────────────────────────────────────────────────────
 //
-// Shows what the slot can still be booked as. The first booking decides:
-// once someone has it as an individual lesson the group option goes, and once
-// a group has started the individual one goes. A group below its minimum is
+// Shows what the window still has free, as individual or group, and the
+// groups already going that can be joined. A group below its minimum is
 // flagged, and the admin gets the three ways to settle it.
 
-function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBooking, onResolveGroup }) {
-  const as = takenAs(slot);
-  const options = slotOptions(slot, rates).filter(o => filter === 'all' || o.type === filter);
+function SlotCard({ slot, rates, captainMode, onPick, onEdit, onRemoveBooking, onResolveGroup }) {
+  const options = slotOptions(slot, rates);
   const bookings = (slot.bookings || []).filter(b => b.type === 'individual' || b.type === 'group');
-  const group = groupBookings(slot);
-  const short = groupShort(slot);
+  const groups = groupRanges(slot);
+  const short = shortGroups(slot);
   const min = Math.max(1, Number(slot.minGroup) || MIN_GROUP);
-  const max = Math.max(1, Number(slot.maxGroup) || MAX_GROUP);
   const [busy, setBusy] = useState('');
   const resolve = async (action, confirmText) => {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -527,16 +548,22 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
     await onResolveGroup(slot, action);
     setBusy('');
   };
+  // The hours still free, as runs — "10:00–12:00" rather than every length.
+  const freeRuns = (combos) => {
+    const hours = [...new Set(combos.filter(c => c.hours === 1).map(c => parseHM(c.start)))].sort((x, y) => x - y);
+    const runs = [];
+    hours.forEach(h => { const last = runs[runs.length - 1]; if (last && last[1] === h) last[1] = h + 60; else runs.push([h, h + 60]); });
+    return runs.map(([x, y]) => `${fmtHM(x)}–${fmtHM(y)}`).join(', ');
+  };
 
-  const title = as === 'individual' ? 'Individual lesson'
-    : as === 'group' ? 'Group lesson'
-    : [slot.individual && 'Individual', slot.group && 'Group'].filter(Boolean).join(' or ') + ' lesson';
-  const badge = as === 'individual' ? ['Booked', 'gone']
-    : as === 'group' ? (group.length >= max ? ['Full', 'gone'] : short ? [`${group.length} of ${min} needed`, 'short'] : [`${max - group.length} of ${max} left`, 'open'])
+  const title = [slot.individual && 'Individual', slot.group && 'Group'].filter(Boolean).join(' or ') + ' lesson';
+  const badge = !options.length ? ['Full', 'gone']
+    : short.length ? [`${short[0].riders.length} of ${min} needed`, 'short']
+    : bookings.length ? ['Hours free', 'open']
     : ['Available', 'open'];
 
   return (
-    <div data-slot-id={slot.id} style={{ ...S.card, borderColor: short ? 'var(--gold)' : undefined }}>
+    <div data-slot-id={slot.id} style={{ ...S.card, borderColor: short.length ? 'var(--gold)' : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div>
           <div style={{ fontSize: '13px', color: 'var(--muted)' }}>{slot.start}–{slot.end}</div>
@@ -552,69 +579,75 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
 
       {slot.note && <div style={{ ...S.hint, marginTop: '6px' }}>{slot.note}</div>}
 
+      {/* What is booked already: an individual lesson is private, a group is
+          open to view — deciding whether to join depends on who is in it. */}
+      {bookings.some(b => b.type === 'individual') && (
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--muted)' }}>
+          {bookings.filter(b => b.type === 'individual').map(b => rangeLabel(b.start, Number(b.hours) || 1)).join(', ')} · individual lesson{bookings.filter(b => b.type === 'individual').length === 1 ? '' : 's'} booked
+        </div>
+      )}
+
       {options.length > 0 && (
         <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {options.map((o) => (
-            <div key={o.type}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 11px', borderRadius: '10px',
-                       border: '1px solid var(--line)', opacity: o.blocked ? 0.55 : 1 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>{TYPE_LABEL[o.type]}</div>
-                <div style={{ fontSize: '12px', color: o.type === 'group' && o.needs > 0 && o.joined > 0 ? 'var(--gold)' : 'var(--muted)' }}>
-                  {o.type === 'individual'
-                    ? (o.blocked || 'Just you and the coach')
-                    : o.blocked
-                      ? o.blocked
-                      : o.joined === 0
-                        ? `${o.min}–${o.max} riders · be the first`
-                        : o.needs > 0
-                          ? `${o.joined} of ${o.max} booked · needs ${o.needs} more to go ahead`
-                          : `${o.joined} of ${o.max} booked · going ahead`}
+          {options.flatMap((o) => [
+            ...o.joinable.map(j => (
+              <div key={`join-${j.start}-${j.hours}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 11px', borderRadius: '10px', border: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>Group · {j.label}</div>
+                  <div style={{ fontSize: '12px', color: j.needs > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                    {j.needs > 0 ? `${j.joined} of ${j.max} booked · needs ${j.needs} more to go ahead` : `${j.joined} of ${j.max} booked · going ahead`}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    {groups.find(g => g.start === j.start && g.hours === j.hours)?.riders.map(b => b.name).filter(Boolean).join(' · ')}
+                  </div>
                 </div>
+                <button type="button" style={S.book(false)} onClick={() => onPick(slot, { type: 'group', ...j })}>Join</button>
               </div>
-              <button type="button" style={S.book(!!o.blocked)} disabled={!!o.blocked} onClick={() => onPick(slot, o)}>
-                {o.blocked ? '—' : o.type === 'group' && o.joined > 0 ? 'Join' : 'Book'}
-              </button>
-            </div>
-          ))}
+            )),
+            ...(o.combos.length ? [(
+              <div key={`new-${o.type}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 11px', borderRadius: '10px', border: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{TYPE_LABEL[o.type]}{o.type === 'group' && o.joinable.length ? ' · new group' : ''}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                    {o.type === 'individual' ? 'Just you and the coach' : `${o.min}–${o.max} riders · be the first`} · free {freeRuns(o.combos)}
+                  </div>
+                </div>
+                <button type="button" style={S.book(false)} onClick={() => onPick(slot, { type: o.type, start: o.combos[0].start, hours: o.combos[0].hours, combos: o.combos, joined: 0, min: o.min, max: o.max, needs: o.type === 'group' ? o.min : 0, spots: o.type === 'group' ? o.max : 1 })}>Book</button>
+              </div>
+            )] : []),
+          ])}
         </div>
       )}
 
-      {as === 'individual' && !options.length && (
-        <div style={{ ...S.hint, marginTop: '8px' }}>This lesson is taken.</div>
+      {!options.length && (
+        <div style={{ ...S.hint, marginTop: '8px' }}>Nothing left to book in this window.</div>
       )}
 
-      {/* Everyone sees who is in a group — deciding whether to join depends on
-          it, as the chukka lists always have. An individual lesson is private. */}
-      {as === 'group' && group.length > 0 && (
-        <div style={{ marginTop: '9px', fontSize: '12px', color: 'var(--muted)', lineHeight: 1.6 }}>
-          {group.map(b => b.name).filter(Boolean).join(' · ')}
-        </div>
-      )}
-
-      {captainMode && short && (
-        <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '10px', border: '1px dashed var(--gold)' }}>
-          <div style={{ fontSize: '13px', fontWeight: 600 }}>Short of the minimum</div>
-          <div style={{ ...S.hint, marginBottom: '8px' }}>{group.length} booked, {min} needed. Your call:</div>
+      {captainMode && short.length > 0 && short.map(g => (
+        <div key={`short-${g.start}`} style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '10px', border: '1px dashed var(--gold)' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600 }}>Short of the minimum · {rangeLabel(g.start, g.hours)}</div>
+          <div style={{ ...S.hint, marginBottom: '8px' }}>{g.riders.length} booked, {min} needed. Your call:</div>
           <div style={S.row}>
-            {group.length > 1 && (
+            {g.riders.length > 1 && (
               <button type="button" style={S.btn} disabled={!!busy} onClick={() => resolve('smaller')}>
-                {busy === 'smaller' ? 'Saving…' : `Run as a group of ${group.length}`}
+                {busy === 'smaller' ? 'Saving…' : `Run as a group of ${g.riders.length}`}
               </button>
             )}
-            {group.length === 1 && (
+            {g.riders.length === 1 && (
               <button type="button" style={S.btn} disabled={!!busy}
-                onClick={() => resolve('individual', `Make ${group[0].name}'s booking an individual lesson? It is re-priced at the individual rate.`)}>
+                onClick={() => resolve('individual', `Make ${g.riders[0].name}'s booking an individual lesson? It is re-priced at the individual rate.`)}>
                 {busy === 'individual' ? 'Saving…' : 'Make it individual'}
               </button>
             )}
             <button type="button" style={{ ...S.btn, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy}
-              onClick={() => resolve('cancel', `Cancel this group and take ${group.length === 1 ? group[0].name : `all ${group.length} riders`} off?`)}>
+              onClick={() => resolve('cancel', `Cancel this group and take ${g.riders.length === 1 ? g.riders[0].name : `all ${g.riders.length} riders`} off?`)}>
               {busy === 'cancel' ? 'Cancelling…' : 'Cancel the group'}
             </button>
           </div>
         </div>
-      )}
+      ))}
 
       {captainMode && bookings.length > 0 && (
         <div style={{ marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' }}>
@@ -622,7 +655,7 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
           {bookings.map(b => (
             <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '3px 0' }}>
               <span style={{ flex: 1 }}>
-                {b.name} · {TYPE_LABEL[b.type]}
+                {b.name} · {rangeLabel(b.start, Number(b.hours) || 1)} · {TYPE_LABEL[b.type]}
                 {b.ponyHire ? ' · club pony' : ' · own pony'}
               </span>
               <button type="button" className="remove-btn" title={`Take ${b.name} off`} onClick={() => onRemoveBooking(slot, b)}>×</button>
@@ -644,20 +677,22 @@ export default function LessonsBoard({
   onOpenTerms = null,
   quote, onBook, onCancelBooking, onResolveGroup, grounds = [],
   clubSessions = [], quoteSession, onBookSession,
-  // Open the board on one date, showing club sessions, and bring one slot
-  // into view — how Thursday and Friday on the Chukkas tab land here.
-  // { date: 'YYYY-MM-DD', slotId?, at } — `at` makes a repeat tap re-apply.
+  // Open the board on one date and bring one slot into view — how Home and
+  // the Thursday and Friday taps land here. { date: 'YYYY-MM-DD', slotId?,
+  // filter?, at } — `at` makes a repeat tap re-apply.
   focus = null,
 }) {
   const today = isoOf(new Date());
   const [monday, setMonday] = useState(() => mondayOf(today));
   const [day, setDay] = useState(() => today);
+  // 'all' | 'lesson' | a club session kind id. Opening the board, or a focus
+  // from elsewhere, lands on Everything unless it says otherwise.
   const [filter, setFilter] = useState('all');
   useEffect(() => {
     if (!focus || !focus.date) return;
     setMonday(mondayOf(focus.date));
     setDay(focus.date);
-    setFilter(clubSessions.length ? 'session' : 'all');
+    setFilter(focus.filter || 'all');
     setEditing(null); setPicking(null); setTaking(null); setNote('');
     const t = setTimeout(() => {
       const el = focus.slotId && document.querySelector(`[data-slot-id="${focus.slotId}"]`);
@@ -686,13 +721,23 @@ export default function LessonsBoard({
   ));
   const visible = (sl) => captainMode || isMineIn(sl) || (isClubSession(sl)
     ? clubSessionSpots(sl) > 0
-    : slotOptions(sl, rates).some(o => !o.blocked));
+    : slotOptions(sl, rates).length > 0);
   const onDay = useMemo(() => slotsOn(slots, day).filter(visible), [slots, day, captainMode, myPlayer, teammates, rates]); // eslint-disable-line react-hooks/exhaustive-deps
   // The filter picks which SLOTS appear: a coaching filter hides the club
   // sessions outright rather than showing an empty card for each.
-  const shown = useMemo(() => onDay.filter(sl => (
-    filter === 'all' ? true : filter === 'session' ? isClubSession(sl) : !isClubSession(sl)
-  )), [onDay, filter]);
+  const ofKind = (sl, f) => (f === 'all' ? true : f === 'lesson' ? !isClubSession(sl) : sl.kind === f);
+  const shown = useMemo(() => onDay.filter(sl => ofKind(sl, filter)), [onDay, filter]);
+  // A filter chip is also a jump: it goes to the next of that kind that can
+  // still be booked, from today on, and brings it into view. With nothing
+  // bookable it goes to the next of that kind at all; with none, it stays.
+  const jumpTo = (f) => {
+    setFilter(f); setPicking(null); setTaking(null); setNote('');
+    const ahead = slots.filter(sl => sl.date >= today && ofKind(sl, f)).sort(bySlotTime);
+    const target = ahead.find(visible) || ahead[0];
+    if (!target) return;
+    setMonday(mondayOf(target.date)); setDay(target.date);
+    setTimeout(() => { const el = document.querySelector(`[data-slot-id="${target.id}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 120);
+  };
   const countOn = (iso) => slotsOn(slots, iso).filter(visible).length;
   const mine = useMemo(
     () => (myPlayer ? bookingsFor(slots, { playerId: myPlayer.id, name: myPlayer.name }) : []),
@@ -786,13 +831,14 @@ export default function LessonsBoard({
         })}
       </div>
 
-      {/* Filter */}
-      <div style={{ ...S.row, marginBottom: '12px' }}>
-        {[['all', clubSessions.length ? 'Everything' : 'All lessons'], ...(clubSessions.length ? [['session', 'Club sessions']] : []),
-          ['individual', 'Individual'], ['group', 'Group']].map(([id, label]) => (
-          <button key={id} type="button" style={S.chip(filter === id)} onClick={() => setFilter(id)} aria-pressed={filter === id}>{label}</button>
-        ))}
-      </div>
+      {/* Filter — only where there is more than one kind of thing to see. */}
+      {clubSessions.length > 0 && (
+        <div style={{ ...S.row, marginBottom: '12px' }}>
+          {[['all', 'Everything'], ['lesson', 'Lessons'], ...clubSessions.map(k => [k.id, k.label])].map(([id, label]) => (
+            <button key={id} type="button" style={S.chip(filter === id)} onClick={() => jumpTo(id)} aria-pressed={filter === id}>{label}</button>
+          ))}
+        </div>
+      )}
 
       {captainMode && (
         <div style={{ ...S.row, marginBottom: '12px' }}>
@@ -850,7 +896,7 @@ export default function LessonsBoard({
           onEdit={(sl) => { setPicking(null); setTaking(null); setNote(''); setEditing({ ...sl }); }}
           onRemoveBooking={(sl, b) => onCancelBooking(sl, b)} />
       ) : (
-        <SlotCard key={slot.id} slot={slot} filter={filter === 'session' ? 'all' : filter} rates={rates} captainMode={captainMode}
+        <SlotCard key={slot.id} slot={slot} rates={rates} captainMode={captainMode}
           onPick={(sl, se) => {
             if (!captainMode && !canBookAsSelf) { setNote('Sign in to book a lesson.'); return; }
             setEditing(null); setTaking(null); setNote(''); setPicking({ slot: sl, session: se });

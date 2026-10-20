@@ -27,7 +27,7 @@ import { TERMS_VERSION } from './terms';
 import { hadSignIn, noteSignIn, isMine, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, addClubSessionBooking, fmtHM, isoOf, mondayOf, slotsInWeek, groupBookings as lessonGroupBookings, runAsSmallerGroup, groupToIndividual, windowHours, bookingsFor as lessonBookingsFor, dateLabel as lessonDateLabel } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, addClubSessionBooking, clubSessionSpots, slotOptions as lessonSlotOptions, fmtHM, isoOf, mondayOf, slotsInWeek, shortGroups as lessonShortGroups, runAsSmallerGroup, groupToIndividual, bookingsFor as lessonBookingsFor, dateLabel as lessonDateLabel } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -194,21 +194,26 @@ const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 1
 
 // Coaching/lesson rates from the Arena Price List, Winter 26/27 (group rates
 // are per person, minimum 3). Subsidy pots apply to LESSONS (not chukkas).
-// Military and veteran players pay the military rate. These prices include a
-// club pony; `own` is the price on the rider's own pony — the club's coaching
-// rate of £45 civilian / £40 military an hour, and £70 / £65 for an
-// Instructional Tournament. A line without `own` is one price either way.
+// One price a line; a player with Military ticked gets the card's flat
+// military discount off every lesson (MILITARY_LESSON_DISCOUNT) and off an
+// instructional chukka session (MILITARY_INSTRUCTIONAL_DISCOUNT), rather
+// than a second column of prices. These prices include a club pony; `own` is
+// the price on the rider's own pony — the club's coaching rate of £45 an
+// hour, and £70 for an Instructional Tournament. A line without `own` is one
+// price either way.
+const MILITARY_LESSON_DISCOUNT = 5;
+const MILITARY_INSTRUCTIONAL_DISCOUNT = 5;
 const LESSON_TYPES_2026 = [
-  { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315, mil: 300 },
-  { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600, mil: 540 },
-  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, mil: 105, own: { civ: 45, mil: 40 } },
-  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, mil: 190, own: { civ: 90, mil: 80 } },
-  { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80,  mil: 75 },
-  { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75, mil: 65 },
-  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, mil: 95,  own: { civ: 45, mil: 40 } },
-  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, mil: 170, own: { civ: 90, mil: 80 } },
-  { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110, mil: 105 },
-  { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, mil: 160, own: { civ: 70, mil: 65 } },
+  { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315 },
+  { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600 },
+  { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, own: { civ: 45 } },
+  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, own: { civ: 90 } },
+  { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80 },
+  { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75 },
+  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, own: { civ: 45 } },
+  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, own: { civ: 90 } },
+  { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110 },
+  { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, own: { civ: 70 } },
 ];
 // Which of this club's coaching rates a booked lesson slot is charged at.
 // Club-specific on purpose: the cards differ in both ids and shape, so a
@@ -260,6 +265,7 @@ const MEMBERSHIP_TYPES_2026 = [
   { id: 'mil-full-nonpony', label: 'Mil · Full Playing, Non-Pony Owner', chukkasIncluded: true,  mil: true },
   { id: 'mil-day',          label: 'Mil · Day Member (incl chukkas)',    chukkasIncluded: true,  mil: true },
   { id: 'mil-unit',         label: 'Mil · Unit Membership',              chukkasIncluded: true,  mil: true },
+  { id: 'rnpa',             label: 'RNPA (incl chukkas)',                chukkasIncluded: true,  mil: true },
 ];
 const membershipById = (id) => MEMBERSHIP_TYPES_2026.find(m => m.id === id) || MEMBERSHIP_TYPES_2026[0];
 
@@ -275,8 +281,17 @@ const RATE_CARD_DEFAULTS = {
   chukkaFee: { civ: 15, mil: 10 },
   ponyHire: PONY_HIRE_2026,
   milPonyDiscount: MILITARY_DISCOUNT_PER_CHUKKA,
+  milLessonDiscount: MILITARY_LESSON_DISCOUNT,
+  milInstructionalDiscount: MILITARY_INSTRUCTIONAL_DISCOUNT,
   entry: TOURNAMENT_ENTRY_2026,
 };
+// The rate card's military discounts, one place: pony hire per chukka,
+// lessons, instructional chukka sessions.
+const MIL_DISCOUNTS = [
+  ['milPonyDiscount', 'Military discount · pony hire, per chukka'],
+  ['milLessonDiscount', 'Military discount · lessons, per lesson'],
+  ['milInstructionalDiscount', 'Military discount · instructional chukkas, per session'],
+];
 const PONY_HIRE_LABELS = { club: 'Club chukka', '-6 to -2': '−6 to −2 match', '-2 to 0': '−2 to 0 match', '0 to 2': '0 to 2 match', '2 to 4': '2 to 4 match' };
 const rateMoney = (v, fallback) => {
   const n = Number(v);
@@ -289,10 +304,10 @@ const mergeRateCard = (doc) => {
   const lessons = RATE_CARD_DEFAULTS.lessons.map((d) => {
     const o = L.get(d.id);
     if (!o) return d;
-    const out = { id: d.id, label: String(o.label || d.label).trim() || d.label, civ: rateMoney(o.civ, d.civ), mil: rateMoney(o.mil, d.mil) };
+    const out = { id: d.id, label: String(o.label || d.label).trim() || d.label, civ: rateMoney(o.civ, d.civ) };
     // `own: null` in the document takes the own-pony price away.
     const own = o.own === null ? null : (o.own || d.own);
-    if (own) out.own = { civ: rateMoney(own.civ, d.own ? d.own.civ : 0), mil: rateMoney(own.mil, d.own ? d.own.mil : 0) };
+    if (own) out.own = { civ: rateMoney(own.civ, d.own ? d.own.civ : 0) };
     return out;
   });
   const cf = doc.chukkaFee || {};
@@ -306,6 +321,8 @@ const mergeRateCard = (doc) => {
     chukkaFee: { civ: rateMoney(cf.civ, RATE_CARD_DEFAULTS.chukkaFee.civ), mil: rateMoney(cf.mil, RATE_CARD_DEFAULTS.chukkaFee.mil) },
     ponyHire: Object.fromEntries(Object.entries(RATE_CARD_DEFAULTS.ponyHire).map(([k, v]) => [k, rateMoney(ph[k], v)])),
     milPonyDiscount: rateMoney(doc.milPonyDiscount, RATE_CARD_DEFAULTS.milPonyDiscount),
+    milLessonDiscount: rateMoney(doc.milLessonDiscount, RATE_CARD_DEFAULTS.milLessonDiscount),
+    milInstructionalDiscount: rateMoney(doc.milInstructionalDiscount, RATE_CARD_DEFAULTS.milInstructionalDiscount),
     entry,
   };
 };
@@ -360,6 +377,10 @@ const DAY_CONFIG = {
   sun: { key: 'sun', label: 'Sun',  fullLabel: 'Sunday',     short: 'Sun', dow: 0, eveningPrev: 'Saturday',  defaultStartMin: CHUKKA_START_MIN_SUN, tabLabel: 'Sun Chukkas', blurb: 'Open to all handicaps' },
 };
 const DAY_KEYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
+// The days the Chukkas tab shows. Thursday and Friday ARE Ladies Only and
+// Instructional Chukkas, which are booked from Lessons; their day keys stay
+// in DAY_KEYS because the sessions are priced and stored by that day.
+const CHUKKA_TAB_DAYS = ['wed', 'sat', 'sun'];
 
 // The club's own fixed sessions, bookable from the Lessons tab. Unlike a
 // coaching window these are sold whole: one hour, two chukkas, eight places,
@@ -405,7 +426,7 @@ const defaultActiveDay = () => {
   const mins = now.getHours() * 60 + now.getMinutes();
   let best = 'wed';
   let bestAhead = Infinity;
-  DAY_KEYS.forEach((k) => {
+  CHUKKA_TAB_DAYS.forEach((k) => {
     const cfg = DAY_CONFIG[k];
     let ahead = (cfg.dow - dow + 7) % 7;
     // On the day itself it stays "today" only until that session starts.
@@ -1276,7 +1297,7 @@ export default function PoloChukkas() {
   });
   // Which chukka day is being viewed/booked within the Chukkas tab.
   const [activeDay, setActiveDay] = useState(() =>
-    (restoredView && DAY_KEYS.includes(restoredView.activeDay)) ? restoredView.activeDay : defaultActiveDay());
+    (restoredView && CHUKKA_TAB_DAYS.includes(restoredView.activeDay)) ? restoredView.activeDay : defaultActiveDay());
   // Shop: selected variant per product (e.g. mallet length). Pre-Stripe placeholder.
   const [shopOptions, setShopOptions] = useState({});
   // Tournament committee printed on the programme rules page. Captain-editable
@@ -1409,14 +1430,25 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const throwInMin = throwInMins[activeDay];
   const ground = grounds[activeDay];
 
-  // Handicap gate (Friday instructional = beginners only). Returns a reason
-  // string when the handicap is too high for the day, otherwise ''.
+  // Handicap gate (instructional = beginners only, handicap 0 and below).
+  // Returns a reason string when the handicap is too high for the day,
+  // otherwise ''.
   const handicapBlockReason = (h, dayKey = activeDay) => {
     const cfg = DAY_CONFIG[dayKey];
     if (cfg.maxHandicap == null || h === '' || h == null) return '';
     const n = typeof h === 'number' ? h : parseInt(h, 10);
     if (isNaN(n) || n <= cfg.maxHandicap) return '';
     return `${cfg.fullLabel} sessions are for beginners only — handicap ${fmtH(cfg.maxHandicap)} and below. Please book onto Wednesday, Saturday or Sunday chukkas instead.`;
+  };
+  // Why this player may not book an instructional session, or ''. Two gates:
+  // the handicap (1 and over is not a beginner), and the captain's own tick
+  // on the player record for anyone who should not be in one whatever their
+  // handicap says.
+  const instructionalBlockReason = (player, dayKey) => {
+    const cfg = DAY_CONFIG[dayKey] || {};
+    if (!cfg.instructional || !player) return '';
+    if (player.noInstructional) return `${player.name || 'This player'} is not able to book instructional chukkas — the captain has marked the record. Please book onto Wednesday, Saturday or Sunday chukkas instead.`;
+    return handicapBlockReason(player.handicap, dayKey);
   };
   // Max chukkas bookable on a day (Friday: 2, in a one-hour session)
   const maxChukkasFor = (dayKey = activeDay) => DAY_CONFIG[dayKey].maxChukkas || 8;
@@ -2748,7 +2780,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const guest = ownPony ? lt.own.civ : lt.civ;
     const priced = player ? priceLesson(player, lt.id, ownPony) : { lessonLabel: lt.label, base: guest, subsidyDeductions: [], total: guest };
     const total = Math.max(0, priced.total);
-    const bits = [`${lt.label} £${fmtMoney(priced.base)}`];
+    const bits = [`${lt.label} £${fmtMoney(priced.list != null ? priced.list : priced.base)}`];
+    if (priced.militaryDiscount) bits.push(`military −£${fmtMoney(priced.militaryDiscount)}`);
     bits.push(ponyHire ? 'club pony included' : 'own pony');
     (priced.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
     return { lessonId: lt.id, lessonLabel: ownPony ? `${lt.label} · own pony` : lt.label, base: priced.base, pony: 0, ownPony,
@@ -2768,8 +2801,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const level = ponyHire ? (ponyLevel || 'club') : 'none';
     const bd = priceBooking(player, kind.chukkas, level, kind.dayKey);
     const bits = [];
-    if (bd.instructional) bits.push(`${bd.lessonLabel} £${fmtMoney(bd.total)} — one price, pony included`);
-    else {
+    if (bd.instructional) {
+      bits.push(`${bd.lessonLabel} £${fmtMoney(bd.gross)} — one price, pony included`);
+      if (bd.militaryDiscount) bits.push(`military −£${fmtMoney(bd.militaryDiscount)}`);
+      (bd.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
+    } else {
       if (bd.chukkaFee) bits.push(`${kind.chukkas} chukkas £${fmtMoney(bd.chukkaFee * kind.chukkas)}`);
       if (bd.ponyHire) bits.push(`pony hire £${fmtMoney(bd.ponyHire * kind.chukkas)}`);
       if (bd.militaryDiscount) bits.push(`military −£${fmtMoney(bd.militaryDiscount)}`);
@@ -2786,9 +2822,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const kind = clubSessionById(slot.kind);
     if (!kind) return { error: 'That session is no longer offered.' };
     const cfg = DAY_CONFIG[kind.dayKey] || {};
-    // The same handicap gate the day tab applies — beginners-only means
-    // beginners-only whichever way somebody reaches the session.
-    if (cfg.maxHandicap != null && Number(player.handicap) > cfg.maxHandicap) {
+    // The same gates the day tab applies — beginners-only means beginners-only
+    // whichever way somebody reaches the session, and the captain's own tick
+    // on a player record holds everywhere.
+    if (!captainMode) {
+      const blocked = instructionalBlockReason(player, kind.dayKey);
+      if (blocked) return { error: blocked };
+    } else if (cfg.maxHandicap != null && Number(player.handicap) > cfg.maxHandicap) {
       return { error: `${kind.label} is for handicap ${cfg.maxHandicap} and below; ${player.name} is ${player.handicap}.` };
     }
     // The price is shown and the place accepted; nothing is charged until
@@ -2868,7 +2908,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   //   cancel      everyone off.
   const resolveShortGroup = async (slot, action) => {
     const current = lessonSlots.find(s => s.id === slot.id) || slot;
-    const riders = lessonGroupBookings(current);
+    const riders = lessonShortGroups(current).flatMap(g => g.riders);
     if (action === 'smaller') {
       await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? runAsSmallerGroup(current) : s)));
       return { message: `Going ahead as a group of ${riders.length}.` };
@@ -2883,7 +2923,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const b = res.booking;
       let message = `${b.name} now has an individual lesson.`;
       const player = playerDb.find(p => p.id === b.playerId) || { name: b.name, membership: 'none' };
-      const q = quoteLesson(player, 'individual', windowHours(current) || 1, !!b.ponyHire);
+      const q = quoteLesson(player, 'individual', Number(b.hours) || 1, !!b.ponyHire);
       if (q.total > 0) message += ` The price is now £${q.money}.`;
       await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? res.slot : s)));
       return { message };
@@ -3105,6 +3145,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       type: draft.type || 'Member',
       membership: draft.membership || 'none',
       military: !!draft.military,
+      // The captain's own block on instructional chukkas, whatever the handicap.
+      noInstructional: !!draft.noInstructional,
       unit: draft.military ? (draft.unit || '').trim() : '',
       rank: draft.military ? (draft.rank || '').trim() : '',
       memberNo: String(draft.memberNo == null ? '' : draft.memberNo).trim(),
@@ -3202,7 +3244,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const fmtMoney = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const newSubsidyId = () => `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const subsidyDiscount = (s) => Number(s && (s.discountPerLesson != null ? s.discountPerLesson : s.discountPerChukka) || 0) || 0;
-  const blankSubsidy = () => ({ id: '', name: '', balance: '', discountPerLesson: '', lowThreshold: '', active: true });
+  // What the pot takes off an instructional chukka session (per place).
+  const subsidyInstructional = (s) => Number(s && s.discountPerInstructional || 0) || 0;
+  const blankSubsidy = () => ({ id: '', name: '', balance: '', discountPerLesson: '', discountPerInstructional: '', lowThreshold: '', active: true });
   const saveSubsidies = async (next) => {
     setSubsidies(next);
     try { await window.storage.set('subsidies', JSON.stringify(next), true); } catch (e) {}
@@ -3210,26 +3254,28 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const openNewSubsidy = () => { setSubError(''); setSubsidyEditor(blankSubsidy()); };
   const openEditSubsidy = (s) => {
     setSubError('');
-    setSubsidyEditor({ id: s.id, name: s.name, balance: String(s.balance ?? ''), discountPerLesson: String(subsidyDiscount(s) || ''), lowThreshold: String(s.lowThreshold ?? ''), active: s.active !== false });
+    setSubsidyEditor({ id: s.id, name: s.name, balance: String(s.balance ?? ''), discountPerLesson: String(subsidyDiscount(s) || ''), discountPerInstructional: String(subsidyInstructional(s) || ''), lowThreshold: String(s.lowThreshold ?? ''), active: s.active !== false });
   };
   const saveSubsidy = async () => {
     const d = subsidyEditor || {};
     const name = (d.name || '').trim();
     if (!name) { setSubError('Please name the subsidy.'); return; }
-    const disc = Number(d.discountPerLesson);
-    if (!(disc > 0)) { setSubError('Per-lesson discount must be greater than £0.'); return; }
+    const disc = d.discountPerLesson === '' ? 0 : Number(d.discountPerLesson);
+    const instDisc = d.discountPerInstructional === '' ? 0 : Number(d.discountPerInstructional);
+    if (isNaN(disc) || disc < 0 || isNaN(instDisc) || instDisc < 0) { setSubError('Discounts must be £0 or more.'); return; }
+    if (!(disc > 0) && !(instDisc > 0)) { setSubError('Give a discount per lesson, per instructional chukka session, or both.'); return; }
     const low = d.lowThreshold === '' ? 0 : Number(d.lowThreshold);
     if (isNaN(low) || low < 0) { setSubError('Low-balance threshold must be £0 or more.'); return; }
     const existing = subsidies.find(x => x.id === d.id);
     let record;
     if (existing) {
       // Editing never overwrites a live pot — the balance only moves via top-ups/spending.
-      record = { ...existing, name, discountPerLesson: disc, discountPerChukka: undefined, lowThreshold: low, active: d.active !== false, updatedAt: Date.now() };
+      record = { ...existing, name, discountPerLesson: disc, discountPerInstructional: instDisc, discountPerChukka: undefined, lowThreshold: low, active: d.active !== false, updatedAt: Date.now() };
     } else {
       const opening = d.balance === '' ? 0 : Number(d.balance);
       if (isNaN(opening) || opening < 0) { setSubError('Opening balance must be £0 or more.'); return; }
       record = {
-        id: newSubsidyId(), name, balance: opening, discountPerLesson: disc, lowThreshold: low,
+        id: newSubsidyId(), name, balance: opening, discountPerLesson: disc, discountPerInstructional: instDisc, lowThreshold: low,
         active: d.active !== false,
         topups: opening > 0 ? [{ id: newSubsidyId(), date: Date.now(), amount: opening, note: 'Opening balance' }] : [],
         spent: 0, updatedAt: Date.now(),
@@ -3290,11 +3336,24 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (DAY_CONFIG[dayKey] && DAY_CONFIG[dayKey].instructional && n > 0) {
       const lt = lessonById('inst-chukka');
       const mil = !!(player && player.military);
-      const total = mil ? lt.mil : lt.civ;
+      const militaryDiscount = mil ? Math.min(lt.civ, RATES.milInstructionalDiscount) : 0;
+      // A subsidy pot can take something off a session too, capped at what
+      // the pot has left and what is left to pay.
+      let running = lt.civ - militaryDiscount;
+      const subsidyDeductions = [];
+      ((player && player.subsidies) || []).forEach(sid => {
+        const sub = subsidies.find(x => x.id === sid && x.active !== false);
+        const desired = subsidyInstructional(sub);
+        if (!sub || !(desired > 0)) return;
+        const amount = Math.max(0, Math.min(desired, Number(sub.balance) || 0, running));
+        subsidyDeductions.push({ id: sub.id, name: sub.name, amount, desired, capped: amount < desired });
+        running -= amount;
+      });
+      const total = Math.max(0, running);
       return {
         freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony,
         instructional: true, lessonLabel: lt.label,
-        ponyHire: 0, chukkaFee: 0, gross: total, militaryDiscount: 0, total,
+        ponyHire: 0, chukkaFee: 0, gross: lt.civ, militaryDiscount, subsidyDeductions, total,
       };
     }
     const ponyHire = wantsPony ? (RATES.ponyHire[ponyLevel] != null ? RATES.ponyHire[ponyLevel] : RATES.ponyHire.club) : 0;
@@ -3310,11 +3369,15 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
 
   // --- Lessons (coaching) pricing. Subsidy pots apply here. ---
   // `ownPony` prices the line at its own-pony rate where the card has one.
+  // A military player gets the card's flat discount off the line, whichever
+  // pony; the subsidy pots come off after that.
   const priceLesson = (player, lessonId, ownPony = false) => {
     const lt = lessonById(lessonId);
     const mil = !!(player && player.military);
     const own = !!(ownPony && lt.own);
-    const base = own ? (mil ? lt.own.mil : lt.own.civ) : (mil ? lt.mil : lt.civ);
+    const list = own ? lt.own.civ : lt.civ;
+    const militaryDiscount = mil ? Math.min(list, RATES.milLessonDiscount) : 0;
+    const base = list - militaryDiscount;
     let running = base;
     const subsidyDeductions = [];
     ((player && player.subsidies) || []).forEach(sid => {
@@ -3325,7 +3388,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (desired > 0) subsidyDeductions.push({ id: s.id, name: s.name, amount, desired, capped: amount < desired });
       running -= amount;
     });
-    return { lessonId: lt.id, lessonLabel: own ? `${lt.label} · own pony` : lt.label, base, militaryRate: mil, ownPony: own, subsidyDeductions, total: Math.max(0, running) };
+    return { lessonId: lt.id, lessonLabel: own ? `${lt.label} · own pony` : lt.label, base, list, militaryRate: mil, militaryDiscount, ownPony: own, subsidyDeductions, total: Math.max(0, running) };
   };
   // --- Tournament team registration (Teams tab). The fee is shown; nothing
   // is charged until card payment is live. ---
@@ -5466,7 +5529,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const block = bookingBlock(k);
     if (!captainMode) {
       if (block && !(waitlist && block === 'full')) return { error: bookingClosedReason(k) };
-      const hb = handicapBlockReason(rec.handicap, k);
+      const hb = cfg.instructional ? instructionalBlockReason(rec, k) : handicapBlockReason(rec.handicap, k);
       if (hb) return { error: hb };
     }
     if (rec.handicap === '' || rec.handicap == null || isNaN(Number(rec.handicap))) {
@@ -5899,7 +5962,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const next = lessonSlots
       .filter(sl => sl && sl.kind === kind.id && sl.date >= today)
       .sort((x, y) => (x.date + (x.start || '')).localeCompare(y.date + (y.start || '')))[0];
-    setLessonsFocus({ date: next ? next.date : localISO(nextChukkaDate(dk)), slotId: next ? next.id : '', at: Date.now() });
+    setLessonsFocus({ date: next ? next.date : localISO(nextChukkaDate(dk)), slotId: next ? next.id : '', filter: kind.id, at: Date.now() });
+    setActiveTab('lessons');
+    window.scrollTo(0, 0);
+  };
+  // Home's "Book a lesson or instructional chukka": the diary on Everything,
+  // landing on the next thing that can still be booked — a coaching window
+  // with hours free or an instructional session with places — else today.
+  const openLessonsNext = () => {
+    const today = localISO(new Date());
+    const open = (sl) => (sl.kind ? (sl.kind === 'instructional' && clubSessionSpots(sl) > 0) : lessonSlotOptions(sl, LESSON_SLOT_RATES).length > 0);
+    const next = lessonSlots
+      .filter(sl => sl && sl.date >= today && open(sl))
+      .sort((x, y) => (x.date + (x.start || '')).localeCompare(y.date + (y.start || '')))[0];
+    setLessonsFocus({ date: next ? next.date : today, slotId: next ? next.id : '', filter: 'all', at: Date.now() });
     setActiveTab('lessons');
     window.scrollTo(0, 0);
   };
@@ -7409,7 +7485,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onManageClose={() => setManageReq(null)}
               onOpenTerms={openTerms}
               openChukkas={homeOpenChukkas}
-              openLessons={() => { setActiveTab('lessons'); window.scrollTo(0, 0); }}
+              openLessons={openLessonsNext}
+              lessonButton={clubSessionById('instructional') ? 'Book a lesson or instructional chukka' : 'Book a lesson'}
               tour={homeTour}
               openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}
               openFixture={homeOpenFixture}
@@ -7510,7 +7587,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
             <div className="reveal">
               {/* Day menu: pick which chukka day to view/book */}
               <div className="day-menu">
-                {DAY_KEYS.map(dk => {
+                {CHUKKA_TAB_DAYS.map(dk => {
                   const cfg = DAY_CONFIG[dk];
                   return (
                     <button
@@ -10568,7 +10645,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     })()}
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={!!playerEditor.military} onChange={e => setPlayerEditor({ ...playerEditor, military: e.target.checked })} />
-                      Military (eligible for subsidies)
+                      Military (£{fmtMoney(RATES.milLessonDiscount)} off lessons, £{fmtMoney(RATES.milInstructionalDiscount)} off instructional chukkas, eligible for subsidies)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!playerEditor.noInstructional} onChange={e => setPlayerEditor({ ...playerEditor, noInstructional: e.target.checked })} />
+                      Not able to book instructional chukkas <span style={{ color: 'var(--muted)' }}>(handicap 1 and over is blocked anyway)</span>
                     </label>
                     {playerEditor.military && (
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -10606,7 +10687,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 if (e.target.checked) cur.add(s.id); else cur.delete(s.id);
                                 setPlayerEditor({ ...playerEditor, subsidies: [...cur] });
                               }} />
-                              {s.name} <span style={{ color: 'var(--muted)' }}>(−£{fmtMoney(subsidyDiscount(s))}/lesson)</span>
+                              {s.name} <span style={{ color: 'var(--muted)' }}>({[subsidyDiscount(s) > 0 && `−£${fmtMoney(subsidyDiscount(s))}/lesson`, subsidyInstructional(s) > 0 && `−£${fmtMoney(subsidyInstructional(s))}/instructional`].filter(Boolean).join(', ')})</span>
                             </label>
                           ))
                         )}
@@ -10753,6 +10834,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Discount per lesson (£)
                           <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="25" value={subsidyEditor.discountPerLesson} onChange={e => setSubsidyEditor({ ...subsidyEditor, discountPerLesson: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
                         </label>
+                        <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Discount per instructional chukka session (£)
+                          <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="10" value={subsidyEditor.discountPerInstructional} onChange={e => setSubsidyEditor({ ...subsidyEditor, discountPerInstructional: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
+                        </label>
                         <label style={{ fontSize: '12px', color: 'var(--muted)' }}>Warn when balance falls to (£)
                           <input className="input-field" type="number" inputMode="decimal" min="0" step="0.01" placeholder="100" value={subsidyEditor.lowThreshold} onChange={e => setSubsidyEditor({ ...subsidyEditor, lowThreshold: e.target.value })} style={{ padding: '11px 13px', fontSize: '14px', marginTop: '4px' }} />
                         </label>
@@ -10788,7 +10872,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                 <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: '15px', color: low ? 'var(--danger)' : 'var(--burgundy)' }}>£{fmtMoney(bal)}</span>
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>
-                                −£{fmtMoney(subsidyDiscount(s))}/lesson &middot; {assigned} player{assigned === 1 ? '' : 's'} &middot; warn ≤ £{fmtMoney(s.lowThreshold)}
+                                {[subsidyDiscount(s) > 0 && `−£${fmtMoney(subsidyDiscount(s))}/lesson`, subsidyInstructional(s) > 0 && `−£${fmtMoney(subsidyInstructional(s))}/instructional session`].filter(Boolean).join(' · ')} &middot; {assigned} player{assigned === 1 ? '' : 's'} &middot; warn ≤ £{fmtMoney(s.lowThreshold)}
                               </div>
                               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                                 <button onClick={() => topUpSubsidy(s.id)} style={{ background: 'var(--burgundy)', color: 'var(--cream)', border: 'none', padding: '8px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>Top up</button>
@@ -10854,6 +10938,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               ponyLabels={PONY_HIRE_LABELS}
               entryLabels={ENTRY_CATEGORY_LABEL}
               onSave={saveRateCard}
+              tiers={[['civ', 'Price']]}
+              discounts={MIL_DISCOUNTS}
             />
           )}
 
