@@ -905,7 +905,12 @@ function BookSheet({ me, sessions: mySessions, people = [], sessionsFor, initial
 // all and collects the shares.
 const ENTRY_HANDICAPS = [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const MAX_SQUAD = 6;
-const blankRow = () => ({ name: '', handicap: '', member: null });
+const blankRow = () => ({ name: '', handicap: '', member: null, seat: 'full', halfWhen: 'both' });
+// What a seat says, short: for the review and the choices.
+const SEATS = [['full', 'Full seat'], ['half', 'Half seat'], ['reserve', 'Reserve']];
+const halfWhenLabel = (w, days) => (days < 2 ? 'Shares the chukkas'
+  : { both: 'Both days · shares the chukkas', d0s: 'Day 1 · shares the chukkas', d1s: 'Day 2 · shares the chukkas', d0: 'Day 1 only · plays it all', d1: 'Day 2 only · plays it all' }[w] || 'Both days · shares the chukkas');
+const seatLabel = (r, days) => (r.seat === 'reserve' ? 'reserve' : r.seat === 'half' ? `half seat · ${halfWhenLabel(r.halfWhen, days).toLowerCase()}` : '');
 const fmtHc = (n) => (n > 0 ? `+${n}` : n < 0 ? `\u2212${-n}` : '0');
 
 // `edit` is one of tour.mine: the sheet then opens on the team step for
@@ -917,12 +922,12 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
   const [team, setTeam] = useState(edit ? edit.team : '');
   const [rows, setRows] = useState(() => {
     if (edit) {
-      const rs = edit.players.slice(0, MAX_SQUAD).map(p => ({ name: p.name, handicap: p.handicap, member: p.member }));
+      const rs = edit.players.slice(0, MAX_SQUAD).map(p => ({ name: p.name, handicap: p.handicap, member: p.member, seat: p.seat || 'full', halfWhen: p.halfWhen || 'both' }));
       while (rs.length < 4) rs.push(blankRow());
       return rs;
     }
     const self = tour.find(me.name) || { name: me.name, handicap: me.handicapRaw == null ? '' : String(me.handicapRaw), member: null };
-    return [{ name: self.name, handicap: self.handicap, member: self.member }, blankRow(), blankRow(), blankRow()];
+    return [{ ...blankRow(), name: self.name, handicap: self.handicap, member: self.member }, blankRow(), blankRow(), blankRow()];
   });
   const [mobile, setMobile] = useState(edit && edit.mobile ? edit.mobile : me.mobile || '');
   const [leaving, setLeaving] = useState(false); // withdraw asked once; the second tap does it
@@ -950,7 +955,10 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
   const fx = edit ? edit.fx : list.find(t => t.id === fxId) || null;
   const named = rows.filter(r => r.name.trim());
   const q = fx ? tour.quote(fx.id, rows) : null;
-  const teamHandicap = named.reduce((n, r) => n + (r.handicap === '' || isNaN(Number(r.handicap)) ? 0 : Number(r.handicap)), 0);
+  // Reserves left out; a half seat counted once, at the higher of the two.
+  const hc = (r) => (r.handicap === '' || isNaN(Number(r.handicap)) ? 0 : Number(r.handicap));
+  const teamHandicap = named.filter(r => (r.seat || 'full') === 'full').reduce((n, r) => n + hc(r), 0)
+    + named.filter(r => r.seat === 'half').map(hc).sort((a, b) => b - a).filter((_, i) => i % 2 === 0).reduce((n, x) => n + x, 0);
 
   const setRow = (i, patch) => { setError(''); setRows(rs => rs.map((r, k) => (k === i ? { ...r, ...patch } : r))); };
   const typeName = (i, v) => {
@@ -962,7 +970,7 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
     setTeam(name); setError('');
     const t = tour.known(name);
     if (t && t.players.length) {
-      const squad = t.players.slice(0, MAX_SQUAD).map(p => ({ name: p.name, handicap: p.handicap, member: p.member }));
+      const squad = t.players.slice(0, MAX_SQUAD).map(p => ({ ...blankRow(), name: p.name, handicap: p.handicap, member: p.member }));
       while (squad.length < 4) squad.push(blankRow());
       setRows(squad);
     }
@@ -1156,7 +1164,7 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
               </div>
 
               <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Players{fx.days > 1 ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; the same team both days</span> : null}</legend>
+                <legend className="hd-eyebrow" style={{ marginBottom: '8px' }}>Players{fx.days > 1 ? <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>&middot; the same team both days, unless a half seat says otherwise</span> : null}</legend>
                 {rows.map((r, i) => {
                   const sugg = focusRow === i ? tour.suggest(r.name, taken.filter((_, k) => k !== i)) : [];
                   return (
@@ -1198,6 +1206,24 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
                       )}
                       {r.name.trim() && !fx.military && r.member == null && (
                         <div style={{ fontSize: '11px', color: 'var(--hd-dim)', marginTop: '6px' }}>Not on the club&rsquo;s list &mdash; priced as a non-member unless you say otherwise.</div>
+                      )}
+                      {r.name.trim() && (
+                        <div role="group" aria-label={`Player ${i + 1} seat`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginTop: '8px' }}>
+                          {SEATS.map(([v, label]) => (
+                            <button key={v} type="button" className="hd-choice" aria-pressed={(r.seat || 'full') === v}
+                              onClick={() => setRow(i, { seat: v })} style={{ minHeight: '36px', textAlign: 'center', fontSize: '12px', padding: '0 4px' }}>{label}</button>
+                          ))}
+                        </div>
+                      )}
+                      {r.name.trim() && r.seat === 'half' && fx.days > 1 && (
+                        <select style={{ ...fld, marginTop: '8px', width: '100%' }} aria-label={`Player ${i + 1} plays`} value={r.halfWhen || 'both'} onChange={e => setRow(i, { halfWhen: e.target.value })}>
+                          {['both', 'd0s', 'd1s', 'd0', 'd1'].map(w => <option key={w} value={w}>{halfWhenLabel(w, fx.days)}</option>)}
+                        </select>
+                      )}
+                      {r.name.trim() && r.seat && r.seat !== 'full' && (
+                        <div style={{ fontSize: '11px', color: 'var(--hd-dim)', marginTop: '6px' }}>
+                          {r.seat === 'reserve' ? 'A reserve pays nothing unless they play.' : fx.days > 1 ? 'Two players share a half seat: the chukkas on a day, or a day each. Each pays half a share.' : 'Two players share the seat and its chukkas. Each pays half a share.'}
+                        </div>
                       )}
                     </div>
                   );
@@ -1246,6 +1272,7 @@ function TournamentSheet({ me, tour, initialId, edit, onClose, onOpenTerms, onOp
                       <span style={{ flex: 1, minWidth: 0 }}>{x.name}
                         {!q.military && <span style={{ color: 'var(--hd-muted)', fontSize: '12px' }}> &middot; {x.member ? 'member' : 'non-member'}</span>}
                         {named[i] && named[i].handicap !== '' && <span style={{ color: 'var(--hd-muted)', fontSize: '12px' }}> &middot; {fmtHc(Number(named[i].handicap))}</span>}
+                        {named[i] && seatLabel(named[i], fx.days) && <span style={{ color: 'var(--hd-gold2)', fontSize: '12px' }}> &middot; {seatLabel(named[i], fx.days)}</span>}
                       </span>
                       <span style={{ color: 'var(--hd-muted)' }}>{x.shareText}</span>
                     </div>
@@ -1314,7 +1341,7 @@ function MyTournaments({ items, onEdit, onOpen, delay }) {
             <span className={`hd-pill ${en.live ? 'hd-pill-gold' : 'hd-pill-ok'}`}>{en.live ? 'Playing' : 'Entered'}</span>
           </div>
           <div style={{ fontSize: '13px', color: 'var(--hd-muted)', lineHeight: 1.45 }}>
-            {en.players.length ? en.players.map(p => p.name).join(' \u00b7 ') : 'Squad to be confirmed'}{en.feeText ? ` \u00b7 ${en.feeText}` : ''}
+            {en.players.length ? en.players.map(p => p.name + (p.seat === 'reserve' ? ' (reserve)' : p.seat === 'half' ? ' (\u00bd seat)' : '')).join(' \u00b7 ') : 'Squad to be confirmed'}{en.feeText ? ` \u00b7 ${en.feeText}` : ''}
             {en.bookedBy ? <span style={{ color: 'var(--hd-dim)' }}> &middot; entered by {firstName(en.bookedBy)}</span> : null}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: en.canEdit ? '1fr 1fr' : '1fr', gap: '8px' }}>
@@ -1365,6 +1392,50 @@ function NextChukka({ s, directions, onOpen }) {
         <button type="button" className="hd-link" onClick={onOpen} style={{ marginLeft: 'auto', fontSize: '13px' }}>See the list</button>
       </div>
     </div>
+  );
+}
+
+// ── Your lessons ───────────────────────────────────────────────────────────
+// Every lesson and club session still to come that the member (or their
+// team) is booked on or waiting for, with a two-tap cancel.
+function MyLessons({ items, onCancel, onOpen, delay }) {
+  const [asking, setAsking] = useState('');
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const go = async (it) => {
+    if (asking !== it.id) { setAsking(it.id); setMsg(''); return; }
+    setBusy(it.id);
+    const res = await onCancel(it);
+    setBusy(''); setAsking('');
+    setMsg((res && (res.error || res.message)) || '');
+  };
+  return (
+    <section className="hd-in" style={{ '--d': delay, display: 'flex', flexDirection: 'column', gap: '8px' }} aria-labelledby="hd-my-lessons">
+      <h3 id="hd-my-lessons" className="hd-serif" style={{ fontSize: '19px', fontWeight: 500, margin: '4px 0' }}>Your lessons</h3>
+      {items.map(it => (
+        <div key={it.id} className="hd-card" style={{ padding: '12px 14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="hd-row" style={{ gap: '12px', alignItems: 'flex-start' }}>
+            <span style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
+              <span style={{ display: 'block', fontSize: '11px', letterSpacing: '1px', color: 'var(--hd-muted)' }}>{it.mon}</span>
+              <span className="hd-serif" style={{ display: 'block', fontSize: '21px' }}>{it.dayNum}</span>
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: '15px' }}>{it.title}</span>
+              <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-muted)' }}>{it.when}{it.where ? ` · ${it.where}` : ''}</span>
+              {it.who && <span style={{ display: 'block', fontSize: '12px', color: 'var(--hd-dim)' }}>{it.who}</span>}
+            </span>
+            <span className={`hd-pill ${it.waiting ? 'hd-pill-gold' : 'hd-pill-ok'}`}>{it.waiting ? `Waiting #${it.place}` : 'Booked'}</span>
+          </div>
+          <div className="hd-row" style={{ gap: '14px', justifyContent: 'flex-end' }}>
+            <button type="button" className="hd-link" onClick={() => onOpen(it)} style={{ fontSize: '13px', minHeight: '36px' }}>Open in Lessons</button>
+            <button type="button" className="hd-link" disabled={busy === it.id} onClick={() => go(it)} style={{ fontSize: '13px', minHeight: '36px', color: asking === it.id ? '#e8a0a0' : undefined }}>
+              {busy === it.id ? 'Cancelling…' : asking === it.id ? (it.waiting ? 'Yes, leave the list' : 'Yes, cancel it') : (it.waiting ? 'Leave the waiting list' : 'Cancel')}
+            </button>
+          </div>
+        </div>
+      ))}
+      {msg && <div style={{ fontSize: '12px', color: 'var(--hd-muted)' }}>{msg}</div>}
+    </section>
   );
 }
 
@@ -1425,6 +1496,9 @@ export default function HomeDashboard(props) {
     profile, handicapOptions = [], onSaveProfile, onChangePassword, onResetEmail, onLinkProvider,
     sessions, fixtures, captain, quote, book, undo,
     openChukkas, openLessons, lessonButton = 'Book a lesson', openFixtures, openFixture, openLive, goCaptain, directions, tour,
+    // Lessons and club sessions booked or waited for, and how to cancel or
+    // open one; notifications on this device ({ state, toggle }).
+    myLessons = [], onCancelLesson, onOpenLesson, push = null,
     // An email's "Amend or cancel" link: the booking to show (null when there
     // is none, or nobody is signed in yet) and whether one is waiting on sign-in.
     manage, manageWaiting, onManageAmend, onManageCancel, onManageClose, onOpenTerms,
@@ -1577,6 +1651,10 @@ export default function HomeDashboard(props) {
           </div>
         )}
 
+        {me && myLessons.length > 0 && (
+          <MyLessons items={myLessons} onCancel={onCancelLesson} onOpen={onOpenLesson} delay=".24s" />
+        )}
+
         {me && tour && tour.mine.length > 0 && (
           <MyTournaments items={tour.mine} onEdit={setEditing} onOpen={openFixture} delay=".25s" />
         )}
@@ -1588,8 +1666,19 @@ export default function HomeDashboard(props) {
           <span aria-hidden="true">&middot;</span>
           <button type="button" className="hd-link" onClick={() => setPhotoOpen(true)} style={{ fontSize: '12px', minHeight: '40px' }}>Your picture</button>
           <span aria-hidden="true">&middot;</span>
+          {push && push.state !== 'unsupported' && (
+            <>
+              <span aria-hidden="true">&middot;</span>
+              <button type="button" className="hd-link" onClick={push.toggle} disabled={push.state === 'blocked'} style={{ fontSize: '12px', minHeight: '40px' }}
+                title={push.state === 'blocked' ? 'Notifications are blocked for this site in the browser’s settings.' : ''}>
+                {push.state === 'on' ? 'Notifications on' : push.state === 'blocked' ? 'Notifications blocked' : 'Turn on notifications'}
+              </button>
+            </>
+          )}
+          <span aria-hidden="true">&middot;</span>
           <button type="button" className="hd-link" onClick={onSignOut} style={{ fontSize: '12px', minHeight: '40px' }}>Sign out</button>
         </div>
+        {push && push.message && <div style={{ fontSize: '12px', color: 'var(--hd-muted)', textAlign: 'center', marginTop: '-6px' }}>{push.message}</div>}
       </div>
 
       {profileOpen && (

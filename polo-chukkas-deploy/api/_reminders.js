@@ -23,8 +23,12 @@
 // how the day keys are suffixed, the Firebase project, where the app lives —
 // is in _club.js, so this file is the same in every app.
 
-import { CLUB, CREST, PROJECT, APP_URL, DAYS, storageKey, SESSION_NAMES } from './_club.js';
+import * as CLUBCFG from './_club.js';
+const { CLUB, CREST, PROJECT, APP_URL, DAYS, storageKey, SESSION_NAMES } = CLUBCFG;
 export { CLUB, DAYS, storageKey, SESSION_NAMES };
+// Optional in a club's _club.js: a club without them sends as it always has.
+const MAIL = CLUBCFG.MAIL || null;
+export const NOTIFY = CLUBCFG.NOTIFY || [];
 
 const K = CLUB.colors;
 // The crest at the top of an email, in a white round where the club's is one.
@@ -33,8 +37,34 @@ export const crestImg = (appUrl) =>
 export const signOff = () => `${esc(CLUB.name)} · ${esc(CLUB.place)}`;
 export const settings = (env) => ({
   appUrl: String(env.APP_URL || APP_URL).replace(/\/$/, ''),
-  from: env.REMINDER_FROM || `${CLUB.name} <hello@poloact.co.uk>`,
+  from: env.REMINDER_FROM || (MAIL && MAIL.from) || `${CLUB.name} <hello@poloact.co.uk>`,
+  fallbackFrom: (MAIL && MAIL.fallbackFrom) || '',
+  replyTo: (MAIL && MAIL.replyTo) || '',
 });
+// Who the office notifications go to: NOTIFY_EMAILS on the project, else the
+// club's list.
+export const notifyList = (env) => {
+  const set = String(env.NOTIFY_EMAILS || '').split(',').map(normEmail).filter(Boolean);
+  return set.length ? set : NOTIFY.map(normEmail);
+};
+
+// Send one email through Resend. If the club's own address is refused —
+// its domain not yet verified in Resend — send again from the verified
+// fallback, with replies going to the club, so mail never stops because of it.
+export async function sendMail(env, fetchImpl, { to, subject, html, text }) {
+  const { from, fallbackFrom, replyTo } = settings(env);
+  const post = (sender) => fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: sender, to: Array.isArray(to) ? to : [to], subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
+  });
+  let r = await post(from);
+  if (!r.ok && fallbackFrom && fallbackFrom !== from && (r.status === 403 || r.status === 422)) {
+    let why = ''; try { why = await r.text(); } catch (e) { /* none */ }
+    if (/domain|verif|not allowed|from/i.test(why)) r = await post(fallbackFrom);
+  }
+  return r;
+}
 
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 export const normEmail = (s) => String(s || '').trim().toLowerCase();
@@ -224,11 +254,7 @@ export async function runReminders({ when, env, now = new Date(), dry = false, d
       continue;
     }
     const mail = renderEmail({ when, target, person, appUrl });
-    const r = await fetchImpl('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [person.email], subject: mail.subject, html: mail.html, text: mail.text }),
-    });
+    const r = await sendMail(env, fetchImpl, { to: person.email, subject: mail.subject, html: mail.html, text: mail.text });
     if (r.ok) report.sent.push(person.email);
     else report.failed.push({ to: person.email, status: r.status, body: (await r.text()).slice(0, 200) });
   }
