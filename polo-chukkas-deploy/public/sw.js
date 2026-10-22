@@ -101,3 +101,25 @@ self.addEventListener('fetch', (event) => {
 
   // Everything else on our origin: just go to the network.
 });
+
+// ── Push notifications (src/push.js, api/_push.js) ──────────────────────────
+// A booking event for the admins, or "a place came up" for a member. The
+// payload is { title, body, url, tag }; tapping opens the app.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'Tedworth Park Polo Club', {
+    body: d.body || '', tag: d.tag || undefined, data: { url: d.url || '/' },
+    icon: '/icon-192.png', badge: '/icon-192.png',
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const open = wins.find((w) => w.url.startsWith(self.location.origin));
+    if (open) { await open.focus(); return; }
+    await self.clients.openWindow(url);
+  })());
+});

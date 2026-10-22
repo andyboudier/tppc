@@ -21,13 +21,14 @@ import AuthActionPage from './AuthActionPage';
 import { emailAction as readEmailAction, clearEmailAction } from './emailAction';
 import { LUX_CSS } from './luxTheme';
 import { bookingEmail, manageRequest, clearManageRequest } from './bookingEmail';
+import { pushSupported, pushState, enablePush, disablePush } from './push';
 import TermsSheet, { TermsLine } from './TermsSheet';
 import RateCardEditor from './RateCardEditor';
 import { TERMS_VERSION } from './terms';
 import { hadSignIn, noteSignIn, isMine, mySlots, isEntered, upcomingFixtures, membershipShort, photoOf } from './home';
 import { parseNotice } from './notices';
 import LessonsBoard from './LessonsBoard';
-import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, addClubSessionBooking, clubSessionSpots, slotOptions as lessonSlotOptions, fmtHM, isoOf, mondayOf, slotsInWeek, shortGroups as lessonShortGroups, runAsSmallerGroup, groupToIndividual, bookingsFor as lessonBookingsFor, dateLabel as lessonDateLabel } from './lessons';
+import { normaliseSlots, removeBooking as removeLessonBooking, addBooking as addLessonBooking, addClubSessionBooking, addWaiting as addLessonWaiting, removeWaiting as removeLessonWaiting, promoteWaiting as promoteLessonWaiting, waitingEntriesFor as lessonWaitingFor, clubSessionSpots, slotOptions as lessonSlotOptions, fmtHM, isoOf, mondayOf, slotsInWeek, shortGroups as lessonShortGroups, runAsSmallerGroup, groupToIndividual, bookingsFor as lessonBookingsFor, dateLabel as lessonDateLabel, parseHM as parseHMLesson } from './lessons';
 import { parseGroundPin, shortLink, directionsUrl, placeUrl, pinKey, pinFrom, pinOr, builtInPins, formatPin, currentPin } from './groundPins';
 
 // The PDF generator is only reachable behind an explicit print action, so it is
@@ -213,6 +214,11 @@ const LESSON_TYPES_2026 = [
   { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, own: { civ: 45 } },
   { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, own: { civ: 90 } },
   { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110 },
+  // Ladies Only's club pony is one flat price for the session (the same £110
+  // as Instructional), not pony hire per chukka. Chukka fees are on top for
+  // a non-member, as on any chukka day. It sits on the rate card here so the
+  // admin can change it with the rest.
+  { id: 'ladies-pony',     label: 'Ladies Only — club pony, per session', civ: 110 },
   { id: 'inst-tournament', label: 'Instructional Tournament',       civ: 170, own: { civ: 70 } },
 ];
 // Which of this club's coaching rates a booked lesson slot is charged at.
@@ -369,7 +375,7 @@ const DAY_CONFIG = {
   wed: { key: 'wed', label: 'Wed',  fullLabel: 'Wednesday',  short: 'Wed', dow: 3, eveningPrev: 'Tuesday',   defaultStartMin: CHUKKA_START_MIN_WED, tabLabel: 'Wed Chukkas', blurb: 'Open to all handicaps',
         cutoffDaysBefore: 1, cutoffAt: '12:00' },
   thu: { key: 'thu', label: 'Thu',  fullLabel: 'Thursday',   short: 'Thu', dow: 4, eveningPrev: 'Wednesday', defaultStartMin: CHUKKA_START_MIN_THU, tabLabel: 'Thu Ladies', note: 'Ladies Only', blurb: 'Ladies only', notifyNote: 'ladies-only instructional',
-        capArena: 6, capOther: 8 },
+        capArena: 6, capOther: 8, ponySessionRate: 'ladies-pony' },
   fri: { key: 'fri', label: 'Fri',  fullLabel: 'Friday',     short: 'Fri', dow: 5, eveningPrev: 'Thursday',  defaultStartMin: CHUKKA_START_MIN_FRI, tabLabel: 'Fri Instructional', note: 'Instructional Chukkas · Beginners Only', blurb: 'Instructional chukkas · beginners only',
         instructional: true, maxHandicap: 0, maxChukkas: 2, fixedChukkas: 2, sessionMins: 60,
         capArena: 6, capOther: 8 },
@@ -2807,7 +2813,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       (bd.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
     } else {
       if (bd.chukkaFee) bits.push(`${kind.chukkas} chukkas £${fmtMoney(bd.chukkaFee * kind.chukkas)}`);
-      if (bd.ponyHire) bits.push(`pony hire £${fmtMoney(bd.ponyHire * kind.chukkas)}`);
+      if (bd.ponyHire) bits.push(`pony hire £${fmtMoney(bd.flatPony ? bd.ponyHire : bd.ponyHire * kind.chukkas)}${bd.flatPony ? ' for the session' : ''}`);
       if (bd.militaryDiscount) bits.push(`military −£${fmtMoney(bd.militaryDiscount)}`);
     }
     return { ...bd, kindId: kind.id, kindLabel: kind.label, chukkas: kind.chukkas,
@@ -2896,13 +2902,56 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   // Several at once (a whole group) go through in ONE write to each store:
   // doing them one by one would have each write start from the same stale
   // copy, and only the last would stick.
+  // A place or an hour that comes free goes to the waiting list straight
+  // away, in order: whoever now fits is booked in, emailed, and their phone
+  // told if they have notifications on (promoted: true).
   const cancelLessonBookings = async (slot, bookings) => {
     const ids = new Set(bookings.map(b => b.id));
-    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? { ...s, bookings: (s.bookings || []).filter(b => !ids.has(b.id)) } : s)));
+    const current = lessonSlots.find(s => s.id === slot.id) || slot;
+    const freed = { ...current, bookings: (current.bookings || []).filter(b => !ids.has(b.id)) };
+    const { slot: next, promoted } = promoteLessonWaiting(freed, LESSON_SLOT_RATES);
+    await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? next : s)));
     bookings.forEach(b => {
       const pid = playerIdFor(b);
       if (pid != null) bookingEmail({ event: 'cancelled', kind: 'lesson', slotId: slot.id, bookingId: b.id, playerId: String(pid), type: b.type });
     });
+    promoted.forEach(({ booking }) => bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: booking.id, promoted: true }));
+    return promoted;
+  };
+
+  // The waiting list for a full session or a fully booked window. Joining is
+  // not a booking and costs nothing; the same gates as booking apply, so
+  // nobody waits for a place they could not take.
+  const joinLessonWaiting = async ({ slot, player, type, hours, ponyHire }) => {
+    if (!player) return { error: 'Pick who it is for.' };
+    if (!mayBookFor(player)) return { error: 'You can add yourself or someone on your team.' };
+    const current = lessonSlots.find(s => s.id === slot.id) || slot;
+    if (current.kind) {
+      const kind = clubSessionById(current.kind);
+      if (kind && DAY_CONFIG[kind.dayKey] && DAY_CONFIG[kind.dayKey].instructional) {
+        if (player.noInstructional) return { error: `${player.name} is marked not able to book instructional chukkas.` };
+        if (!captainMode) { const blocked = instructionalBlockReason(player, kind.dayKey); if (blocked) return { error: blocked }; }
+      }
+    }
+    const res = addLessonWaiting(current, {
+      playerId: player.id, name: player.name, type, hours, ponyHire: !!ponyHire,
+      uid: (auth.user && auth.user.uid) || '', bookedBy: myName || '',
+    });
+    if (!res.ok) return { error: res.error };
+    await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? res.slot : s)));
+    bookingEmail({ event: 'booked', kind: 'lessonwait', slotId: current.id, bookingId: res.entry.id });
+    const place = (res.slot.waiting || []).length;
+    return { message: `${player.name} is number ${place} on the waiting list. If a place comes up they are booked in and emailed.` };
+  };
+  const leaveLessonWaiting = async (slot, entry) => {
+    const mine = captainMode || (myPlayer && (entry.playerId === myPlayer.id || teammates.some(t => t.id === entry.playerId)))
+      || (!!auth.user && !!entry.uid && entry.uid === auth.user.uid);
+    if (!mine) return { error: 'You can take yourself or your team off the waiting list.' };
+    const current = lessonSlots.find(s => s.id === slot.id) || slot;
+    await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? removeLessonWaiting(current, entry.id) : s)));
+    const pid = playerIdFor(entry);
+    if (pid != null) bookingEmail({ event: 'cancelled', kind: 'lessonwait', slotId: current.id, bookingId: entry.id, playerId: String(pid) });
+    return { message: `${entry.name} is off the waiting list.` };
   };
   const cancelLessonBooking = (slot, booking) => cancelLessonBookings(slot, [booking]);
 
@@ -3361,8 +3410,20 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
         ponyHire: 0, chukkaFee: 0, gross: lt.civ, militaryDiscount, subsidyDeductions, total,
       };
     }
-    const ponyHire = wantsPony ? (RATES.ponyHire[ponyLevel] != null ? RATES.ponyHire[ponyLevel] : RATES.ponyHire.club) : 0;
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
+    // A day whose club pony is one price for the session (Ladies Only): that
+    // price, with the military discount as on Instructional, plus chukka fees.
+    const flatPony = DAY_CONFIG[dayKey] && DAY_CONFIG[dayKey].ponySessionRate;
+    if (flatPony && n > 0) {
+      const lt = lessonById(flatPony);
+      const pony = wantsPony ? lt.civ : 0;
+      const militaryDiscount = wantsPony && player && player.military ? Math.min(pony, RATES.milInstructionalDiscount) : 0;
+      const gross = pony + chukkaFee * n;
+      const total = Math.max(0, gross - militaryDiscount);
+      return { freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, flatPony: true,
+               ponyHire: pony, ponySession: pony, chukkaFee, gross, militaryDiscount, total };
+    }
+    const ponyHire = wantsPony ? (RATES.ponyHire[ponyLevel] != null ? RATES.ponyHire[ponyLevel] : RATES.ponyHire.club) : 0;
     if (n === 0 || (ponyHire === 0 && chukkaFee === 0)) {
       return { freeToRoster: true, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony, ponyHire: 0, chukkaFee, gross: 0, militaryDiscount: 0, total: 0 };
     }
@@ -4883,21 +4944,37 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const rec = playerDb.find(p => (p.name || '').trim().toLowerCase() === String(name || '').trim().toLowerCase());
     return !!(rec && (rec.membership || 'none') !== 'none');
   };
+  // A player's seat in a team entry: a full seat, half of one (two players
+  // sharing it — the chukkas on a day, or a day each), or a reserve, who pays
+  // nothing unless they play. The fee is split by seat: a half seat carries
+  // half a share.
+  const seatOf = (r) => (r && (r.reserve || r.seat === 'reserve') ? 'reserve' : r && (r.half || r.seat === 'half') ? 'half' : 'full');
+  const SEAT_WEIGHT = { full: 1, half: 0.5, reserve: 0 };
   const priceTeamEntry = (fx, rows) => {
     const named = (rows || []).filter(r => (r.name || '').trim());
     const len = entryLength(fx);
+    const weight = (r) => SEAT_WEIGHT[seatOf(r)];
+    const W = named.reduce((n, r) => n + weight(r), 0) || 1;
     if (fx.military) {
       const total = entryFeeFor('military', len);
-      const share = named.length ? total / named.length : 0;
-      return { military: true, len, total, shares: named.map(r => ({ name: r.name.trim(), member: null, share })) };
+      return { military: true, len, total, shares: named.map(r => ({ name: r.name.trim(), member: null, seat: seatOf(r), share: total * weight(r) / W })) };
     }
     const memberFee = entryFeeFor('member', len);
     const nonFee = entryFeeFor('nonmember', len);
     const shares = named.map(r => {
       const member = r.member == null ? isClubMember(r.name) : !!r.member;
-      return { name: r.name.trim(), member, share: (member ? memberFee : nonFee) / named.length };
+      return { name: r.name.trim(), member, seat: seatOf(r), share: (member ? memberFee : nonFee) * weight(r) / W };
     });
     return { military: false, len, memberFee, nonFee, total: shares.reduce((n, x) => n + x.share, 0), shares };
+  };
+  // Team handicap with seats: reserves left out; a half seat counts once, at
+  // the higher of the players sharing it.
+  const seatedHandicap = (rows) => {
+    const h = (r) => (r.handicap === '' || r.handicap == null || isNaN(Number(r.handicap)) ? 0 : Number(r.handicap));
+    const named = (rows || []).filter(r => (r.name || '').trim());
+    const full = named.filter(r => seatOf(r) === 'full').reduce((n, r) => n + h(r), 0);
+    const halves = named.filter(r => seatOf(r) === 'half').map(h).sort((a, b) => b - a);
+    return full + halves.filter((_, i) => i % 2 === 0).reduce((n, x) => n + x, 0);
   };
   // Players from the database that match what has been typed in a squad row,
   // best first — shown as tappable suggestions under the name.
@@ -4937,7 +5014,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!tName.trim()) return setTError('Please enter a team name.');
     const days = fixtureDays(fx);
     const cleanRows = (rows) => (rows || [])
-      .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
+      .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }),
+        ...(seatOf(r) === 'reserve' ? { reserve: true } : seatOf(r) === 'half' ? { half: true } : {}) }))
       .filter(r => r.name);
     const usePerDay = tPerDay && days.length > 1;
     const daysOut = {};
@@ -4962,7 +5040,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     entry.fee = { total: Math.round(fee.total * 100) / 100, military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: Math.round(x.share * 100) / 100 })) };
     if (myName) entry.bookedBy = myName;
     const list = teamSignups[fx.id] || [];
-    saveTeamSignups({ ...teamSignups, [fx.id]: [...list, entry] });
+    Promise.resolve(saveTeamSignups({ ...teamSignups, [fx.id]: [...list, entry] }))
+      .then(() => bookingEmail({ event: 'booked', kind: 'tournament', fixtureId: String(fx.id), entryId: String(entry.id) }));
     // Remember this team (fullest day's squad) so it autofills next time.
     const canonical = Object.values(daysOut).reduce((best, arr) => arr.length > best.length ? arr : best, []);
     saveTeamsDb({ ...teamsDb, [entry.team.toLowerCase()]: { name: entry.team, handicap: entry.handicap, players: canonical } });
@@ -4974,7 +5053,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const list = (teamSignups[fixtureId] || []).filter(s => s.id !== entryId);
     const next = { ...teamSignups };
     if (list.length === 0) delete next[fixtureId]; else next[fixtureId] = list;
-    saveTeamSignups(next);
+    return Promise.resolve(saveTeamSignups(next))
+      .then(() => bookingEmail({ event: 'cancelled', kind: 'tournament', fixtureId: String(fixtureId), entryId: String(entryId) }));
   };
 
   // ── Captain: add / edit / delete fixtures ─────────────────
@@ -5163,6 +5243,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (!byMonth.has(key)) byMonth.set(key, { key, month: f.month, year, list: [], season: fixtureSeason(f) });
       byMonth.get(key).list.push(f);
     });
+    // Within a month, in date order — an ad hoc fixture added later lands
+    // where its date puts it, not at the foot of the month. Undated or
+    // unreadable ones keep their place after the dated ones.
+    const startOf = (f) => { const r = parseFixtureDateRange(f); return r ? r.start.getTime() : Infinity; };
+    byMonth.forEach((m) => { m.list = m.list.map((f, i) => [f, i]).sort((a, b) => (startOf(a[0]) - startOf(b[0])) || (a[1] - b[1])).map(x => x[0]); });
     const now = Date.now();
     const seasons = new Map();
     [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key)).forEach((m) => {
@@ -5750,6 +5835,77 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     return { ok: true };
   };
 
+  // Home's "Your lessons": what the member and their team are booked on or
+  // waiting for, still to come.
+  const homeLessons = (() => {
+    if (!homePlayer) return [];
+    const people = [homePlayer, ...teammates.filter(t => t && t.id !== homePlayer.id)];
+    const now = Date.now();
+    const future = (slot) => slot && slot.date && new Date(`${slot.date}T${slot.end || slot.start || '23:59'}`).getTime() > now;
+    const title = (slot, type) => (slot.kind ? ((clubSessionById(slot.kind) || {}).label || slot.kind) : `${type === 'group' ? 'Group' : 'Individual'} lesson`);
+    const seen = new Set();
+    const out = [];
+    people.forEach((p) => {
+      lessonBookingsFor(lessonSlots, { playerId: p.id, name: p.name }).forEach(({ slot, booking }) => {
+        if (!future(slot) || seen.has(booking.id)) return; seen.add(booking.id);
+        const d = new Date(`${slot.date}T12:00:00`);
+        const end = fmtHM((parseHMLesson(booking.start || slot.start) || 0) + (Number(booking.hours) || 1) * 60);
+        out.push({ id: booking.id, slotId: slot.id, date: slot.date, waiting: false,
+          mon: d.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(), dayNum: String(d.getDate()),
+          title: title(slot, booking.type),
+          when: `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${slot.kind ? `${slot.start}–${slot.end}` : `${booking.start}–${end}`}`,
+          where: [slot.coach && `with ${slot.coach}`, slot.ground].filter(Boolean).join(' · '),
+          who: p.id === homePlayer.id ? '' : `For ${p.name}`, sort: `${slot.date} ${booking.start || slot.start}` });
+      });
+      lessonWaitingFor(lessonSlots, { playerId: p.id, name: p.name }).forEach(({ slot, entry, place }) => {
+        if (!future(slot) || seen.has(entry.id)) return; seen.add(entry.id);
+        const d = new Date(`${slot.date}T12:00:00`);
+        out.push({ id: entry.id, slotId: slot.id, date: slot.date, waiting: true, place,
+          mon: d.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(), dayNum: String(d.getDate()),
+          title: title(slot, entry.type),
+          when: `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${slot.start}–${slot.end}`,
+          where: [slot.coach && `with ${slot.coach}`, slot.ground].filter(Boolean).join(' · '),
+          who: p.id === homePlayer.id ? '' : `For ${p.name}`, sort: `${slot.date} ${slot.start}` });
+      });
+    });
+    return out.sort((a, b) => a.sort.localeCompare(b.sort));
+  })();
+  const homeCancelLesson = async (it) => {
+    const slot = lessonSlots.find(s => s.id === it.slotId);
+    if (!slot) return { error: 'That is no longer in the diary.' };
+    if (it.waiting) {
+      const entry = (slot.waiting || []).find(w => w.id === it.id);
+      return entry ? leaveLessonWaiting(slot, entry) : { error: 'Already off the waiting list.' };
+    }
+    const booking = (slot.bookings || []).find(b => b.id === it.id);
+    if (!booking) return { error: 'That booking has already gone.' };
+    if (!mayManage(booking)) return { error: 'You can cancel your own bookings, or your team’s.' };
+    const promoted = await cancelLessonBooking(slot, booking);
+    return { message: `Cancelled.${promoted && promoted.length ? ` ${promoted.map(x => x.booking.name).join(', ')} came off the waiting list into the place.` : ''}` };
+  };
+  const homeOpenLesson = (it) => {
+    setLessonsFocus({ date: it.date, slotId: it.slotId, filter: 'all', at: Date.now() });
+    setActiveTab('lessons');
+    window.scrollTo(0, 0);
+  };
+  // Notifications on this device, for a signed-in member.
+  const [pushStatus, setPushStatus] = useState('unsupported');
+  const [pushMessage, setPushMessage] = useState('');
+  useEffect(() => {
+    if (!auth.user || !pushSupported()) { setPushStatus('unsupported'); return; }
+    pushState().then(setPushStatus).catch(() => {});
+  }, [auth.user && auth.user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const togglePush = async () => {
+    setPushMessage('');
+    try {
+      if (pushStatus === 'on') { setPushStatus(await disablePush()); setPushMessage('Notifications are off on this device.'); }
+      else {
+        setPushStatus(await enablePush({ uid: auth.user && auth.user.uid, email: auth.user && auth.user.email }));
+        setPushMessage(captainMode ? 'You’ll be told here of every booking, cancellation and entry.' : 'You’ll be told here if a waiting-list place comes up.');
+      }
+    } catch (e) { setPushMessage(e.message || 'Notifications could not be switched on.'); setPushStatus(await pushState()); }
+  };
+
   const homeMeView = homePlayer ? {
     id: homePlayer.id,
     name: homePlayer.name,
@@ -5825,11 +5981,18 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       (teamSignups[fx.id] || []).forEach(en => {
         const booked = (en.bookedBy || '').trim().toLowerCase() === meName;
         if (!booked && !inSquad(en, homePlayer.name)) return;
-        const squad = Object.values(en.days || {}).reduce((best, arr) => ((arr || []).length > best.length ? arr : best), []);
+        // Everyone across the days, once each, with their seat.
+        const squad = [];
+        Object.values(en.days || {}).forEach(arr => (arr || []).forEach(p => { if (p && p.name && !squad.some(x => x.name.trim().toLowerCase() === p.name.trim().toLowerCase())) squad.push(p); }));
+        // In the order the team was entered, which the fee's shares keep.
+        const order = ((en.fee && en.fee.shares) || []).map(x => String(x.name || '').trim().toLowerCase());
+        const rank = (p) => { const i = order.indexOf(p.name.trim().toLowerCase()); return i < 0 ? order.length : i; };
+        squad.sort((a, b) => rank(a) - rank(b));
         out.push({
           fixtureId: fx.id, entryId: en.id, team: en.team, handicap: en.handicap ?? null,
           mobile: en.mobile || '', bookedBy: en.bookedBy || '', perDay: !!en.perDay,
-          players: squad.map(p => ({ name: p.name, handicap: p.handicap == null ? '' : String(p.handicap), member: p.member == null ? null : !!p.member })),
+          players: squad.map(p => ({ name: p.name, handicap: p.handicap == null ? '' : String(p.handicap), member: p.member == null ? null : !!p.member,
+            seat: p.reserve ? 'reserve' : p.half ? 'half' : 'full', halfWhen: p.halfWhen || (p.half ? 'both' : '') })),
           feeText: en.fee && en.fee.total > 0 ? homeMoney(en.fee.total) : '',
           live: range.start.getTime() <= Date.now(), closed: isInterestClosed(fx), canEdit: range.start.getTime() > Date.now(),
           start: range.start, fx: homeTourFx(fx, range),
@@ -5840,8 +6003,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   })();
   // One squad, validated, from the sheet's rows.
   const homeSquadRows = (fx, rows) => (rows || [])
-    .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
+    .map(r => {
+      const seat = seatOf(r);
+      const halfWhen = seat === 'half' ? (fixtureDays(fx).length > 1 ? (r.halfWhen || 'both') : 'both') : '';
+      return { name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }),
+        ...(seat === 'reserve' ? { reserve: true } : seat === 'half' ? { half: true, halfWhen, share: halfWhen === 'both' || /s$/.test(halfWhen) } : {}) };
+    })
     .filter(r => r.name);
+  // Who plays which day: a half seat taken on one day appears on that day's
+  // squad only ('d0', 'd0s' day 1; 'd1', 'd1s' day 2); everyone else on all.
+  const homeDaysFor = (fx, squad) => {
+    const days = {};
+    fixtureDays(fx).forEach((d, i) => {
+      days[d.key] = squad.filter(x => !x.half || !x.halfWhen || x.halfWhen === 'both' || x.halfWhen.startsWith(`d${i}`)).map(x => ({ ...x }));
+    });
+    return days;
+  };
   const homeTour = {
     list: homeTournaments,
     find: homeFindPlayer,
@@ -5885,24 +6062,22 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if ((teamSignups[fx.id] || []).some(x => (x.team || '').trim().toLowerCase() === name.toLowerCase())) {
         return { error: `A team called ${name} is already entered. Pick another name.` };
       }
-      const squad = (rows || [])
-        .map(r => ({ name: (r.name || '').trim(), handicap: r.handicap === '' || r.handicap == null ? null : parseInt(r.handicap, 10), ...(fx.military ? {} : { member: r.member == null ? isClubMember(r.name) : !!r.member }) }))
-        .filter(r => r.name);
+      const squad = homeSquadRows(fx, rows);
       if (!squad.length) return { error: 'Add at least one player.' };
-      const days = {};
-      fixtureDays(fx).forEach(d => { days[d.key] = squad.map(x => ({ ...x })); });
+      const days = homeDaysFor(fx, squad);
       const fee = priceTeamEntry(fx, rows);
       const r2 = (n) => Math.round(n * 100) / 100;
       const entry = {
         id: Date.now(), team: name,
         handicap: handicap === '' || handicap == null || isNaN(parseInt(handicap, 10)) ? null : parseInt(handicap, 10),
-        perDay: false, days,
+        perDay: Object.values(days).some(d => d.length !== squad.length), days,
         fee: { total: r2(fee.total), military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: r2(x.share) })) },
       };
       if (myName) { entry.contact = myName; entry.bookedBy = myName; }
       if (String(mobile || '').trim()) entry.mobile = String(mobile).trim();
-      saveTeamSignups({ ...teamSignups, [fx.id]: [...(teamSignups[fx.id] || []), entry] });
-      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad } });
+      Promise.resolve(saveTeamSignups({ ...teamSignups, [fx.id]: [...(teamSignups[fx.id] || []), entry] }))
+        .then(() => bookingEmail({ event: 'booked', kind: 'tournament', fixtureId: fx.id, entryId: String(entry.id) }));
+      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad.map(({ halfWhen, share, ...x }) => x) } });
       return { entry, fixtureId: fx.id, totalText: homeMoney(entry.fee.total) };
     },
     withdraw: (fxId, entryId) => removeTeam(fxId, entryId),
@@ -5926,19 +6101,19 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       }
       const squad = homeSquadRows(fx, rows);
       if (!squad.length) return { error: 'Keep at least one player, or withdraw the entry instead.' };
-      const days = {};
-      fixtureDays(fx).forEach(d => { days[d.key] = squad.map(x => ({ ...x })); });
+      const days = homeDaysFor(fx, squad);
       const fee = priceTeamEntry(fx, rows);
       const r2 = (n) => Math.round(n * 100) / 100;
       const entry = {
-        ...prev, team: name,
+        ...prev, team: name, amendedAt: Date.now(),
         handicap: handicap === '' || handicap == null || isNaN(parseInt(handicap, 10)) ? null : parseInt(handicap, 10),
-        perDay: false, days,
+        perDay: Object.values(days).some(d => d.length !== squad.length), days,
         fee: { total: r2(fee.total), military: fee.military, days: fee.len, shares: fee.shares.map(x => ({ ...x, share: r2(x.share) })) },
       };
       if (String(mobile || '').trim()) entry.mobile = String(mobile).trim(); else delete entry.mobile;
-      saveTeamSignups({ ...teamSignups, [fx.id]: list.map(e => (e.id === entryId ? entry : e)) });
-      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad } });
+      Promise.resolve(saveTeamSignups({ ...teamSignups, [fx.id]: list.map(e => (e.id === entryId ? entry : e)) }))
+        .then(() => bookingEmail({ event: 'amended', kind: 'tournament', fixtureId: fx.id, entryId: String(entryId) }));
+      saveTeamsDb({ ...teamsDb, [name.toLowerCase()]: { name, handicap: entry.handicap, players: squad.map(({ halfWhen, share, ...x }) => x) } });
       return { entry, fixtureId: fx.id, totalText: homeMoney(entry.fee.total) };
     },
   };
@@ -7494,6 +7669,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onOpenTerms={openTerms}
               openChukkas={homeOpenChukkas}
               openLessons={openLessonsNext}
+              myLessons={homeLessons}
+              onCancelLesson={homeCancelLesson}
+              onOpenLesson={homeOpenLesson}
+              push={{ state: pushStatus, toggle: togglePush, message: pushMessage }}
               lessonButton={clubSessionById('instructional') ? 'Book a lesson or instructional chukka' : 'Book a lesson'}
               tour={homeTour}
               openFixtures={() => { setActiveTab('fixtures'); window.scrollTo(0, 0); }}
@@ -9832,7 +10011,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                             {fxDays.length > 1 && <span className="squad-day">Both days</span>}
                                             {squad.length === 0
                                               ? <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Squad TBC</span>
-                                              : squad.map((p, i) => <span key={i} className="squad-chip">{p.name}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
+                                              : squad.map((p, i) => <span key={i} className="squad-chip">{p.name}{p.reserve ? ' (reserve)' : p.half ? ' (½ seat)' : ''}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
                                           </div>
                                         );
                                       }
@@ -9841,7 +10020,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                           <span className="squad-day">{d.label}</span>
                                           {(s.days[d.key] || []).length === 0
                                             ? <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Squad TBC</span>
-                                            : (s.days[d.key] || []).map((p, i) => <span key={i} className="squad-chip">{p.name}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
+                                            : (s.days[d.key] || []).map((p, i) => <span key={i} className="squad-chip">{p.name}{p.reserve ? ' (reserve)' : p.half ? ' (½ seat)' : ''}{p.handicap != null && <em>{fmtH(p.handicap)}</em>}</span>)}
                                         </div>
                                       ));
                                     })()}
@@ -9959,6 +10138,16 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                                                     border: `1px solid ${member ? 'var(--burgundy)' : 'var(--line)'}`, background: member ? 'var(--burgundy)' : 'transparent', color: member ? 'var(--cream)' : 'var(--muted)' }}>
                                                   {member ? 'Member' : 'Non-member'}
                                                 </button>
+                                              )}
+                                              {(
+                                                <select className="input-field select-field" aria-label={`Player ${idx + 1} seat`} value={row.seat || (row.reserve ? 'reserve' : row.half ? 'half' : 'full')}
+                                                  onChange={(e) => setSquadPlayer(d.key, idx, 'seat', e.target.value)}
+                                                  style={{ width: '104px', flexShrink: 0, padding: '9px 6px', fontSize: '13px' }}
+                                                  title="Full seat, half a seat (shared), or reserve — the fee is split by seat">
+                                                  <option value="full">Full seat</option>
+                                                  <option value="half">Half seat</option>
+                                                  <option value="reserve">Reserve</option>
+                                                </select>
                                               )}
                                               <span style={{ flex: 1 }} />
                                               {(tSquads[d.key] || []).length > 1 && (
@@ -10927,6 +11116,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               quote={quoteLesson}
               onBook={bookLesson}
               onCancelBooking={cancelLessonBooking}
+              onJoinWaiting={joinLessonWaiting}
+              onLeaveWaiting={leaveLessonWaiting}
               onResolveGroup={resolveShortGroup}
               grounds={GROUND_OPTIONS}
               clubSessions={CLUB_SESSIONS}

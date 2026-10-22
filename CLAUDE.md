@@ -450,7 +450,7 @@ players, then review the fee and confirm. It is the Fixtures tab's own team
 entry — the entry lands in `team-signups` with its `fee` and `bookedBy`, the
 team is remembered in `teams-db`, and pricing is `priceTeamEntry` — so the
 team shows under Teams Entered and on the captain's draw like any other. One
-squad plays every day (a captain can still set per-day squads on Fixtures).
+squad plays every day unless a half seat says otherwise (see Tournament seats; a captain can still set per-day squads on Fixtures).
 Listed are fixtures that have not finished, are not events, and whose entries
 are still open — they close the night before the first day, as Register
 interest does — so a party or a course left untagged appears there until the
@@ -560,6 +560,57 @@ PoloChukkas.jsx). A chukka changes chukkas, pony, times and no-consecutive, and
 the member is told the new price when it changes. A lesson changes only its
 pony — to move it, cancel and rebook. With sign-in off there is no ID token,
 so the clubs' builds send nothing.
+
+**Who sends, and who else hears.** Booking emails go from
+`info@tedworthparkpolo.com` (`MAIL` in `api/_club.js`, with Reply-To the same).
+Resend only sends from a verified domain, and tedworthparkpolo.com is not yet
+verified there (its DNS is at 20i, mail at Microsoft 365), so `sendMail` in
+`_reminders.js` retries a refused send from `fallbackFrom`
+(hello@poloact.co.uk) with the Reply-To still the club's. Verifying the domain
+in Resend makes the fallback unused; nothing else changes. **Every** booking,
+amendment and cancellation — chukkas, waiting lists, lessons, sessions,
+tournament entries — is also sent to the office, `NOTIFY` in `_club.js`
+(info@, helen@, bradley@tedworthparkpolo.com; `NOTIFY_EMAILS` in Vercel
+overrides). The office copy is not held back by `REMINDERS_ALLOW`, which still
+gates the member's own email.
+
+**Push notifications (web only).** `src/push.js` subscribes a browser (Home's
+footer: "Turn on notifications") and keeps the subscription in the shared doc
+`push-subs` with the account's uid and email; `public/sw.js` shows them.
+`api/_push.js` sends to the admins on every booking event and to a member
+booked in from a waiting list; who is an admin is decided on the server, never
+from the subscription. It needs `VITE_VAPID_PUBLIC_KEY`, `VAPID_PUBLIC_KEY`,
+`VAPID_SUBJECT` and the sensitive `VAPID_PRIVATE_KEY` on the Vercel project;
+without the private key nothing is sent. On an iPhone it works only from the
+Home Screen web app. The store apps would need APNs/FCM, which is not wired.
+
+**Lesson waiting lists.** A full club session (Ladies, Instructional) or a
+coaching window with no length left offers **Join the waiting list**
+(`addWaiting` in `lessons.js`; entries on `slot.waiting`). Members see only how
+many are waiting and their own place; admins see the names, in order, with ×.
+Cancelling a booking runs `promoteWaiting`, which books the first entry that
+now fits (a session place, or a lesson of the length they asked for, joining a
+group of that length first) with `promotedAt`, and the member gets "A place
+came up — you're booked" by email and push. Copy last week clears waiting
+lists. Home's **Your lessons** lists the member's and their teammates' future
+lessons and waiting places, with Cancel / Leave the waiting list.
+
+**Tournament seats.** Each player on an entry is a full seat, a half seat or a
+reserve. Two half seats share a place: on a two-day tournament, the chukkas on
+both days (`both`), the chukkas on one day (`d0s`/`d1s`), or a day each
+(`d0`/`d1`, "Day 1 only · plays it all"). A half seat appears only on its days'
+squads (`homeDaysFor`), so such an entry is saved `perDay`. Fees split by seat
+weight (full 1, half ½, reserve 0); the team handicap leaves reserves out and
+counts a half seat once, at the higher. Squads carry `half`, `halfWhen` and
+`reserve`; `teams-db` keeps the players without the day detail.
+
+**Ladies Only pony** is a flat £110 a session (`ladies-pony` on the rate card,
+`ponySessionRate` on DAY_CONFIG.thu), as Instructional's is, plus the chukka
+fees for a non-member; the military £5 comes off the pony.
+
+**Fixtures sort by date within their month** (`fixtureMonths`), so an ad hoc
+fixture added later lands in its place rather than at the bottom. The live
+clubs still append; bringing this back fixes it there too.
 
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished

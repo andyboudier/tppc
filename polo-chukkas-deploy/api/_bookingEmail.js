@@ -7,11 +7,21 @@
 // email says, come from the club's own data read here — so the endpoint can
 // only ever tell a member about their own booking, in the club's words:
 //   { event: 'booked' | 'amended' | 'cancelled',
-//     kind: 'chukka' | 'waitlist' | 'lesson',
+//     kind: 'chukka' | 'waitlist' | 'lesson' | 'lessonwait' | 'tournament',
 //     day, entryId          (chukka / waitlist)
-//     slotId, bookingId     (lesson or club session)
+//     slotId, bookingId     (lesson or club session; for lessonwait the
+//                            waiting-list entry)
+//     fixtureId, entryId    (tournament entry — the office is told; no member
+//                            email, the entrant sees it on screen)
+//     promoted              (booked from a waiting list by somebody else's
+//                            cancellation: any signed-in caller may send it,
+//                            as long as the booking says it was just promoted)
 //     playerId, type }      (cancelled only: the booking has gone, so whose it
 //                            was, and for a lesson what sort it was)
+//
+// Every request also tells the office (NOTIFY in _club.js, or NOTIFY_EMAILS)
+// in a short email, and the admins' phones if they have notifications on.
+// The member who was promoted is told on their phone too.
 //
 // The caller proves who they are with their Firebase ID token, checked with
 // Google. They may send for their own booking, a teammate's (the same rule as
@@ -22,8 +32,9 @@
 
 import {
   DAYS, storageKey, longDate, londonParts, makeReader, projectOf, recordFor, json, crestImg, signOff, settings, CLUB,
-  esc, firstName, normEmail, normName, SESSION_NAMES,
+  esc, firstName, normEmail, normName, SESSION_NAMES, sendMail, notifyList,
 } from './_reminders.js';
+import { pushTo } from './_push.js';
 
 const FRESH_MS = 15 * 60 * 1000; // a "booked" or "amended" email is for a change just made
 
@@ -99,21 +110,50 @@ async function findLesson(read, req) {
   };
 }
 
+async function findLessonWait(read, req) {
+  const slots = json(await read('lesson-slots'), []);
+  const slot = slots.find((s) => s && String(s.id) === String(req.slotId)) || null;
+  if (!slot) return { error: 'That lesson is no longer in the diary.' };
+  const list = Array.isArray(slot.waiting) ? slot.waiting : [];
+  const entry = list.find((w) => String(w.id) === String(req.bookingId)) || null;
+  const session = !!slot.kind;
+  return {
+    entry, slot, session, place: entry ? list.indexOf(entry) + 1 : 0, waitingCount: list.length,
+    title: session ? (SESSION_NAMES[slot.kind] || 'Club session') : `${entry && entry.type === 'group' ? 'Group' : 'Individual'} lesson`,
+    date: slot.date, time: slot.start, end: slot.end || '', ground: slot.ground || '', coach: slot.coach || '',
+  };
+}
+
+async function findTournament(read, req) {
+  const signups = json(await read('team-signups'), {});
+  const fixtures = json(await read('fixtures'), []);
+  const fx = fixtures.find((f) => f && String(f.id) === String(req.fixtureId)) || null;
+  if (!fx) return { error: 'That tournament is no longer listed.' };
+  const entry = (signups[fx.id] || []).find((e) => String(e.id) === String(req.entryId)) || null;
+  return { entry, fx, title: fx.name, date: '', dateText: fx.date || '', time: '', ground: fx.level || '' };
+}
+
 // ── The email ───────────────────────────────────────────────────────────────
 const HEADS = {
-  booked: { chukka: 'You’re booked', waitlist: 'You’re on the waiting list', lesson: 'You’re booked' },
-  amended: { chukka: 'Booking updated', waitlist: 'Waiting-list entry updated', lesson: 'Booking updated' },
-  cancelled: { chukka: 'Booking cancelled', waitlist: 'Off the waiting list', lesson: 'Booking cancelled' },
+  booked: { chukka: 'You’re booked', waitlist: 'You’re on the waiting list', lesson: 'You’re booked', lessonwait: 'You’re on the waiting list', tournament: 'Team entered' },
+  amended: { chukka: 'Booking updated', waitlist: 'Waiting-list entry updated', lesson: 'Booking updated', lessonwait: 'Waiting-list entry updated', tournament: 'Entry updated' },
+  cancelled: { chukka: 'Booking cancelled', waitlist: 'Off the waiting list', lesson: 'Booking cancelled', lessonwait: 'Off the waiting list', tournament: 'Entry withdrawn' },
 };
+const PROMOTED_HEAD = 'A place came up — you’re booked';
 
-export const manageLink = (appUrl, req) => (req.kind === 'lesson'
+export const manageLink = (appUrl, req) => (req.kind === 'lessonwait' ? `${appUrl}/` : req.kind === 'lesson'
   ? `${appUrl}/?manage=${encodeURIComponent(`lesson:${req.slotId}:${req.bookingId}`)}`
   : `${appUrl}/?manage=${encodeURIComponent(`${req.kind}:${req.day}:${req.entryId}`)}`);
 
 export function detailLines(req, found) {
   const e = found.entry || {};
   const lines = [];
-  if (req.kind === 'lesson') {
+  if (req.kind === 'lessonwait') {
+    if (found.entry && !found.session) lines.push(`${e.type === 'group' ? 'Group' : 'Individual'} lesson · ${Number(e.hours) || 1} hour${Number(e.hours) === 1 ? '' : 's'}`);
+    if (found.coach) lines.push(`With ${found.coach}`);
+    if (found.entry) lines.push(e.ponyHire ? 'Club pony' : 'Your own pony');
+    if (found.place) lines.push(`Number ${found.place} on the waiting list — if a place comes up you are booked in and emailed`);
+  } else if (req.kind === 'lesson') {
     const hrs = Number(e.hours) || 1;
     if (!found.session) lines.push(`${hrs} hour${hrs === 1 ? '' : 's'}${found.coach ? ` with ${found.coach}` : ''}`);
     else if (found.coach) lines.push(`With ${found.coach}`);
@@ -130,13 +170,14 @@ export function detailLines(req, found) {
 }
 
 export function renderBookingEmail({ req, found, person, appUrl }) {
-  const head = HEADS[req.event][req.kind];
+  const head = req.promoted && req.event === 'booked' ? PROMOTED_HEAD : HEADS[req.event][req.kind];
   const when = `${longDate(found.date)} · ${found.time}${found.end && req.kind === 'lesson' ? `–${found.end}` : ''}`;
   const subject = `${head}: ${found.title}, ${longDate(found.date)} ${found.time}`;
   const lines = detailLines(req, found);
   const cancelled = req.event === 'cancelled';
   const lead = cancelled
     ? 'This booking has been taken off the list. If that’s a surprise, reply to this email or speak to the club.'
+    : req.promoted ? 'Someone cancelled and you were next on the waiting list, so you are now booked in. If you can no longer make it, cancel in the app so the place goes to the next person.'
     : req.event === 'amended' ? 'Here’s your booking as it stands now.' : 'Here are your details.';
   const cta = cancelled
     ? { href: appUrl, label: 'Book again' }
@@ -181,14 +222,42 @@ export function renderBookingEmail({ req, found, person, appUrl }) {
 
 // ── The run ─────────────────────────────────────────────────────────────────
 const EVENTS = ['booked', 'amended', 'cancelled'];
-const KINDS = ['chukka', 'waitlist', 'lesson'];
+const KINDS = ['chukka', 'waitlist', 'lesson', 'lessonwait', 'tournament'];
 const ID = /^[A-Za-z0-9_.-]{1,80}$/;
 
 export const validRequest = (b) => !!b && EVENTS.includes(b.event) && KINDS.includes(b.kind) && (
-  b.kind === 'lesson'
+  b.kind === 'lesson' || b.kind === 'lessonwait'
     ? ID.test(String(b.slotId || '')) && ID.test(String(b.bookingId || ''))
-    : !!DAYS[b.day] && ID.test(String(b.entryId || ''))
-) && (b.event !== 'cancelled' || ID.test(String(b.playerId || '')));
+    : b.kind === 'tournament'
+      ? ID.test(String(b.fixtureId || '')) && ID.test(String(b.entryId || ''))
+      : !!DAYS[b.day] && ID.test(String(b.entryId || ''))
+) && (b.event !== 'cancelled' || b.kind === 'tournament' || ID.test(String(b.playerId || '')));
+
+// The office email: one line for what happened, then the detail lines.
+export function renderNotify({ req, found, person, caller, appUrl }) {
+  const verb = req.promoted ? 'booked from the waiting list' : req.event === 'cancelled' ? (req.kind === 'lessonwait' || req.kind === 'waitlist' ? 'left the waiting list' : req.kind === 'tournament' ? 'withdrawn' : 'cancelled')
+    : req.event === 'amended' ? 'updated' : req.kind === 'lessonwait' || req.kind === 'waitlist' ? 'joined the waiting list' : req.kind === 'tournament' ? 'entered' : 'booked';
+  const who = req.kind === 'tournament' ? ((found.entry && found.entry.team) || 'A team') : ((person && person.name) || (found.entry && found.entry.name) || 'Someone');
+  const when = found.dateText || (found.date ? `${longDate(found.date)}${found.time ? ` · ${found.time}` : ''}` : '');
+  const subject = `${CLUB.short || CLUB.name}: ${who} ${verb} — ${found.title}${when ? `, ${when}` : ''}`;
+  const lines = [];
+  if (req.kind === 'tournament' && found.entry) {
+    const squad = Object.values(found.entry.days || {}).reduce((best, a) => ((a || []).length > best.length ? a : best), []);
+    if (squad.length) lines.push(`Players: ${squad.map((p) => `${p.name}${p.reserve ? ' (reserve)' : p.half ? ' (half seat)' : ''}`).join(', ')}`);
+    if (found.entry.fee && found.entry.fee.total) lines.push(`Entry fee £${Number(found.entry.fee.total).toFixed(2)}`);
+  } else if (found.entry) {
+    lines.push(...detailLines(req, found).filter((l) => !/^Booked by/.test(l)));
+  }
+  if (found.ground) lines.push(found.ground);
+  const by = (found.entry && found.entry.bookedBy) || (caller && caller.email) || '';
+  if (by) lines.push(`By ${by}`);
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1c1612;line-height:1.5">
+    <p style="margin:0 0 8px"><strong>${esc(who)}</strong> ${esc(verb)}: <strong>${esc(found.title)}</strong>${when ? ` · ${esc(when)}` : ''}</p>
+    ${lines.map((l) => `<div style="color:#6b5e4e">${esc(l)}</div>`).join('')}
+    <p style="margin:12px 0 0"><a href="${esc(appUrl)}" style="color:#6b1f2a">Open the app</a></p></div>`;
+  const text = [`${who} ${verb}: ${found.title}${when ? ` · ${when}` : ''}`, ...lines, '', `Open the app: ${appUrl}`].join('\n');
+  return { subject, html, text, verb, who, when };
+}
 
 export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, now = Date.now(), wait = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   if (!validRequest(req)) return { status: 400, body: { error: 'Bad request.' } };
@@ -197,10 +266,13 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
 
   // Look the booking up; the app has only just written it, so if it is not
   // there yet (or, for a cancellation, still there) look once more.
+  const find = (read) => (req.kind === 'lesson' ? findLesson(read, req)
+    : req.kind === 'lessonwait' ? findLessonWait(read, req)
+      : req.kind === 'tournament' ? findTournament(read, req)
+        : findChukka(read, req));
   const look = async () => {
     const read = makeReader(env, fetchImpl);
-    const found = req.kind === 'lesson' ? await findLesson(read, req) : await findChukka(read, req);
-    return { read, found };
+    return { read, found: await find(read) };
   };
   let { read, found } = await look();
   const settled = (f) => !f.error && (req.event === 'cancelled' ? !f.entry : !!f.entry);
@@ -210,39 +282,72 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
   if (req.event !== 'cancelled' && !found.entry) return { status: 404, body: { error: 'No such booking.' } };
   if (req.event !== 'cancelled') {
     const e = found.entry;
-    const stamp = req.event === 'amended' ? Number(e.amendedAt) : Number(e.bookedAt || e.at || e.addedAt || e.id);
+    const stamp = req.promoted ? Number(e.promotedAt)
+      : req.event === 'amended' ? Number(e.amendedAt || e.updatedAt)
+        : Number(e.bookedAt || e.at || e.addedAt || e.id);
     if (!stamp || now - stamp > FRESH_MS) return { status: 409, body: { error: 'That change is not a recent one.' } };
   }
 
   const players = json(await read('players'), []);
-  const person = req.event === 'cancelled'
-    ? players.find((p) => String(p.id) === String(req.playerId)) || null
-    : recordFor(players, found.entry);
+  const person = req.kind === 'tournament' ? null
+    : req.event === 'cancelled'
+      ? players.find((p) => String(p.id) === String(req.playerId)) || null
+      : recordFor(players, found.entry);
   const to = normEmail(person && person.email);
-  if (!person || !to) return { status: 200, body: { sent: false, why: 'No email address on file.' } };
 
   // May this caller send it? Their own booking, a teammate's, whoever they
-  // booked, or anyone's for an admin.
+  // booked, anyone's for an admin — or a promotion the caller's own
+  // cancellation just caused, which the booking itself vouches for.
   const me = players.find((p) => normEmail(p.email) === caller.email) || null;
   const admins = await adminEmails(env, fetchImpl);
-  const allowed = caller.email === to
-    || admins.includes(caller.email)
+  const isAdmin = admins.includes(caller.email);
+  const allowed = isAdmin
+    || (to && caller.email === to)
     || (found.entry && found.entry.uid && found.entry.uid === caller.uid)
-    || (me && teamKey(me.team) && teamKey(me.team) === teamKey(person.team));
+    || (req.promoted && found.entry && Number(found.entry.promotedAt) > 0)
+    || (req.kind === 'tournament' && found.entry && normName(found.entry.bookedBy || found.entry.contact) === normName(me && me.name))
+    || (req.kind === 'tournament' && req.event === 'cancelled' && !!me)
+    || (me && person && teamKey(me.team) && teamKey(me.team) === teamKey(person.team));
   if (!allowed) return { status: 403, body: { error: 'Not your booking.' } };
 
-  const allow = String(env.REMINDERS_ALLOW || '').split(',').map(normEmail).filter(Boolean);
-  const live = env.REMINDERS_LIVE === '1';
-  if (!live && !allow.includes(to)) return { status: 200, body: { sent: false, why: 'Not on the test list.' } };
-  if (!env.RESEND_API_KEY) return { status: 200, body: { sent: false, why: 'No RESEND_API_KEY.' } };
+  const { appUrl } = settings(env);
+  const out = { sent: false, notified: 0, pushed: 0 };
+  const canMail = !!env.RESEND_API_KEY;
 
-  const { appUrl, from } = settings(env);
-  const mail = renderBookingEmail({ req, found, person, appUrl });
-  const r = await fetchImpl('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], subject: mail.subject, html: mail.html, text: mail.text }),
-  });
-  if (!r.ok) return { status: 502, body: { sent: false, why: `Resend ${r.status}` } };
-  return { status: 200, body: { sent: true } };
+  // The member's own email — safe by default: only the test list until
+  // REMINDERS_LIVE=1. A tournament entry has no member email.
+  if (req.kind !== 'tournament') {
+    const allow = String(env.REMINDERS_ALLOW || '').split(',').map(normEmail).filter(Boolean);
+    const live = env.REMINDERS_LIVE === '1';
+    if (!person || !to) out.why = 'No email address on file.';
+    else if (!live && !allow.includes(to)) out.why = 'Not on the test list.';
+    else if (!canMail) out.why = 'No RESEND_API_KEY.';
+    else {
+      const mail = renderBookingEmail({ req, found, person, appUrl });
+      const r = await sendMail(env, fetchImpl, { to, subject: mail.subject, html: mail.html, text: mail.text });
+      out.sent = r.ok;
+      if (!r.ok) out.why = `Resend ${r.status}`;
+    }
+  }
+
+  // The office, every time.
+  const note = renderNotify({ req, found, person, caller, appUrl });
+  const office = notifyList(env);
+  if (office.length && canMail) {
+    const r = await sendMail(env, fetchImpl, { to: office, subject: note.subject, html: note.html, text: note.text });
+    if (r.ok) out.notified = office.length;
+  }
+
+  // Phones: the admins for every event, and the member booked in from a
+  // waiting list.
+  const title = `${note.who} ${note.verb}`;
+  const pushBody = `${found.title}${note.when ? ` · ${note.when}` : ''}`;
+  const a = await pushTo(env, read, { emails: admins }, { title, body: pushBody, url: appUrl, tag: `${req.kind}-${req.event}` });
+  out.pushed += a.sent || 0;
+  if (req.promoted && person) {
+    const m = await pushTo(env, read, { emails: [to], uids: [found.entry && found.entry.uid] },
+      { title: 'A place came up — you’re booked', body: pushBody, url: appUrl, tag: 'promoted' });
+    out.pushed += m.sent || 0;
+  }
+  return { status: 200, body: out };
 }

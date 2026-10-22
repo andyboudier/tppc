@@ -110,6 +110,7 @@ export const blankSlot = (date) => ({
   maxGroup: MAX_GROUP,
   note: '',
   bookings: [],
+  waiting: [],
 });
 
 export const newSlotId = () => `ls-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -144,6 +145,7 @@ export const normaliseSlot = (raw) => {
     minGroup: Math.max(1, Number(raw.minGroup) || MIN_GROUP),
     maxGroup: Math.max(1, Number(raw.maxGroup) || MAX_GROUP),
     bookings: Array.isArray(raw.bookings) ? raw.bookings.filter(b => b && b.id && parseHM(b.start) !== null) : [],
+    waiting: Array.isArray(raw.waiting) ? raw.waiting.filter(w => w && w.id && (w.name || w.playerId)) : [],
   };
   return windowHours(slot) > 0 ? slot : null;
 };
@@ -347,6 +349,72 @@ export function addClubSessionBooking(slot, rider) {
   return { ok: true, slot: { ...slot, bookings: [...(slot.bookings || []), entry] }, booking: entry };
 }
 
+// ── Waiting lists ───────────────────────────────────────────────────────────
+//
+// A full club session, or a coaching window with nothing left, takes a
+// waiting list on the slot itself (`slot.waiting`, in order). An entry says
+// who, and what they would take:
+//   session                       a place in the session
+//   individual | group, hours     any free range of that length in the window
+//                                 (a group may also join one already going)
+// Joining costs nothing and is not a booking. When a place or an hour comes
+// free, `promoteWaiting` books the first entries that now fit, in order, and
+// reports them so the app can tell each one.
+
+export const waitingFor = (slot) => (slot && Array.isArray(slot.waiting) ? slot.waiting : []);
+
+export function addWaiting(slot, entry) {
+  const list = waitingFor(slot);
+  if (list.some(w => sameRider(w, entry || {}))) return { ok: false, error: `${(entry && entry.name) || 'They'} ${entry && entry.name ? 'is' : 'are'} already on the waiting list.`, slot };
+  if ((slot.bookings || []).some(b => sameRider(b, entry || {}))) return { ok: false, error: `${(entry && entry.name) || 'They'} already ${entry && entry.name ? 'has' : 'have'} a place.`, slot };
+  const type = isClubSession(slot) ? 'session' : (entry.type === 'group' ? 'group' : 'individual');
+  const w = { id: newBookingId(), at: Date.now(), ponyHire: false, ...entry, type,
+    hours: type === 'session' ? (windowHours(slot) || 1) : Math.max(1, Number(entry.hours) || 1) };
+  return { ok: true, slot: { ...slot, waiting: [...list, w] }, entry: w };
+}
+
+export const removeWaiting = (slot, waitId) => ({ ...slot, waiting: waitingFor(slot).filter(w => w.id !== waitId) });
+
+// Book whoever on the waiting list now fits, first come first served. A
+// group entry joins a group already going in preference to starting one.
+export function promoteWaiting(slot, rates) {
+  let next = slot;
+  const promoted = [];
+  for (const w of waitingFor(slot)) {
+    let res = null;
+    const rider = { playerId: w.playerId || '', name: w.name, ponyHire: !!w.ponyHire, uid: w.uid || '', bookedBy: w.bookedBy || '', promotedAt: Date.now(), waitedSince: w.at };
+    if (w.type === 'session') {
+      if (clubSessionSpots(next) <= 0) continue;
+      res = addClubSessionBooking(next, rider);
+    } else {
+      const opts = slotOptions(next, rates).find(o => o.type === w.type);
+      if (!opts) continue;
+      const join = w.type === 'group' ? opts.joinable.find(j => j.hours === w.hours) : null;
+      const fresh = opts.combos.find(c => c.hours === w.hours);
+      const pick = join || fresh;
+      if (!pick) continue;
+      res = addBooking(next, { ...rider, type: w.type, start: pick.start, hours: pick.hours }, rates);
+    }
+    if (!res || !res.ok) continue;
+    next = removeWaiting(res.slot, w.id);
+    promoted.push({ waiting: w, booking: res.booking });
+  }
+  return { slot: next, promoted };
+}
+
+// Everything a player is waiting for, soonest slot first.
+export function waitingEntriesFor(slots, { playerId, name }) {
+  const out = [];
+  const n = (x) => String(x || '').trim().toLowerCase();
+  for (const s of slots) {
+    waitingFor(s).forEach((w, i) => {
+      const mine = (playerId && w.playerId === playerId) || (!w.playerId && name && n(w.name) === n(name));
+      if (mine) out.push({ slot: s, entry: w, place: i + 1 });
+    });
+  }
+  return out.sort((x, y) => bySlotTime(x.slot, y.slot));
+}
+
 // ── Bookings ────────────────────────────────────────────────────────────────
 
 export function addBooking(slot, booking, rates) {
@@ -398,7 +466,7 @@ export function copyWeek(slots, fromMonday, toMonday) {
     const key = `${date} ${s.start} ${s.end}`;
     if (taken.has(key)) { skipped.push(s); continue; }
     taken.add(key);
-    made.push({ ...s, id: newSlotId(), date, bookings: [] });
+    made.push({ ...s, id: newSlotId(), date, bookings: [], waiting: [] });
   }
   return { slots: [...slots, ...made].sort(bySlotTime), made, skipped };
 }

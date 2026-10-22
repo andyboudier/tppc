@@ -14,6 +14,8 @@
 //             day under the bare key; Druids suffixes every day
 //   SESSION_NAMES  the club sessions sold from Lessons, by `kind`; none at
 //             Druids and Vaux
+//   MAIL      the sender (and a verified fallback) and the reply-to address
+//   NOTIFY    the office addresses told of every booking event
 
 import { TERMS_CLUB } from '../src/terms.js';
 
@@ -32,3 +34,15 @@ export const DAYS = {
 export const storageKey = (base, dk) => (dk === 'wed' ? base : `${base}-${dk}`);
 
 export const SESSION_NAMES = { ladies: 'Ladies Only', instructional: 'Instructional Chukkas' };
+
+// Who the club's mail comes from, and the fallback while that domain is not
+// yet verified in Resend: the poloact address, with replies going to the
+// club. Once tedworthparkpolo.com is verified the first is used as it is.
+export const MAIL = {
+  from: 'Tedworth Park Polo Club <info@tedworthparkpolo.com>',
+  fallbackFrom: 'Tedworth Park Polo Club <hello@poloact.co.uk>',
+  replyTo: 'info@tedworthparkpolo.com',
+};
+// Told of every booking, change, cancellation, waiting-list move and
+// tournament entry. NOTIFY_EMAILS on the Vercel project replaces the list.
+export const NOTIFY = ['info@tedworthparkpolo.com', 'helen@tedworthparkpolo.com', 'bradley@tedworthparkpolo.com'];
