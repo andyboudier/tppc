@@ -44,6 +44,26 @@ for p in app splash-screen status-bar local-notifications push-notifications ios
   fi
 done
 
+# Native Google/Apple sign-in needs the club's Firebase config for the iOS
+# app. Without it the sign-in plugin cannot start and the app would crash at
+# launch, so stop the build here with a clear message instead.
+GSI="ios/App/App/GoogleService-Info.plist"
+if [ ! -f "$GSI" ]; then
+  echo "ERROR: $GSI is missing. Download it from the Firebase console (Project settings > Your apps > the iOS app uk.co.tedworthparkpolo.chukkas) and commit it. See docs/NATIVE_SIGN_IN.md." >&2
+  exit 1
+fi
+# Google Sign-In returns to the app through a URL scheme: the reversed client
+# ID from that file. Add it to Info.plist if it is not there yet.
+REVERSED=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" "$GSI")
+INFO="ios/App/App/Info.plist"
+if ! /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$INFO" 2>/dev/null | grep -q "$REVERSED"; then
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$INFO"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $REVERSED" "$INFO"
+  echo "Added Google Sign-In URL scheme to Info.plist"
+fi
+
 # Build the web bundle, then sync web assets + plugin/SPM wiring into iOS.
 npm run build
 npx cap sync ios
