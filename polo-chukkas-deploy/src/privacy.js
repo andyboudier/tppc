@@ -83,7 +83,7 @@ export const PRIVACY_SECTIONS = [
     `You can also ask by email to ${C.email}, without opening the app. Details are on our website at /delete-account.html.`,
   ] },
   { h: 'Your rights', p: [
-    'You have the right to see the information we hold about you, to have it corrected or deleted, to object to or restrict how we use it, to take a copy of it, and to withdraw consent you have given (for example to notifications). Email us and we will reply within one month.',
+    `You have the right to see the information we hold about you, to have it corrected or deleted, to object to or restrict how we use it, to take a copy of it, and to withdraw consent you have given${C.push ? ' (for example to notifications)' : ''}. Email us and we will reply within one month.`,
     'If you are unhappy with how we have handled your information, you can complain to the Information Commissioner’s Office at ico.org.uk or on 0303 123 1113.',
   ] },
   { h: 'Cookies and your device', p: [
