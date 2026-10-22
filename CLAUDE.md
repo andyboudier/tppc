@@ -400,6 +400,34 @@ coming back from a Google or Apple redirect (Druids #62, Vaux #71). TPPC main
 (#80–#86) is merged into tppc-dev (tppc-dev #34), so the design can be brought
 back here by the merge above whenever the owner says.
 
+### Store readiness (October 2026)
+
+Druids and Vaux are live with sign-in, so their store apps must let a member
+delete their account from inside the app and must publish a privacy policy.
+Both now carry the TPPC-Dev pieces (druids #64, vaux #73; tppc-dev #38):
+**Delete my account** in Your profile (`window.auth.deleteAccount`, which
+confirms the member, revokes Apple's token and unlinks the club's player
+record through the app's `beforeAccountDelete`), a privacy notice in
+`privacy.js` shown by `TermsSheet` (`doc="privacy"`, `?privacy=1`), and
+`scripts/legal-pages.mjs`, which writes `public/privacy.html`, `terms.html`
+and `delete-account.html` from `privacy.js` and `terms.js` on every
+`npm run build`. `privacy.js` is the same file in every club but its
+`PRIVACY_CLUB` block (contact details, the rates a record carries, and
+switches for web push and office copies). Edit the `.js`, never the `.html`.
+
+The store apps are this site in a web view, and Google refuses sign-in there.
+`authFirebase.js` therefore uses the native plugin
+`@capacitor-firebase/authentication` when the app has it, and otherwise offers
+email and password only (`methodsHere`). Only tppc-dev's native branch
+(#39) adds the plugin to a native build, with the Firebase config files and
+the Sign in with Apple capability as owner steps in
+`docs/NATIVE_SIGN_IN.md`; Druids' and Vaux's apps stay password-only until
+they get the same.
+
+When TPPC-Dev is merged into TPPC, add `privacy.js` and
+`scripts/legal-pages.mjs` to the demo's resync list: `TermsSheet.jsx` imports
+`privacy.js`, so a resync without it breaks the demo's build.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider
