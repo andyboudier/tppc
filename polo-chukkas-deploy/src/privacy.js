@@ -17,6 +17,12 @@ export const PRIVACY_CLUB = {
   phone: '01980 846705',
   // Who supplies the club ponies, if anyone outside the club sees riders' names.
   ponySupplier: 'Polo Biz Ltd',
+  // What the club's special rates are kept on the player record for.
+  rateStatus: 'whether you are military or a veteran (for military rates)',
+  // Notifications on the device (web push), and the office's copy of every
+  // booking email — what this club's app actually does.
+  push: true,
+  officeCopies: true,
 };
 
 export const PRIVACY_UPDATED = '22 October 2026';
@@ -34,32 +40,33 @@ export const PRIVACY_SECTIONS = [
   ] },
   { h: 'What we collect', p: [
     '• Your account: your name and email address, how you sign in (email and password, an emailed link, Google or Apple) and an account number. If you sign in with Apple and choose to hide your email, we receive Apple’s relay address instead. We never see your password, and we do not receive your Google or Apple password.',
-    '• Your player details: name, handicap, HPA number, mobile number, membership type, whether you are military or a veteran (for military rates), your team, and any subsidy the club applies to your lessons.',
+    `• Your player details: name, handicap, HPA number, mobile number, membership type, ${C.rateStatus}, your team, and any subsidy the club applies to your lessons.`,
     '• A profile picture, if you add one or your Google account has one. You can remove it at any time.',
     '• Your bookings: chukkas, times, pony choice, lessons, club sessions, waiting lists, tournament entries (including the players you enter and their share of the fee), answers to events, and the prices quoted.',
     '• Payments, once card payment is live: Stripe takes the payment and holds your card details; we receive only the result and the amount.',
-    '• Notifications: if you turn on notifications, an address for your device that lets us send them. It is not your phone number.',
+    C.push && '• Notifications: if you turn on notifications, an address for your device that lets us send them. It is not your phone number.',
     '• Visits: the number of visits to each page, counted by our host without cookies and without identifying you.',
   ] },
   { h: 'Why we use it', p: [
     '• To take and manage your bookings, make the draw, run lessons, sessions and tournaments, and charge the right price (to perform our contract with you).',
-    '• To send booking confirmations, changes, cancellations, waiting-list news and reminders by email, and notifications if you have turned them on (contract, and our legitimate interest in running the club).',
+    `• To send booking confirmations, changes, cancellations, waiting-list news and reminders by email${C.push ? ', and notifications if you have turned them on' : ''} (contract, and our legitimate interest in running the club).`,
     '• To keep riders and ponies safe, for example handicap limits on beginners’ sessions (legitimate interests).',
     '• To keep financial records, once payments are taken (legal obligation).',
     'We do not sell your information, use it for advertising, or track you across other apps and websites. We send marketing only if you have agreed to it.',
   ] },
   { h: 'Who can see it', p: [
     '• Other members and visitors to the app see your name, handicap and team on the day’s list, in the draw, on tournament entries and on the live score.',
-    '• Your mobile number, email address, membership, military status and subsidies are shown in the app only to the club’s admins.',
+    '• Your mobile number, email address, membership, rates status and subsidies are shown in the app only to the club’s admins.',
     '• If you book for a teammate, or they book for you, each of you sees the other’s bookings.',
-    `• The club’s office and admins receive an email and a notification about every booking. ${C.ponySupplier ? `${C.ponySupplier}, which supplies the club ponies, may be given the names of riders on club ponies. [Committee to confirm.]` : ''}`.trim(),
-  ] },
+    C.officeCopies && `• The club’s office and admins receive an email${C.push ? ' and a notification' : ''} about every booking.`,
+    C.ponySupplier && `• ${C.ponySupplier}, which supplies the club ponies, may be given the names of riders on club ponies. [Committee to confirm.]`,
+  ].filter(Boolean) },
   { h: 'Service providers', p: [
     'We use these companies to run the app. Each acts on our instructions under a data processing agreement.',
     '• Google (Firebase): sign-in and the database. [Confirm the database location, for example europe-west2 (London).]',
     '• Vercel: hosts the app and the website, and counts visits without cookies.',
     '• Resend: sends the app’s emails.',
-    '• Apple and Google: if you choose to sign in with them; and Apple, Google or Mozilla deliver notifications to your device if you turn them on.',
+    `• Apple and Google: if you choose to sign in with them${C.push ? '; and Apple, Google or Mozilla deliver notifications to your device if you turn them on' : ''}.`,
     '• Stripe: card payments, once live.',
     'Vercel and Resend are based in the United States, and Google may process data there. Where information leaves the UK, it is protected by the UK’s adequacy regulations (including the UK–US Data Bridge) or the UK International Data Transfer Addendum.',
   ] },
@@ -71,7 +78,7 @@ export const PRIVACY_SECTIONS = [
     '• Your player record: while you play at the club and for [two years] after, so your handicap and team are there when you come back. Ask and we will delete it sooner.',
   ] },
   { h: 'Deleting your account', p: [
-    'You can delete your account in the app: Home → Your profile → Delete my account. This removes your sign-in, your profile and picture, and your notification settings straight away. Your bookings and your player record stay with the club for the times above, without the link to your account; email us to have those deleted too.',
+    `You can delete your account in the app: Home → Your profile → Delete my account. This removes your sign-in, your profile and picture${C.push ? ', and your notification settings' : ''} straight away. Your bookings and your player record stay with the club for the times above, without the link to your account; email us to have those deleted too.`,
     `You can also ask by email to ${C.email}, without opening the app. Details are on our website at /delete-account.html.`,
   ] },
   { h: 'Your rights', p: [
