@@ -31,7 +31,8 @@ export const PRIVACY_DRAFT = true;
 const C = PRIVACY_CLUB;
 const club = TERMS_CLUB.name;
 
-// Sections: a heading and its lines. A line starting "• " is a bullet.
+// Sections: a heading and its lines. A line starting "• " is a bullet; a
+// line a club's switches turn off is left out.
 export const PRIVACY_SECTIONS = [
   { h: 'Who we are', p: [
     `This notice explains how ${club} (“the club”, “we”) uses your personal information when you use the club’s app and website, book with us, or play at the club. We follow UK GDPR and the Data Protection Act 2018.`,
@@ -60,7 +61,7 @@ export const PRIVACY_SECTIONS = [
     '• If you book for a teammate, or they book for you, each of you sees the other’s bookings.',
     C.officeCopies && `• The club’s office and admins receive an email${C.push ? ' and a notification' : ''} about every booking.`,
     C.ponySupplier && `• ${C.ponySupplier}, which supplies the club ponies, may be given the names of riders on club ponies. [Committee to confirm.]`,
-  ].filter(Boolean) },
+  ] },
   { h: 'Service providers', p: [
     'We use these companies to run the app. Each acts on our instructions under a data processing agreement.',
     '• Google (Firebase): sign-in and the database. [Confirm the database location, for example europe-west2 (London).]',
@@ -94,4 +95,4 @@ export const PRIVACY_SECTIONS = [
   { h: 'Changes to this notice', p: [
     'We will update this notice when what we do changes. The date at the top shows the latest version, and we will tell members in the app about any important change.',
   ] },
-];
+].map((s) => ({ ...s, p: s.p.filter(Boolean) }));
