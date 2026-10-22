@@ -4878,6 +4878,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       if (!byMonth.has(key)) byMonth.set(key, { key, month: f.month, year, list: [], season: fixtureSeason(f) });
       byMonth.get(key).list.push(f);
     });
+    // Within a month, in date order — an ad hoc fixture added later lands
+    // where its date puts it, not at the foot of the month. Undated or
+    // unreadable ones keep their place after the dated ones.
+    const startOf = (f) => { const r = parseFixtureDateRange(f); return r ? r.start.getTime() : Infinity; };
+    byMonth.forEach((m) => { m.list = m.list.map((f, i) => [f, i]).sort((a, b) => (startOf(a[0]) - startOf(b[0])) || (a[1] - b[1])).map(x => x[0]); });
     const now = Date.now();
     const seasons = new Map();
     [...byMonth.values()].sort((a, b) => a.key.localeCompare(b.key)).forEach((m) => {
