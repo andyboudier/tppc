@@ -65,3 +65,17 @@ export async function disablePush() {
   } catch (e) { /* already gone */ }
   return 'off';
 }
+
+// Deleting an account: every device's subscription for it goes from the
+// shared list, and this device stops taking them.
+export async function forgetPushFor(uid) {
+  if (!uid) return;
+  try {
+    const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    const sub = reg && reg.pushManager && await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe().catch(() => {});
+  } catch (e) { /* nothing here */ }
+  const list = await readSubs();
+  const keep = list.filter((s) => s && s.uid !== uid);
+  if (keep.length !== list.length) await window.storage.set('push-subs', JSON.stringify(keep), true);
+}

@@ -300,8 +300,8 @@ last week carries sessions forward without their riders. The catalogue,
 reason. Each entry names the chukka day it **is** (`dayKey`), and the price goes
 through `priceBooking` with that day, so a session costs exactly what the same
 evening costs on the Chukkas tab: Instructional is the rate card's flat
-£110/£105 with the pony in it, Ladies Only is the ordinary tariff for two
-chukkas. No session price is restated anywhere. The day's `maxHandicap` gate
+£110/£105 with the pony in it (£45/£40 on the rider's own pony, the line's
+`own` price), Ladies Only is the ordinary tariff for two chukkas. No session price is restated anywhere. The day's `maxHandicap` gate
 applies too. `CLUB_SESSIONS` must stay
 below `DAY_CONFIG`: it reads the start-time constants at load. Druids and Vaux
 ship the same `lessons.js` and `LessonsBoard.jsx` but pass no catalogue, and
@@ -604,6 +604,12 @@ weight (full 1, half ½, reserve 0); the team handicap leaves reserves out and
 counts a half seat once, at the higher. Squads carry `half`, `halfWhen` and
 `reserve`; `teams-db` keeps the players without the day detail.
 
+**Own-pony prices** (`own` on a lesson line, Arena Price List): individual
+£45 / £65 and group £40 / £55 for one / two hours, Instructional Chukkas £45,
+Instructional Tournament £70; the military price of each is £5 less, through
+the same flat discount as the club-pony price. The session sheet offers the
+pony choice whenever the two prices differ.
+
 **Ladies Only pony** is a flat £110 a session (`ladies-pony` on the rate card,
 `ponySessionRate` on DAY_CONFIG.thu), as Instructional's is, plus the chukka
 fees for a non-member; the military £5 comes off the pony.
@@ -611,6 +617,47 @@ fees for a non-member; the military £5 comes off the pony.
 **Fixtures sort by date within their month** (`fixtureMonths`), so an ad hoc
 fixture added later lands in its place rather than at the bottom. The live
 clubs still append; bringing this back fixes it there too.
+
+**Privacy notice, terms and the public pages.** `privacy.js` is the club's
+privacy notice, shaped like `terms.js` (sections of lines, "• " for a
+bullet) and built from one `PRIVACY_CLUB` block, so the file is the same in
+every club but that block. `TermsSheet` shows either (`doc="privacy"`), and
+`?privacy=1` opens it like `?terms=1`; the old hand-written privacy pop-up is
+gone. `scripts/legal-pages.mjs` runs before Vite on every `npm run build` and
+writes `public/privacy.html`, `public/terms.html` and
+`public/delete-account.html` from the same two files — plain HTML with no
+script, because the App Store and Google Play listings need a privacy-policy
+address and Google Play an account-deletion one. Edit the `.js`, never the
+`.html`. Both documents carry a draft notice and [square-bracket] points
+until the committee signs them off.
+
+**Delete my account** (Home → Your profile, at the foot) is required by both
+stores in any app where people can create an account.
+`window.auth.deleteAccount({ password, before })` confirms who it is first —
+the password, or Google or Apple again (Firebase deletes only a fresh
+sign-in) — then runs `before(uid)`, revokes Apple's token (Apple requires it
+on deletion), deletes `users/{uid}` and the sign-in. `before` is the app's
+`beforeAccountDelete`: it unlinks the club's player record (uid,
+authProviders, linkedBy go; the record is the club's and stays) and drops the
+account's `push-subs` entries. Where confirming needs a redirect (the Home
+Screen web app), the provider sets `pendingDelete` on the way back and the
+app finishes it. An account that can only confirm with Google or Apple in a
+copy of the app that cannot offer them is told to use the website or email
+the club.
+
+**Sign-in inside the store apps.** The iOS and Android apps are this site in
+a web view. Google refuses to sign in from a web view, and Apple expects its
+own sheet, so `authFirebase.js` uses the native plugin
+(`@capacitor-firebase/authentication`, `skipNativeAuth`) when the app has it
+and hands its credential to the web SDK with `signInWithCredential` — the
+same Firebase account either way. The site changes on deploy but a store app
+only on update, so `methodsHere` offers an app without the plugin email and
+password only (an emailed link opens in the phone's browser, not the app);
+with it, Google and password on Android and Google, Apple and password on
+iOS. Home's sign-in text and Your profile's Add Google / Add Apple follow
+`auth.methods`. The native half — the plugin in the iOS and Android builds,
+the Firebase config files, the Sign in with Apple capability — is separate
+and needs the owner's console steps; see that PR.
 
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
