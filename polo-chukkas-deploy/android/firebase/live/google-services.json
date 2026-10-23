@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "856516284253",
+    "project_id": "tedworth-park-polo",
+    "storage_bucket": "tedworth-park-polo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:856516284253:android:785d8967e24651074062b4",
+        "android_client_info": {
+          "package_name": "uk.co.tedworthparkpolo.chukkas"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "856516284253-jtimrqfk00r0ob8ef525v89knnom37vu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "uk.co.tedworthparkpolo.chukkas",
+            "certificate_hash": "9160991f4fa3283f6e05d5077357af3a85f68606"
+          }
+        },
+        {
+          "client_id": "856516284253-qefrkpkdke0b3oojvbbk88h151sq3f26.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "uk.co.tedworthparkpolo.chukkas",
+            "certificate_hash": "e922e8de7ed4ba08bf56b48a2bb31fb2b5f49ef0"
+          }
+        },
+        {
+          "client_id": "856516284253-b58geff1fcjt4a45amnbr487etgqr42n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQ1bJDdAP1S4ig81eBoKHP3UtMhhjwccc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "856516284253-b58geff1fcjt4a45amnbr487etgqr42n.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "856516284253-tqnuo98dr8holg7h0ujrh8qe78a3j3dv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "uk.co.tedworthparkpolo.chukkas"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
