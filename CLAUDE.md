@@ -631,6 +631,24 @@ address and Google Play an account-deletion one. Edit the `.js`, never the
 `.html`. Both documents carry a draft notice and [square-bracket] points
 until the committee signs them off.
 
+**Yearly records clean-up** (`api/_cleanup.js`, Vercel Cron `cleanup-yearly`,
+1 November). Firestore has no TTL policies and the project is on the Spark
+plan with no backups, so nothing is ever deleted unless something deletes
+it. The privacy notice's periods (`PRIVACY_CLUB.retention`: bookings 2
+years, player records 2 years after last play, accounts 3) are kept by this
+job: it removes lesson windows and sessions more than two years old, waiting
+places on sessions already held, tournament entries for fixtures over two
+years ago, and fixture interest once the season is over (or the fixture is
+gone). Player records and accounts it only **lists**, by email to the office
+(`NOTIFY`), because the club may know a member is coming back and an account
+can only be deleted with admin rights (Firebase console → Authentication).
+The dev copy emails its `REMINDERS_ALLOW` list instead. `?dry=1` with the
+cron secret reports without changing anything; `plan()` is pure and tested.
+It writes with the web API key like the app does — tightened Firestore
+rules would need a service account. The in-app roster snapshots
+(`roster-backups`, 50 kept) and `fixture-details-backups` live in the same
+database and are not a backup of it.
+
 **Payment wording waits for Stripe.** The terms say the club **invoices**
 (3.4, 23 October 2026 text), because no card payment is taken yet. When the
 Stripe link goes live, change 3.4, 4.2, 11.1 and the summary's payment line
