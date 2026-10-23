@@ -1,5 +1,16 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+// Which site the app shows. A store build loads the live site; a test build
+// (TestFlight internal, Play internal testing) can load the dev site instead,
+// so the native app can be tried against the new design before it is live.
+// Set APP_SITE=dev in the build's environment for that: an Xcode Cloud
+// workflow variable, or the Android workflow's "site" input. Anything else is
+// the live site. The Firebase config the build uses follows the same switch
+// (ci_scripts/ci_post_clone.sh and the Android workflow pick it).
+const SITE_URL = process.env.APP_SITE === 'dev'
+  ? 'https://tppc-dev.poloact.co.uk'
+  : 'https://tppc.poloact.co.uk';
+
 const config: CapacitorConfig = {
   appId: 'uk.co.tedworthparkpolo.chukkas',
   appName: 'TPPC PoloACT',
@@ -20,7 +31,7 @@ const config: CapacitorConfig = {
     // comment out the url + cleartext lines below.
     // NOTE: changing this URL points the app at a different origin, so each
     // device re-downloads the shell once before caches warm up again.
-    url: 'https://tppc.poloact.co.uk',
+    url: SITE_URL,
     cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',

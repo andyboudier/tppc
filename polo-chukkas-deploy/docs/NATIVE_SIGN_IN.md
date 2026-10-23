@@ -12,11 +12,37 @@ and offers email and password only, so nobody meets a dead end.
 
 The plugin needs the club's Firebase files for each app. The iOS and Android
 builds now **stop with an error** if those files are missing, rather than
-shipping an app that would crash at launch. Do these steps once, for the live
-project `tedworth-park-polo`, before the first store build after the
-migration.
+shipping an app that would crash at launch.
 
-## 1. Firebase console (project tedworth-park-polo)
+## Two kinds of build: test against dev, ship against live
+
+The site the app loads is built into each copy of the app, so it is chosen
+when the app is built, by `APP_SITE`:
+
+| Build | `APP_SITE` | Loads | Firebase project | Where it goes |
+|---|---|---|---|---|
+| Test build | `dev` | tppc-dev.poloact.co.uk | `tppc-dev` | TestFlight internal testers, Play internal testing |
+| Store build | unset (`live`) | tppc.poloact.co.uk | `tedworth-park-polo` | App Store and Google Play review and release |
+
+- **iOS.** In App Store Connect → Xcode Cloud, add a second workflow
+  ("TestFlight – dev site"), with the environment variable `APP_SITE` = `dev`
+  and TestFlight internal testing as its only post-action. The existing
+  workflow stays as the store build.
+- **Android.** Run Build Android AAB with **site: dev** and track
+  **internal**. The workflow refuses a dev build on any other track.
+
+Never send a dev-site build for review. The dev site says DEV on every screen
+and holds test data, and a reviewer would reject it as a test build. A store
+build always loads tppc.poloact.co.uk, and what that address serves can change
+without a new app.
+
+Do the steps below for **both** Firebase projects, `tppc-dev` for test builds
+and `tedworth-park-polo` for the store build. The files go in
+`ios/App/firebase/<dev|live>/` and `android/firebase/<dev|live>/`. The build
+copies the right one into the app, so never commit one straight into
+`ios/App/App/` or `android/app/`.
+
+## 1. Firebase console (each project: tppc-dev and tedworth-park-polo)
 
 1. Project settings → Your apps. If they are not listed, add:
    - an **iOS app** with bundle ID `uk.co.tedworthparkpolo.chukkas`;
@@ -28,9 +54,9 @@ migration.
    Without the second one, Google sign-in works only for builds you sign
    yourself, not for the copy installed from Google Play.
 3. Download **GoogleService-Info.plist** and save it as
-   `polo-chukkas-deploy/ios/App/App/GoogleService-Info.plist`.
+   `polo-chukkas-deploy/ios/App/firebase/<dev|live>/GoogleService-Info.plist`.
 4. Download **google-services.json** and save it as
-   `polo-chukkas-deploy/android/app/google-services.json`.
+   `polo-chukkas-deploy/android/firebase/<dev|live>/google-services.json`.
 5. Commit both files. They identify the apps to Firebase and are not secrets.
 6. Authentication → Sign-in method. Enable **Google**, **Apple** and
    **Email/Password**, and its **Email link** switch if the app should offer

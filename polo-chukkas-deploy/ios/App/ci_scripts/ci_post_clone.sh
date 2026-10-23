@@ -47,11 +47,21 @@ done
 # Native Google/Apple sign-in needs the club's Firebase config for the iOS
 # app. Without it the sign-in plugin cannot start and the app would crash at
 # launch, so stop the build here with a clear message instead.
+# APP_SITE=dev (an Xcode Cloud workflow variable) makes a test build that
+# loads the dev site with the dev Firebase project; otherwise it is the live
+# site and project. The two plists live under ios/App/firebase/<site>/ and the
+# chosen one is copied into the app.
+SITE="${APP_SITE:-live}"
+[ "$SITE" = "dev" ] || SITE="live"
+export APP_SITE="$SITE"
+echo "Building for the $SITE site"
+SRC="ios/App/firebase/$SITE/GoogleService-Info.plist"
 GSI="ios/App/App/GoogleService-Info.plist"
-if [ ! -f "$GSI" ]; then
-  echo "ERROR: $GSI is missing. Download it from the Firebase console (Project settings > Your apps > the iOS app uk.co.tedworthparkpolo.chukkas) and commit it. See docs/NATIVE_SIGN_IN.md." >&2
+if [ ! -f "$SRC" ]; then
+  echo "ERROR: $SRC is missing. Download GoogleService-Info.plist for the iOS app uk.co.tedworthparkpolo.chukkas from the $SITE Firebase project and commit it there. See docs/NATIVE_SIGN_IN.md." >&2
   exit 1
 fi
+cp "$SRC" "$GSI"
 # Google Sign-In returns to the app through a URL scheme: the reversed client
 # ID from that file. Add it to Info.plist if it is not there yet.
 REVERSED=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" "$GSI")
