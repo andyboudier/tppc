@@ -82,9 +82,15 @@ jobs:
             echo "::error::A build that loads the dev site may only go to the internal testing track."
             exit 1
           fi
-          SRC="android/firebase/$SITE/google-services.json"
+          # Always the live project's file, whichever site: Google lets an
+          # Android package + signing key belong to one project only, and
+          # the live project has them. The native side only fetches the
+          # Google credential; the site's own Firebase signs in with it, and
+          # the dev project safelists the live web client for that
+          # (docs/NATIVE_SIGN_IN.md).
+          SRC="android/firebase/live/google-services.json"
           if [ ! -f "$SRC" ]; then
-            echo "::error::$SRC is missing. Download google-services.json for the Android app uk.co.tedworthparkpolo.chukkas from the $SITE Firebase project and commit it there. See docs/NATIVE_SIGN_IN.md."
+            echo "::error::$SRC is missing. Download google-services.json for the Android app uk.co.tedworthparkpolo.chukkas from the live Firebase project and commit it there. See docs/NATIVE_SIGN_IN.md."
             exit 1
           fi
           cp "$SRC" android/app/google-services.json

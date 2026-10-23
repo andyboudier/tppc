@@ -42,6 +42,18 @@ and `tedworth-park-polo` for the store build. The files go in
 copies the right one into the app, so never commit one straight into
 `ios/App/App/` or `android/app/`.
 
+**Android and the dev project.** Google lets an Android package and signing
+key be registered in one project only, and the club's are in the live
+project. So every Android build uses the live `google-services.json`; the
+native side only fetches the member's Google credential, and the dev site's
+own Firebase signs in with it. For that, the dev project accepts the live
+project's web client: in the **tppc-dev** console, Authentication →
+Sign-in method → Google → *Safelist client IDs from external projects*, add
+the live web client ID (the `client_type: 3` entry in the live
+`google-services.json`). Never add the fingerprints to the dev Android app —
+Google refuses them. iOS has no such limit: each project has its own iOS
+app and plist.
+
 ## 1. Firebase console (each project: tppc-dev and tedworth-park-polo)
 
 1. Project settings → Your apps. If they are not listed, add:
