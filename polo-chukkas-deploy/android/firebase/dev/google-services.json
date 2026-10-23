@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "317919884389",
+    "project_id": "tppc-dev",
+    "storage_bucket": "tppc-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:317919884389:android:c90f8c79e2435af9e9828c",
+        "android_client_info": {
+          "package_name": "uk.co.tedworthparkpolo.chukkas"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "317919884389-fobnkk2m04n5kked127ab3vrngeubk15.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQ0DYxE6QMsF3wZddLaIWaGl0FLQzsht0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "317919884389-fobnkk2m04n5kked127ab3vrngeubk15.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "317919884389-dkuvnh2hqb532cv5oas7se97333lh14l.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "uk.co.tedworthparkpolo.chukkas"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
