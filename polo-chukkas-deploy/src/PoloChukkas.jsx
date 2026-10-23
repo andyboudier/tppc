@@ -21,7 +21,7 @@ import AuthActionPage from './AuthActionPage';
 import { emailAction as readEmailAction, clearEmailAction } from './emailAction';
 import { LUX_CSS } from './luxTheme';
 import { bookingEmail, manageRequest, clearManageRequest } from './bookingEmail';
-import { pushSupported, pushState, enablePush, disablePush } from './push';
+import { pushSupported, pushState, enablePush, disablePush, forgetPushFor } from './push';
 import TermsSheet, { TermsLine } from './TermsSheet';
 import RateCardEditor from './RateCardEditor';
 import { TERMS_VERSION } from './terms';
@@ -199,21 +199,22 @@ const PONY_HIRE_2026 = { club: 100, '-6 to -2': 115, '-2 to 0': 120, '0 to 2': 1
 // military discount off every lesson (MILITARY_LESSON_DISCOUNT) and off an
 // instructional chukka session (MILITARY_INSTRUCTIONAL_DISCOUNT), rather
 // than a second column of prices. These prices include a club pony; `own` is
-// the price on the rider's own pony — the club's coaching rate of £45 an
-// hour, and £70 for an Instructional Tournament. A line without `own` is one
-// price either way.
+// the price on the rider's own pony (Arena Price List, own-pony rates:
+// individual £45 / £65, group £40 / £55 for one / two hours, Instructional
+// Chukkas £45, Instructional Tournament £70; the military price is each less
+// the flat £5). A line without `own` is one price either way.
 const MILITARY_LESSON_DISCOUNT = 5;
 const MILITARY_INSTRUCTIONAL_DISCOUNT = 5;
 const LESSON_TYPES_2026 = [
   { id: 'course-1d',       label: 'Course — 1 Day',                 civ: 315 },
   { id: 'course-2d',       label: 'Course — 2 Days',                civ: 600 },
   { id: 'ind-1hr',         label: 'Individual Lesson — 1 Hour',     civ: 115, own: { civ: 45 } },
-  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, own: { civ: 90 } },
+  { id: 'ind-2hr',         label: 'Individual Lesson — 2 Hours',    civ: 200, own: { civ: 65 } },
   { id: 'rt-1hr',          label: 'Rules & Tactics — 1 Hour',       civ: 80 },
   { id: 'rt-1hr-grp',      label: 'Rules & Tactics — 1 Hour Group (pp)', civ: 75 },
-  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, own: { civ: 45 } },
-  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, own: { civ: 90 } },
-  { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110 },
+  { id: 'grp-1hr',         label: 'Group — 1 Hour (pp)',            civ: 105, own: { civ: 40 } },
+  { id: 'grp-2hr',         label: 'Group — 2 Hours (pp)',           civ: 190, own: { civ: 55 } },
+  { id: 'inst-chukka',     label: 'Instructional Chukkas',          civ: 110, own: { civ: 45 } },
   // Ladies Only's club pony is one flat price for the session (the same £110
   // as Instructional), not pony hire per chukka. Chukka fees are on top for
   // a non-member, as on any chukka day. It sits on the rate card here so the
@@ -1788,7 +1789,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
-  const [privacyOpen, setPrivacyOpen] = useState(false);
+  // The privacy notice (privacy.js): the footer, the terms, Your profile, or
+  // a link (?privacy=1). The public copy is /privacy.html.
+  const [privacyOpen, setPrivacyOpen] = useState(() => {
+    try { return new URL(window.location.href).searchParams.get('privacy') === '1'; } catch (e) { return false; }
+  });
   // ── The booking terms (terms.js, TermsSheet.jsx) ───────────────────────
   // Read from the footer, any booking screen, or a link (?terms=1). With
   // sign-in on, a member accepts them once — the version and the moment go
@@ -1801,7 +1806,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
-      if (url.searchParams.has('terms')) { url.searchParams.delete('terms'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
+      if (url.searchParams.has('terms') || url.searchParams.has('privacy')) { url.searchParams.delete('terms'); url.searchParams.delete('privacy'); window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
     } catch (e) { /* nothing to tidy */ }
   }, []);
   const openTerms = () => setTermsOpen(true);
@@ -2277,6 +2282,33 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     // guards above already make this a no-op once the record is up to date.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.ready, auth.user && auth.user.uid, (auth.user && auth.user.providers || []).join(','), myPlayer && myPlayer.id, loaded]);
+
+  // Delete my account (Home → Your profile). The provider confirms who it is
+  // and deletes the sign-in and the private profile; before it does, this
+  // unlinks the club's player record — the record is the club's and stays,
+  // but without the account — and drops the account's notifications.
+  const [accountDeleted, setAccountDeleted] = useState(false);
+  const beforeAccountDelete = async (uid) => {
+    const linked = playerDb.filter(p => p.uid === uid);
+    if (linked.length) {
+      await savePlayerDb(playerDb.map(p => {
+        if (p.uid !== uid) return p;
+        const { uid: _u, authProviders: _a, linkedBy: _l, ...rest } = p;
+        return { ...rest, updatedAt: Date.now() };
+      }));
+    }
+    await forgetPushFor(uid).catch(() => {});
+  };
+  const deleteMyAccount = async (opts = {}) => {
+    await window.auth.deleteAccount({ ...opts, before: beforeAccountDelete });
+    if (window.auth.deleted) setAccountDeleted(true);
+  };
+  // Back from confirming with Google or Apple by redirect: finish the delete.
+  useEffect(() => {
+    if (!auth.pendingDelete || !auth.user) return;
+    deleteMyAccount().catch((e) => setError(authErrorText(e) || 'The account was not deleted — please try again.'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.pendingDelete, auth.user && auth.user.uid]);
 
   // Hard refresh — clears caches and busts iOS's web-clip HTML cache.
   // Used by the manual refresh button and the prolonged-hidden listener below.
@@ -2774,8 +2806,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   };
 
   // What a lesson costs. The rate card's lesson prices include a club pony;
-  // on the rider's own pony it is the own-pony rate (£45 civilian / £40
-  // military an hour). `ponyHire` on the booking also tells the yard what to
+  // on the rider's own pony it is the line's own-pony rate (less the flat
+  // military £5). `ponyHire` on the booking also tells the yard what to
   // have ready. Subsidy pots come off the coaching.
   const quoteLesson = (player, type, hours, ponyHire) => {
     const h = Math.max(1, Number(hours) || 1);
@@ -2808,7 +2840,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const bd = priceBooking(player, kind.chukkas, level, kind.dayKey);
     const bits = [];
     if (bd.instructional) {
-      bits.push(`${bd.lessonLabel} £${fmtMoney(bd.gross)} — one price, pony included`);
+      bits.push(`${bd.lessonLabel} £${fmtMoney(bd.gross)} — one price, ${bd.ownPony ? 'own pony' : 'pony included'}`);
       if (bd.militaryDiscount) bits.push(`military −£${fmtMoney(bd.militaryDiscount)}`);
       (bd.subsidyDeductions || []).filter(d => d.amount > 0).forEach(d => bits.push(`${d.name} −£${fmtMoney(d.amount)}`));
     } else {
@@ -3390,10 +3422,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (DAY_CONFIG[dayKey] && DAY_CONFIG[dayKey].instructional && n > 0) {
       const lt = lessonById('inst-chukka');
       const mil = !!(player && player.military);
-      const militaryDiscount = mil ? Math.min(lt.civ, RATES.milInstructionalDiscount) : 0;
+      // On the rider's own pony it is the card's own-pony price instead.
+      const own = !wantsPony && lt.own ? lt.own : null;
+      const list = own ? own.civ : lt.civ;
+      const militaryDiscount = mil ? Math.min(list, RATES.milInstructionalDiscount) : 0;
       // A subsidy pot can take something off a session too, capped at what
       // the pot has left and what is left to pay.
-      let running = lt.civ - militaryDiscount;
+      let running = list - militaryDiscount;
       const subsidyDeductions = [];
       ((player && player.subsidies) || []).forEach(sid => {
         const sub = subsidies.find(x => x.id === sid && x.active !== false);
@@ -3406,8 +3441,8 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const total = Math.max(0, running);
       return {
         freeToRoster: total <= 0, chukkas: n, ponyLevel: ponyLevel || 'club', wantsPony,
-        instructional: true, lessonLabel: lt.label,
-        ponyHire: 0, chukkaFee: 0, gross: lt.civ, militaryDiscount, subsidyDeductions, total,
+        instructional: true, lessonLabel: own ? `${lt.label} · own pony` : lt.label, ownPony: !!own,
+        ponyHire: 0, chukkaFee: 0, gross: list, militaryDiscount, subsidyDeductions, total,
       };
     }
     const chukkaFee = mem.chukkasIncluded ? 0 : chukkaFeeFor(player);   // pony hire is charged separately, even to members
@@ -3596,7 +3631,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const subject = rec || { membership: 'none', military: false, subsidies: [] };
     const bd = priceBooking(subject, c, wantsPony ? 'club' : 'none', dayKey);
     if (bd.total <= 0) return null;
-    return { total: bd.total, text: `\u00a3${fmtMoney(bd.total)}${bd.instructional ? ' (session price, pony included)' : wantsPony ? ' (incl. pony hire)' : ''}` };
+    return { total: bd.total, text: `\u00a3${fmtMoney(bd.total)}${bd.instructional ? (bd.ownPony ? ' (session price, own pony)' : ' (session price, pony included)') : wantsPony ? ' (incl. pony hire)' : ''}` };
   };
 
   const handleAdd = () => {
@@ -5595,12 +5630,12 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const mem = membershipById((rec && rec.membership) || 'none');
     if (!self) {
       const first = firstNameOf(rec && rec.name);
-      const note = bd.instructional ? `One price for the session, pony included \u2014 ${first} pays, not you.`
+      const note = bd.instructional ? `One price for the session, ${bd.ownPony ? 'on their own pony' : 'pony included'} \u2014 ${first} pays, not you.`
         : bd.total <= 0 ? (mem.chukkasIncluded ? `Chukkas are included in ${first}\u2019s membership.` : 'Nothing to pay.')
         : `${first} pays, not you \u2014 by card once online payment is live.`;
       return { price: bd.total > 0 ? homeMoney(bd.total) : 'Included', note, total: bd.total };
     }
-    const note = bd.instructional ? 'One price for the session, pony included.'
+    const note = bd.instructional ? (bd.ownPony ? 'One price for the session, on your own pony.' : 'One price for the session, pony included.')
       : bd.total <= 0 ? (mem.chukkasIncluded ? 'Chukkas are included in your membership.' : 'Nothing to pay.')
       : mem.chukkasIncluded ? 'Chukkas are in your membership; this is the pony hire.'
       : 'Payable by card once online payment is live — nothing is taken now.';
@@ -7667,6 +7702,10 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               onManageCancel={manageCancel}
               onManageClose={() => setManageReq(null)}
               onOpenTerms={openTerms}
+              onOpenPrivacy={() => setPrivacyOpen(true)}
+              onDeleteAccount={deleteMyAccount}
+              signInMethods={auth.methods}
+              accountDeleted={accountDeleted && !homeSignedIn}
               openChukkas={homeOpenChukkas}
               openLessons={openLessonsNext}
               myLessons={homeLessons}
@@ -8410,11 +8449,11 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                     <div>
                       <span style={{ fontWeight: 600 }}>Hire a pony</span>
                       {/* On an instructional day the pony is inside the session
-                          price, so the tick tells the yard what to have ready
-                          rather than changing the price. */}
+                          price; on your own pony the session is the card's
+                          own-pony price. */}
                       <span style={{ color: 'var(--muted)', marginLeft: '6px', fontSize: '12px' }}>
                         {activeDayConfig.instructional
-                          ? 'Included in the session price. Leave unticked if you bring your own.'
+                          ? 'Included in the session price. Leave unticked if you bring your own (own-pony price).'
                           : 'Adds pony hire to your cost. Leave unticked if you bring your own.'}
                       </span>
                     </div>
@@ -8431,7 +8470,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         {bd.freeToRoster
                           ? `No charge for ${c} chukka${c === 1 ? '' : 's'}${ponyHire ? '' : ' (own pony)'} — you'll be added to the roster.`
                           : bd.instructional
-                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, pony included. Payable by card once online payment is live — nothing is taken now.</>
+                            ? <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for the instructional session — one price, {bd.ownPony ? 'own pony' : 'pony included'}. Payable by card once online payment is live — nothing is taken now.</>
                             : <>Estimated cost: <strong>£{fmtMoney(bd.total)}</strong> for {c} chukka{c === 1 ? '' : 's'} ({ponyHire ? 'with pony hire' : 'no pony hire'}). Payable by card once online payment is live — nothing is taken now.</>}
                         {!rec && <span style={{ color: 'var(--muted)' }}> (estimate assumes non-member rates)</span>}
                       </div>
@@ -11481,125 +11520,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
           </div>
         )}
 
-        {/* Privacy notice modal */}
-        {privacyOpen && (
-          <div className="share-backdrop" onClick={() => setPrivacyOpen(false)}>
-            <div
-              className="share-modal"
-              onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: '520px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
-            >
-              <div className="share-head">
-                <h3>Privacy notice</h3>
-                <button className="share-close" onClick={() => setPrivacyOpen(false)} aria-label="Close">×</button>
-              </div>
-              <div
-                className="share-body"
-                style={{
-                  overflowY: 'auto',
-                  fontSize: '13px',
-                  lineHeight: 1.6,
-                  color: 'var(--ink)',
-                  textAlign: 'left',
-                  paddingRight: '4px',
-                }}
-              >
-                <p style={{ marginTop: 0, fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-                  Last updated: May 2026
-                </p>
-                <p>
-                  This notice explains how the Committee of Tedworth Park Polo Club handles your personal information when you use this Wednesday Chukkas booking page. We aim to comply with UK GDPR and the Data Protection Act 2018.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Who we are</h4>
-                <p style={{ marginTop: 0 }}>
-                  The Committee of Tedworth Park Polo Club, Tidworth, Wiltshire is the data controller for the information you provide via this page. For any privacy queries — including requests to access, correct or delete your data — contact the Club Captain.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>What we collect</h4>
-                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
-                  <li>Your name (when you sign up to play or register interest in a fixture)</li>
-                  <li>Your mobile number (optional — only if you choose to give it)</li>
-                  <li>Your polo handicap</li>
-                  <li>How many chukkas you'd like to play, and your earliest available start time</li>
-                </ul>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Why we collect it</h4>
-                <p style={{ marginTop: 0 }}>
-                  Solely to organise Wednesday chukkas and 2026 club fixtures. The Captain uses your details to draw balanced teams and chukka schedules, contact you about your booking when necessary, and track who is interested in upcoming matches. Our lawful basis for processing is <strong>legitimate interest</strong> — coordinating member play at a sports club — under Article 6(1)(f) of UK GDPR.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Where it's stored</h4>
-                <p style={{ marginTop: 0 }}>
-                  Data is stored in Google Cloud Firestore, hosted within the EU region. Google Cloud Platform is a UK GDPR-compliant processor that publishes its own data protection terms. We do not transfer your data outside the EU/UK in normal operation.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Who can see it</h4>
-                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
-                  <li><strong>Mobile numbers</strong> are visible only to the Captain (PIN-protected)</li>
-                  <li><strong>Names and handicaps</strong> on the roster are visible to anyone with the page URL — this is intentional, so members can see who's signed up</li>
-                  <li>The Captain can see and edit everything via the PIN-gated management view</li>
-                </ul>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>How long we keep it</h4>
-                <p style={{ marginTop: 0 }}>
-                  Roster entries are overwritten when the Captain clears the roster for the next week. The members directory (names + handicaps for autofill) is retained while this booking page is in use. Fixture interest data is retained until the end of the 2026 season. You can request earlier deletion at any time.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Your rights</h4>
-                <p style={{ marginTop: 0, marginBottom: '4px' }}>
-                  Under UK GDPR you have the right to:
-                </p>
-                <ul style={{ marginTop: 0, paddingLeft: '18px' }}>
-                  <li>Access the personal data we hold about you</li>
-                  <li>Have inaccurate data corrected</li>
-                  <li>Request deletion of your data</li>
-                  <li>Object to processing or restrict it</li>
-                  <li>Lodge a complaint with the UK Information Commissioner's Office at{' '}
-                    <a href="https://ico.org.uk" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--burgundy)' }}>ico.org.uk</a>
-                  </li>
-                </ul>
-                <p>
-                  To exercise any of these rights, ask the Club Captain to remove or amend your details — typically done in person at the club or via WhatsApp.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Cookies and tracking</h4>
-                <p style={{ marginTop: 0 }}>
-                  This page does not set tracking cookies or run analytics. We use your browser's session storage only to remember whether you've entered the Captain PIN (cleared automatically when you close the tab).
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Children</h4>
-                <p style={{ marginTop: 0 }}>
-                  This page is intended for use by polo-playing members of the club, who are typically adults. If a member under 18 wishes to sign up, a parent or guardian should do so on their behalf or contact the Captain directly.
-                </p>
-
-                <h4 style={{ marginBottom: '4px', fontFamily: "'Fraunces', serif", fontSize: '15px' }}>Changes to this notice</h4>
-                <p style={{ marginTop: 0 }}>
-                  We may update this notice from time to time. The "Last updated" date at the top reflects the most recent version. Material changes will be communicated to members via the WhatsApp group.
-                </p>
-              </div>
-              <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
-                <button
-                  onClick={() => setPrivacyOpen(false)}
-                  style={{
-                    width: '100%',
-                    background: '#6b1f2a',
-                    color: '#f4ecd8',
-                    border: 'none',
-                    padding: '12px 14px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
+        {/* Privacy notice: the same sheet as the terms, from privacy.js */}
+        {privacyOpen && !actionPage && (
+          <TermsSheet doc="privacy" onClose={() => setPrivacyOpen(false)} onOpenTerms={() => { setPrivacyOpen(false); setTermsOpen(true); }} />
         )}
 
         {/* Confirmation modal — used for destructive actions (Clear roster, Replace roster) */}

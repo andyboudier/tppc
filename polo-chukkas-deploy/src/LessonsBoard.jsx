@@ -341,8 +341,9 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
   const withPony = quote(player, slot.kind, true);
   const without = quote(player, slot.kind, false);
   const chosen = pony === false ? without : withPony;
-  // Instructional chukkas are one price with the pony inside it, so offering a
-  // cheaper "own pony" line would be quoting a discount the club does not give.
+  // The choice shows only when the two prices differ: Instructional's own-pony
+  // price, or Ladies Only's pony charged on top. A session whose price is the
+  // same either way shows the one price.
   const ponyIsSeparate = withPony.total !== without.total;
   const left = clubSessionSpots(slot);
 
@@ -383,7 +384,7 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
         <PonyChoice value={pony} onChange={(v) => { setPony(v); setError(''); }} withPony={withPony} without={without} />
       ) : (
         <div style={{ marginTop: '10px', padding: '10px 12px', background: 'var(--cream-warm)', borderRadius: '6px', fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}>
-          <span>The session, pony included</span><strong>£{chosen.money}</strong>
+          <span>The session</span><strong>£{chosen.money}</strong>
         </div>
       )}
       {chosen.detail && (!ponyIsSeparate || pony !== null) && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
