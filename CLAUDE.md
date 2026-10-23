@@ -631,6 +631,16 @@ address and Google Play an account-deletion one. Edit the `.js`, never the
 `.html`. Both documents carry a draft notice and [square-bracket] points
 until the committee signs them off.
 
+**Payment wording waits for Stripe.** The terms say the club **invoices**
+(3.4, 23 October 2026 text), because no card payment is taken yet. When the
+Stripe link goes live, change 3.4, 4.2, 11.1 and the summary's payment line
+back to card payment — the wording to use is in the comment at the top of
+`terms.js` — and bump `TERMS_VERSION` so members accept again. The terms'
+other decisions: 24 hours' notice to cancel free, no charge for a late
+cancellation whose place is filled, a full refund when the club cancels, the
+contract is with Tedworth Park Polo Club, and Polo Biz Ltd (pony hire,
+contracted by the club) is given the names of riders on club ponies.
+
 **Delete my account** (Home → Your profile, at the foot) is required by both
 stores in any app where people can create an account.
 `window.auth.deleteAccount({ password, before })` confirms who it is first —
