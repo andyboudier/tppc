@@ -369,6 +369,65 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
+**Druids and Vaux have taken the dev design ahead of TPPC** (Druids #61, Vaux
+#70, merged and live on 10 October 2026 with sign-in **on**):
+the Home tab, member roles, email links finished in the app, booking and
+reminder emails, the lessons rework, the tournament walk-through and the
+fixtures archive. TPPC live stays as it is until the owner moves it across,
+which is the merge above. The dev design names no club: `TERMS_CLUB` in each
+`terms.js` is the one block that is the club's — name, short name, place, a
+`slug` for device keys and calendar files, the crest, the app's own
+burgundy and the dark palette — and `HomeDashboard.jsx`, `luxTheme.js`,
+`AuthActionPage.jsx`, `home.js` and `TermsSheet.jsx` read it (tppc-dev #34),
+so those files are byte-identical across the apps. The emails do the same
+through `api/_club.js`, which also holds what `src` cannot give a serverless
+function: the day table (it mirrors `DAY_CONFIG`; keep the two in step), the
+day-key suffix rule, the Firebase project and the app's address. Porting the
+main component is not a clean patch — a third of the hunks reject against a
+club's file — so `scripts/port_club.py` in the session scratchpad did the
+rest by anchor; the club differences it keeps are no club sessions, no
+waiting list, no membership-record fields, Druids' student tier, and Vaux's
+military tournaments (its own card prices them). Sign-in is switched on by
+`VITE_SIGN_IN_LIVE=1` on the Vercel project (set on `druids-tpd4` and `vaux`,
+with `VITE_FIXED_ADMIN_EMAILS`, `REMINDERS_ALLOW` and `APP_URL`); unset it and
+the app is the captain-PIN-only one again. Those two clubs sign the app in
+**anonymously** so that their Firestore rules accept its writes (TPPC's rules
+do not need it), and the two sessions share one Firebase Auth: an anonymous
+user reads as signed out in `authFirebase.js`, and `firebase.js` signs in
+anonymously whenever the state settles on nobody — at start and again after
+a member signs out — never once at load, which would displace a member
+coming back from a Google or Apple redirect (Druids #62, Vaux #71). TPPC main
+(#80–#86) is merged into tppc-dev (tppc-dev #34), so the design can be brought
+back here by the merge above whenever the owner says.
+
+### Store readiness (October 2026)
+
+Druids and Vaux are live with sign-in, so their store apps must let a member
+delete their account from inside the app and must publish a privacy policy.
+Both now carry the TPPC-Dev pieces (druids #64, vaux #73; tppc-dev #38):
+**Delete my account** in Your profile (`window.auth.deleteAccount`, which
+confirms the member, revokes Apple's token and unlinks the club's player
+record through the app's `beforeAccountDelete`), a privacy notice in
+`privacy.js` shown by `TermsSheet` (`doc="privacy"`, `?privacy=1`), and
+`scripts/legal-pages.mjs`, which writes `public/privacy.html`, `terms.html`
+and `delete-account.html` from `privacy.js` and `terms.js` on every
+`npm run build`. `privacy.js` is the same file in every club but its
+`PRIVACY_CLUB` block (contact details, the rates a record carries, and
+switches for web push and office copies). Edit the `.js`, never the `.html`.
+
+The store apps are this site in a web view, and Google refuses sign-in there.
+`authFirebase.js` therefore uses the native plugin
+`@capacitor-firebase/authentication` when the app has it, and otherwise offers
+email and password only (`methodsHere`). Only tppc-dev's native branch
+(#39) adds the plugin to a native build, with the Firebase config files and
+the Sign in with Apple capability as owner steps in
+`docs/NATIVE_SIGN_IN.md`; Druids' and Vaux's apps stay password-only until
+they get the same.
+
+When TPPC-Dev is merged into TPPC, add `privacy.js` and
+`scripts/legal-pages.mjs` to the demo's resync list: `TermsSheet.jsx` imports
+`privacy.js`, so a resync without it breaks the demo's build.
+
 ### Things that differ between the apps, and must not be "fixed"
 
 - Sign-in is on only in the **demo**. The three clubs ship the real provider
