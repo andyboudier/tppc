@@ -83,8 +83,20 @@ npx cap sync ios
 # `cap sync` above may have just changed them (the native sign-in plugin
 # brings Firebase and Google Sign-In). Write it afresh here, on Apple's own
 # toolchain, before Xcode Cloud checks it.
+# Xcode Cloud also switches automatic resolution off machine-wide, which
+# would stop this resolve too, so lift that for this one step; its own
+# dependency check afterwards still runs with resolution off, against the
+# file written here.
 RESOLVED="ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+defaults delete com.apple.dt.Xcode IDEPackageOnlyUseVersionsFromResolvedFile 2>/dev/null || true
+defaults delete com.apple.dt.Xcode IDEDisableAutomaticPackageResolution 2>/dev/null || true
+cp "$RESOLVED" "$RESOLVED.bak" 2>/dev/null || true
 rm -f "$RESOLVED"
-xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj
+if ! xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scmProvider system; then
+  echo "ERROR: resolving the Swift packages failed (see above)." >&2
+  [ -f "$RESOLVED.bak" ] && mv "$RESOLVED.bak" "$RESOLVED"
+  exit 1
+fi
+rm -f "$RESOLVED.bak"
 echo "--- Package.resolved ---"
 grep -o '"identity" : "[^"]*"' "$RESOLVED" || true
