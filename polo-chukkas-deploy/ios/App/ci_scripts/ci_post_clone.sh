@@ -77,3 +77,14 @@ fi
 # Build the web bundle, then sync web assets + plugin/SPM wiring into iOS.
 npm run build
 npx cap sync ios
+
+# Xcode Cloud resolves Swift packages with automatic resolution switched off,
+# so Package.resolved must already list every package the app uses — and
+# `cap sync` above may have just changed them (the native sign-in plugin
+# brings Firebase and Google Sign-In). Write it afresh here, on Apple's own
+# toolchain, before Xcode Cloud checks it.
+RESOLVED="ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+rm -f "$RESOLVED"
+xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj
+echo "--- Package.resolved ---"
+grep -o '"identity" : "[^"]*"' "$RESOLVED" || true
