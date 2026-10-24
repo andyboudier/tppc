@@ -92,6 +92,11 @@ app and plist.
 
 ## 3. Builds
 
+- **Swift packages (Xcode Cloud).** Xcode Cloud resolves packages with
+  automatic resolution off, so `ci_post_clone.sh` writes `Package.resolved`
+  afresh after `cap sync` (lifting Xcode's machine-wide no-resolve default
+  for that one step). A Mac developer can commit the resulting file, but the
+  build no longer depends on it being current.
 - **iOS (Xcode Cloud).** `ci_scripts/ci_post_clone.sh` checks for the plist.
   It adds Google's return URL scheme (`REVERSED_CLIENT_ID`) to Info.plist
   from that file, then builds as before. The plugin needs Xcode 16.3 or
