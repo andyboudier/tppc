@@ -687,6 +687,14 @@ iOS. Home's sign-in text and Your profile's Add Google / Add Apple follow
 the Firebase config files, the Sign in with Apple capability — is separate
 and needs the owner's console steps; see that PR.
 
+**The iOS app uses the scene lifecycle.** iOS 27 stops, at launch, any app
+built with its SDK that has not adopted UIScene. `ios/App/App/SceneDelegate.swift`
+and `UIApplicationSceneManifest` in `Info.plist` (which names it and
+`Main.storyboard`) are that adoption; the scene's URL and user-activity events
+go through Capacitor's `SceneDelegateProxy`, which hands them to plugins as the
+AppDelegate's did. Store builds made before it (1.0.15) still run, being built
+with the older SDK; every build from Xcode 27 on needs it.
+
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
 on the app's own screen (`AuthActionPage.jsx`; `emailAction.js` reads the link
