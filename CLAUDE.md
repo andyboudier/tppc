@@ -687,6 +687,11 @@ iOS. Home's sign-in text and Your profile's Add Google / Add Apple follow
 the Firebase config files, the Sign in with Apple capability — is separate
 and needs the owner's console steps; see that PR.
 
+**Live Game shows this season only.** Its dropdowns offer the draws of the
+season the calendar is in (`liveFixtureDetails`, by `fixtureSeason`): the arena
+season from October, the grass season from April. Last season's draws stay
+stored and on their fixtures; they just are not offered for live scoring.
+
 **The iOS app uses the scene lifecycle.** iOS 27 stops, at launch, any app
 built with its SDK that has not adopted UIScene. `ios/App/App/SceneDelegate.swift`
 and `UIApplicationSceneManifest` in `Info.plist` (which names it and

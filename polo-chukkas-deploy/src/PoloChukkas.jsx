@@ -1786,6 +1786,27 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     ? fixtureDetails
     : Object.fromEntries(Object.entries(fixtureDetails).filter(([fid]) =>
         fixtures.some(f => f.id === fid && f.detailsPublished)));
+  // The Live Game tab offers only this season's draws — today the arena
+  // season — so last summer's grass tournaments do not fill its dropdowns.
+  // The season turns with the calendar (fixtureSeason): April brings the
+  // grass season in. A draw whose fixture has been deleted is left out too.
+  const liveSeason = (() => {
+    const now = new Date();
+    return fixtureSeason({ month: ALL_MONTHS[now.getMonth()], year: now.getFullYear() });
+  })();
+  const liveSeasonKey = liveSeason.key;
+  const liveFixtureDetails = Object.fromEntries(Object.entries(visibleFixtureDetails).filter(([fid]) => {
+    const fx = fixtures.find(f => f.id === fid);
+    return fx && fixtureSeason(fx).key === liveSeasonKey;
+  }));
+  // A day label's date, taking the fixture's year when the label has none,
+  // so January in the arena season sorts after December, not before October.
+  const liveDayTime = (label) => {
+    if (/\b20\d{2}\b/.test(String(label || ''))) return dayLabelTime(label);
+    const fid = Object.keys(liveFixtureDetails).find(id => (liveFixtureDetails[id].days || []).some(d => d.dateLabel === label));
+    const fx = fid ? fixtures.find(f => f.id === fid) : null;
+    return fx ? dayLabelTime(`${label} ${fixtureYear(fx)}`) : dayLabelTime(label);
+  };
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -1850,7 +1871,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (liveDate) { liveAutoPickedRef.current = true; return; }
     // Only auto-pick a draw this viewer is allowed to see, or a member would
     // land on an unpublished fixture and get an empty Live Game.
-    const fixtureDetails = visibleFixtureDetails;
+    const fixtureDetails = liveFixtureDetails;
     const now = new Date();
     const dom = now.getDate();
     const monthName = now.toLocaleString('en-GB', { month: 'long' }).toLowerCase();
@@ -1876,7 +1897,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
       const day = (fixtureDetails[fids[0]].days || []).find(d => d.dateLabel === todayLabel);
       setLiveDayId(day ? day.id : null);
     }
-  }, [activeTab, fixtureDetails, liveDate]);
+  }, [activeTab, fixtureDetails, fixtures, liveDate]);
 
   const [loaded, setLoaded] = useState(false);
   // Split out from `loaded` so the full-screen crest can come down as soon as
@@ -10479,8 +10500,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
               <div style={{ marginBottom: '16px' }} />
               {(
                 (() => {
-                  // Members only get published draws here; captains see everything.
-                  const fixtureDetails = visibleFixtureDetails;
+                  // Members only get published draws here; captains see every draw.
+                  // Either way, only this season's (liveFixtureDetails).
+                  const fixtureDetails = liveFixtureDetails;
                   const liveFixtureIds = Object.keys(fixtureDetails).filter(fid => (fixtureDetails[fid].days || []).some(d => (d.matches || []).length > 0));
                   const fixtureName = (fid) => { const f = fixtures.find(x => x.id === fid); return f ? f.name : fid; };
                   const curFd = liveFixtureId ? fixtureDetails[liveFixtureId] : null;
@@ -10493,7 +10515,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
                         <select value={liveDate || ''} onChange={e => { setLiveDate(e.target.value || null); setLiveFixtureId(null); setLiveDayId(null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '160px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select date…</option>
-                          {Array.from(new Set(Object.keys(fixtureDetails).flatMap(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).map(d => d.dateLabel).filter(Boolean)))).sort((a, b) => dayLabelTime(b) - dayLabelTime(a)).map(dl => <option key={dl} value={dl}>{dl}</option>)}
+                          {Array.from(new Set(Object.keys(fixtureDetails).flatMap(fid => (fixtureDetails[fid] && fixtureDetails[fid].days || []).map(d => d.dateLabel).filter(Boolean)))).sort((a, b) => liveDayTime(b) - liveDayTime(a)).map(dl => <option key={dl} value={dl}>{dl}</option>)}
                         </select>
                         <select value={liveFixtureId || ''} disabled={!liveDate} onChange={e => { const fid = e.target.value || null; setLiveFixtureId(fid); const fx = fid ? fixtureDetails[fid] : null; const day = fx ? (fx.days || []).find(d => d.dateLabel === liveDate) : null; setLiveDayId(day ? day.id : null); setLiveMatchId(null); }} style={{ flex: 1, minWidth: '180px', padding: '8px', fontSize: '13px' }}>
                           <option value="">Select tournament…</option>
@@ -10505,7 +10527,9 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
                         </select>
                       </div>
                       {!curMatch ? (
-                        <div style={{ textAlign: 'center', color: '#999', fontSize: '13px', padding: '30px 0' }}>Select a tournament, day and match to begin live scoring.</div>
+                        <div style={{ textAlign: 'center', color: '#999', fontSize: '13px', padding: '30px 0' }}>{liveFixtureIds.length
+                          ? 'Select a tournament, day and match to begin live scoring.'
+                          : `No ${liveSeason.label} matches have been drawn yet. They appear here once a tournament\u2019s draw is made${captainMode ? '' : ' and published'}.`}</div>
                       ) : (() => {
                         // Colour precedence: what this match was set to, else what the squad
                         // wore last time, else the blue/white default.
