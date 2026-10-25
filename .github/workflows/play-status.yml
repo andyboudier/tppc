@@ -1,0 +1,51 @@
+name: Google Play status
+
+# Manual, read-only: lists what is on each Google Play track (version codes,
+# names, status, release notes) for the TPPC app, using the same service
+# account the Android release workflow uploads with. It opens a Play "edit"
+# only to read and deletes it again, so it changes nothing in Play Console.
+on:
+  workflow_dispatch:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Google auth
+        run: pip install --quiet google-auth requests
+      - name: Read the tracks
+        env:
+          PLAY_SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          import requests
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+          if not os.environ.get('PLAY_SA'):
+              sys.exit('PLAY_SERVICE_ACCOUNT_JSON is not set.')
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(os.environ['PLAY_SA']),
+              scopes=['https://www.googleapis.com/auth/androidpublisher'])
+          creds.refresh(Request())
+          h = {'Authorization': f'Bearer {creds.token}'}
+          base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/uk.co.tedworthparkpolo.chukkas'
+          edit = requests.post(f'{base}/edits', headers=h, json={}).json()
+          if 'id' not in edit:
+              sys.exit(f'Could not open a read-only edit: {edit}')
+          try:
+              tracks = requests.get(f'{base}/edits/{edit["id"]}/tracks', headers=h).json()
+              for t in tracks.get('tracks', []):
+                  print(f'== {t["track"]}')
+                  for r in t.get('releases', []) or [{'status': '(no releases)'}]:
+                      notes = '; '.join(n.get('text', '')[:80] for n in r.get('releaseNotes', []))
+                      print(f'   {r.get("name", "")}  codes={r.get("versionCodes", [])}  status={r.get("status")}'
+                            + (f'  fraction={r["userFraction"]}' if 'userFraction' in r else '')
+                            + (f'  notes="{notes}"' if notes else ''))
+          finally:
+              requests.delete(f'{base}/edits/{edit["id"]}', headers=h)
+          PY
