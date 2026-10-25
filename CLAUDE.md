@@ -415,6 +415,13 @@ and `delete-account.html` from `privacy.js` and `terms.js` on every
 `PRIVACY_CLUB` block (contact details, the rates a record carries, and
 switches for web push and office copies). Edit the `.js`, never the `.html`.
 
+TPPC live serves the same three pages ahead of the merge, because the store
+listings link to them: `public/privacy.html`, `terms.html` and
+`delete-account.html` here are **copies** written by tppc-dev's
+`scripts/legal-pages.mjs` (the October text, still marked draft). TPPC live
+has no `privacy.js` or generator yet, so to change them, edit tppc-dev and copy
+the output across. The merge brings the generator and ends the copying.
+
 The store apps are this site in a web view, and Google refuses sign-in there.
 `authFirebase.js` therefore uses the native plugin
 `@capacitor-firebase/authentication` when the app has it, and otherwise offers
