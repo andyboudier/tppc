@@ -5,6 +5,7 @@ import './storage'; // attaches window.storage backed by Firestore
 import { signInReturning, installClubAuth, SIGN_IN_LIVE } from './authFirebase';
 import PoloChukkas from './PoloChukkas.jsx';
 import { markDev } from './appEnv';
+import { installNativeDiag } from './nativeDiag';
 
 // Sign-in is dormant for the club, and the auth SDK is only fetched when a
 // captain opens the Lessons tab (see SignInTest.jsx). The one load that cannot
@@ -18,6 +19,9 @@ if (SIGN_IN_LIVE || signInReturning()) installClubAuth();
 
 // TPPC-Dev labels itself on every screen; the club's own app is untouched.
 markDev();
+
+// Temporary: six quick taps in the store app show its native plugins.
+installNativeDiag();
 
 // Vercel Web Analytics: page views and visitor counts, no cookies, nothing
 // personal. Only on the web — the native app is served from its own bundle
