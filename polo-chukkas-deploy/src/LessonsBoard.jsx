@@ -1,21 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { TermsLine } from './TermsSheet';
 import {
   MIN_GROUP, MAX_GROUP,
-  addDays, availableSessions, blankSlot, blockedReason, bookingsFor, bySlotTime,
+  addDays, slotOptions, groupRanges, shortGroups, blankSlot, blockedReason, bookingsFor, bySlotTime,
   copyWeek, dateLabel, dayLabel, groupBookings, mondayOf, newSlotId, normaliseSlot,
   parseHM, parseISO, rangeLabel, removeBooking, slotsOn, weekDays,
   windowHours, isoOf,
   isClubSession, clubSessionBookings, clubSessionPlaces, clubSessionSpots,
-  clubSessionBlockedReason, fmtHM,
+  clubSessionBlockedReason, fmtHM, groundCap,
+  waitingFor, waitingEntriesFor, hoursOffered,
 } from './lessons';
 
-// The lessons diary: a week of coaching windows, and what can still be taken
-// out of them. See lessons.js for the model — a window is not a lesson, it is
-// the coach's availability, and a booking claims part of it.
+// The lessons diary: a week of lessons and what is still open in each. See
+// lessons.js for the model — a lesson is one time on one ground, offered as
+// individual, group or both, and the first booking decides which it is.
 //
 // The captain builds the week here too, because the week changes every week:
-// add a window, amend one, copy last week forward, or put someone in by hand
+// add a lesson, amend one, copy last week forward, or put someone in by hand
 // when they have asked in person.
 //
 // A slot may instead be a CLUB SESSION — the club's own Ladies Only or
@@ -23,9 +24,9 @@ import {
 // catalogue comes in as `clubSessions`, because the names and the prices are
 // each club's own; a club that passes none simply never sees any of it.
 //
-// Money stays with the app (it knows the rates, who is military and
-// which subsidy pots apply); this component asks for a quote and reports a
-// booking back.
+// Money stays with the app (it knows the rates, who is military and which
+// subsidy pots apply); this component asks for a quote and reports a booking
+// back. Nothing is charged at booking until card payment is live.
 
 const S = {
   wrap: { maxWidth: '520px', margin: '0 auto' },
@@ -65,83 +66,260 @@ const S = {
 
 const TYPE_LABEL = { individual: 'Individual', group: 'Group', session: 'Place' };
 
+// The rider chooses the pony — nothing is ticked for them. Two plain choices,
+// each with its price, and nothing can be booked until one is picked.
+function PonyChoice({ value, onChange, withPony, without }) {
+  const opt = (on) => ({
+    flex: 1, minHeight: 58, padding: '8px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+    background: on ? 'var(--cream-warm)' : 'transparent', color: 'var(--ink)',
+    border: on ? '1.5px solid var(--gold)' : '1px solid var(--line)',
+  });
+  // Each choice shows its price — a lesson is cheaper on the rider's own
+  // pony. Where both cost the same (a session priced one way either way) it
+  // only tells the yard what to have ready.
+  const same = withPony.total === without.total;
+  return (
+    <div role="radiogroup" aria-label="Pony" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+      <button type="button" role="radio" aria-checked={value === true} style={opt(value === true)} onClick={() => onChange(true)}>
+        <span style={{ display: 'block', fontSize: '13px', fontWeight: 600 }}>Club pony</span>
+        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>{same ? 'Included in the price' : `£${withPony.money}`}</span>
+      </button>
+      <button type="button" role="radio" aria-checked={value === false} style={opt(value === false)} onClick={() => onChange(false)}>
+        <span style={{ display: 'block', fontSize: '13px', fontWeight: 600 }}>My own pony</span>
+        <span style={{ display: 'block', fontSize: '12px', color: 'var(--muted)' }}>{same ? 'I’ll bring my own' : `£${without.money}`}</span>
+      </button>
+    </div>
+  );
+}
+
 // ── The sheet that takes a booking ──────────────────────────────────────────
 
-function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
+function BookSheet({ slot, session, who, canPickPlayer, multi = false, players, quote, onCancel, onConfirm, onOpenTerms }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
-  const [pony, setPony] = useState(slot.ponyHireDefault !== false);
+  // A fresh booking picks its hours from what the window still has free
+  // (`session.combos`); joining a group takes the group's own range.
+  const combos = session.combos || [];
+  const [range, setRange] = useState(() => (combos.length ? { start: combos[0].start, hours: combos[0].hours } : { start: session.start, hours: session.hours }));
+  const starts = [...new Set(combos.map(c => c.start))];
+  const lengthsAt = (st) => combos.filter(c => c.start === st).map(c => c.hours);
+  const pickStart = (st) => { const ls = lengthsAt(st); setRange({ start: st, hours: ls.includes(range.hours) ? range.hours : ls[0] }); setError(''); };
+  // A group lesson can be booked for several of the team at once.
+  const spaces = Math.max(0, (Number(session.max) || 0) - (Number(session.joined) || 0));
+  // A member's team, not an admin's whole list (that stays a dropdown).
+  const many = multi && session.type === 'group' && canPickPlayer && players.length > 1;
+  const [picked, setPicked] = useState(() => (who && players.some(p => p.id === who.id) ? [who.id] : []));
+  const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const player = canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
-  const withPony = quote(player, session.type, session.hours, true);
-  const without = quote(player, session.type, session.hours, false);
+  const chosenPlayers = many ? players.filter(p => picked.includes(p.id)) : [];
+  const player = many ? chosenPlayers[0] : canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
+  const withPony = quote(player, session.type, range.hours, true);
+  const without = quote(player, session.type, range.hours, false);
   const chosen = pony ? withPony : without;
+  const each = many && pony !== null ? chosenPlayers.map(p => ({ p, q: quote(p, session.type, range.hours, pony) })) : [];
+  const total = each.reduce((n, x) => n + (Number(x.q.total) || 0), 0);
+  const toggle = (id) => {
+    setError('');
+    setPicked(cur => (cur.includes(id) ? cur.filter(x => x !== id) : cur.length >= spaces ? cur : [...cur, id]));
+  };
 
   const go = async () => {
-    if (!player) { setError('Pick who the lesson is for.'); return; }
+    if (many ? !chosenPlayers.length : !player) { setError('Pick who the lesson is for.'); return; }
+    if (pony === null) { setError('Choose a club pony or your own.'); return; }
     setBusy(true);
-    const res = await onConfirm({ slot, session, player, ponyHire: pony });
+    const picked = { ...session, start: range.start, hours: range.hours };
+    const res = await onConfirm(many ? { slot, session: picked, players: chosenPlayers, ponyHire: pony } : { slot, session: picked, player, ponyHire: pony });
     setBusy(false);
     if (res && res.error) setError(res.error);
   };
 
   return (
     <div style={{ ...S.card, borderColor: 'var(--gold)' }}>
-      <div style={S.h}>{TYPE_LABEL[session.type]} lesson · {session.hours} hour{session.hours === 1 ? '' : 's'}</div>
-      <div style={{ fontSize: '15px', margin: '4px 0 2px' }}>{dateLabel(slot.date)}, {rangeLabel(session.start, session.hours)}</div>
+      <div style={S.h}>{TYPE_LABEL[session.type]} lesson · {range.hours} hour{range.hours === 1 ? '' : 's'}</div>
+      <div style={{ fontSize: '15px', margin: '4px 0 2px' }}>{dateLabel(slot.date)}, {rangeLabel(range.start, range.hours)}</div>
       {slot.coach && <div style={S.hint}>with {slot.coach}</div>}
-      {session.type === 'group' && (
+      {combos.length > 1 && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Start</span>
+            <select className="input-field select-field" value={range.start} onChange={(e) => pickStart(e.target.value)} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {starts.map(st => <option key={st} value={st}>{st}</option>)}
+            </select>
+          </label>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Length</span>
+            <select className="input-field select-field" value={range.hours} onChange={(e) => { setRange(r => ({ ...r, hours: Number(e.target.value) })); setError(''); }} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {lengthsAt(range.start).map(h => <option key={h} value={h}>{h} hour{h === 1 ? '' : 's'}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      {session.type === 'group' && session.joined > 0 && (
         <div style={{ ...S.hint, marginTop: '4px' }}>
-          {session.joined} booked · {session.needs > 0
-            ? `needs ${session.needs} more to reach the minimum of ${slot.minGroup}`
-            : `minimum of ${slot.minGroup} met`}
+          {session.joined} of {session.max} booked · {session.needs > 0
+            ? `needs ${session.needs} more to go ahead (minimum ${session.min})`
+            : `goes ahead — minimum of ${session.min} met`}
         </div>
       )}
 
-      {canPickPlayer && (
+      {many && (
+        <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+          <legend style={S.label}>Who is it for <span style={{ textTransform: 'none', letterSpacing: 0 }}>· {spaces} place{spaces === 1 ? '' : 's'} left</span></legend>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {players.map(p => {
+              const on = picked.includes(p.id);
+              const full = !on && picked.length >= spaces;
+              return (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', minHeight: '36px', opacity: full ? 0.5 : 1, cursor: full ? 'default' : 'pointer' }}>
+                  <input type="checkbox" checked={on} disabled={full} onChange={() => toggle(p.id)} style={{ width: '18px', height: '18px' }} />
+                  <span>{who && p.id === who.id ? `${p.name} (me)` : p.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ ...S.hint, marginTop: '4px' }}>Everyone you tick is booked in and emailed their own confirmation.</div>
+        </fieldset>
+      )}
+
+      {canPickPlayer && !many && (
         <>
           <label style={S.label} htmlFor="lesson-who">Who is it for</label>
           <select id="lesson-who" className="input-field select-field" value={playerId}
             onChange={(e) => { setPlayerId(e.target.value); setError(''); }}
             style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
-            <option value="">— pick a player —</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {!who && <option value="">— pick a player —</option>}
+            {players.map(p => <option key={p.id} value={p.id}>{who && p.id === who.id ? `${p.name} (me)` : p.name}</option>)}
           </select>
         </>
       )}
 
-      <label style={{ ...S.row, marginTop: '12px', cursor: 'pointer', fontSize: '13px' }}>
-        <input type="checkbox" checked={pony} onChange={(e) => setPony(e.target.checked)} />
-        <span>Pony hire</span>
-      </label>
-
-      {/* Both prices, always — the brief asked to see it with and without. */}
-      <div style={{ marginTop: '10px', padding: '10px 12px', background: 'var(--cream-warm)', borderRadius: '6px', fontSize: '13px', lineHeight: 1.6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', opacity: pony ? 1 : 0.55 }}>
-          <span>With pony hire</span><strong>£{withPony.money}</strong>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', opacity: pony ? 0.55 : 1 }}>
-          <span>Own pony</span><strong>£{without.money}</strong>
-        </div>
-        {chosen.detail && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
-      </div>
+      <PonyChoice value={pony} onChange={(v) => { setPony(v); setError(''); }} withPony={withPony} without={without} />
+      {pony !== null && chosen.detail && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
 
       <div style={{ ...S.hint, marginTop: '8px' }}>
-        {player
-          ? `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
-          : 'Pick a player to see what it costs.'}
+        {!player
+          ? 'Pick a player to see what it costs.'
+          : pony === null
+            ? 'Choose a pony option to see the price.'
+            : many && each.length > 1
+              ? `${each.map(x => `${x.p.name} £${x.q.money}`).join(' · ')} — payable by card once online payment is live, nothing is taken now.`
+              : `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`}
       </div>
 
       <div style={{ ...S.row, marginTop: '12px' }}>
-        <button type="button" className="btn-primary" disabled={busy || !player} onClick={go}
-          style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player ? 0.6 : 1 }}>
-          {busy ? 'Booking…' : `Book — £${chosen.money}`}
+        <button type="button" className="btn-primary" disabled={busy || !player || pony === null} onClick={go}
+          style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player || pony === null ? 0.6 : 1 }}>
+          {busy ? 'Booking…' : pony === null ? 'Choose a pony option' : many && each.length > 1 ? `Book ${each.length} — £${total.toFixed(2)}` : `Book — £${chosen.money}`}
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       <TermsLine onOpen={onOpenTerms} style={{ marginTop: '8px', color: 'var(--muted)' }} />
       {error && <div style={S.err}>{error}</div>}
+    </div>
+  );
+}
+
+// ── The waiting list for a coaching window ─────────────────────────────────
+// Nothing free in the window: the rider says what they would take — an
+// individual or group lesson, and how long — and is booked into the first
+// range of that length that comes free.
+
+function WaitLessonSheet({ slot, rates, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
+  const types = ['individual', 'group'].filter(t => slot[t] && hoursOffered(rates, t).some(h => h <= windowHours(slot)));
+  const [type, setType] = useState(types[0] || 'individual');
+  const lengths = hoursOffered(rates, type).filter(h => h <= windowHours(slot));
+  const [hours, setHours] = useState(lengths[0] || 1);
+  const [playerId, setPlayerId] = useState(who ? who.id : '');
+  const [pony, setPony] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const player = canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
+  const h = lengths.includes(hours) ? hours : (lengths[0] || 1);
+  const withPony = quote(player, type, h, true);
+  const without = quote(player, type, h, false);
+  const chosen = pony ? withPony : without;
+  const go = async () => {
+    if (!player) { setError('Pick who it is for.'); return; }
+    if (pony === null) { setError('Choose a club pony or your own.'); return; }
+    setBusy(true);
+    const res = await onConfirm({ slot, player, type, hours: h, ponyHire: pony });
+    setBusy(false);
+    if (res && res.error) setError(res.error);
+  };
+  return (
+    <div style={{ ...S.card, borderColor: 'var(--gold)' }}>
+      <div style={S.h}>Waiting list · lesson</div>
+      <div style={{ fontSize: '15px', margin: '4px 0 2px' }}>{dateLabel(slot.date)}, {slot.start}–{slot.end}</div>
+      {slot.coach && <div style={S.hint}>with {slot.coach}</div>}
+      <div style={{ ...S.hint, marginTop: '4px' }}>Fully booked · {waitingFor(slot).length} on the waiting list. If the time you want comes free, you are booked in and emailed.</div>
+      {canPickPlayer && (
+        <>
+          <label style={S.label} htmlFor="wait-who">Who is it for</label>
+          <select id="wait-who" className="input-field select-field" value={playerId} onChange={(e) => { setPlayerId(e.target.value); setError(''); }}
+            style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+            {!who && <option value="">— pick a player —</option>}
+            {players.map(p => <option key={p.id} value={p.id}>{who && p.id === who.id ? `${p.name} (me)` : p.name}</option>)}
+          </select>
+        </>
+      )}
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+        {types.length > 1 && (
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Lesson</span>
+            <select className="input-field select-field" value={type} onChange={(e) => { setType(e.target.value); setError(''); }} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {types.map(t => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+            </select>
+          </label>
+        )}
+        {lengths.length > 1 && (
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...S.label, margin: '0 0 4px' }}>Length</span>
+            <select className="input-field select-field" value={h} onChange={(e) => setHours(Number(e.target.value))} style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
+              {lengths.map(x => <option key={x} value={x}>{x} hour{x === 1 ? '' : 's'}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+      <PonyChoice value={pony} onChange={(v) => { setPony(v); setError(''); }} withPony={withPony} without={without} />
+      <div style={{ ...S.hint, marginTop: '8px' }}>
+        {!player ? 'Pick a player to see what it costs.' : pony === null ? 'Choose a pony option to see the price.' : `Nothing now. If a place comes up it is £${chosen.money}, payable by card once online payment is live.`}
+      </div>
+      <div style={{ ...S.row, marginTop: '12px' }}>
+        <button type="button" className="btn-primary" disabled={busy || !player || pony === null} onClick={go}
+          style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player || pony === null ? 0.6 : 1 }}>
+          {busy ? 'Adding…' : 'Join the waiting list'}
+        </button>
+        <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+      <TermsLine onOpen={onOpenTerms} style={{ marginTop: '8px', color: 'var(--muted)' }} />
+      {error && <div style={S.err}>{error}</div>}
+    </div>
+  );
+}
+
+// Who is waiting: an admin sees the names in order, with a way to take one
+// off; everyone else sees only how many.
+function WaitingLine({ slot, captainMode, mineIds, onLeave }) {
+  const list = waitingFor(slot);
+  if (!list.length) return null;
+  if (!captainMode) {
+    const mine = list.map((w, i) => [w, i + 1]).filter(([w]) => mineIds(w));
+    return (
+      <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--muted)' }}>
+        {list.length} on the waiting list{mine.length ? ` · ${mine.map(([w, n]) => `${w.name} is number ${n}`).join(', ')}` : ''}
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' }}>
+      <div style={{ ...S.h, marginBottom: '5px' }}>Waiting list</div>
+      {list.map((w, i) => (
+        <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '3px 0' }}>
+          <span style={{ flex: 1 }}>{i + 1}. {w.name}{w.type !== 'session' ? ` · ${TYPE_LABEL[w.type]} ${w.hours}h` : ''}{w.ponyHire ? ' · club pony' : ' · own pony'}</span>
+          <button type="button" className="remove-btn" title={`Take ${w.name} off the waiting list`} onClick={() => onLeave(slot, w)}>×</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -153,23 +331,25 @@ function BookSheet({ slot, session, who, canPickPlayer, players, quote, onCancel
 // price — so a sheet that showed those switched
 // off would only invite the question of how to switch them on.
 
-function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms }) {
+function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel, onConfirm, onOpenTerms, waiting = false }) {
   const [playerId, setPlayerId] = useState(who ? who.id : '');
-  const [pony, setPony] = useState(slot.ponyHireDefault !== false);
+  const [pony, setPony] = useState(null); // the rider chooses; null until they do
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const player = canPickPlayer ? players.find(p => String(p.id) === String(playerId)) : who;
   const withPony = quote(player, slot.kind, true);
   const without = quote(player, slot.kind, false);
-  const chosen = pony ? withPony : without;
-  // Instructional chukkas are one price with the pony inside it, so offering a
-  // cheaper "own pony" line would be quoting a discount the club does not give.
+  const chosen = pony === false ? without : withPony;
+  // The choice shows only when the two prices differ: Instructional's own-pony
+  // price, or Ladies Only's pony charged on top. A session whose price is the
+  // same either way shows the one price.
   const ponyIsSeparate = withPony.total !== without.total;
   const left = clubSessionSpots(slot);
 
   const go = async () => {
     if (!player) { setError('Pick who the place is for.'); return; }
+    if (ponyIsSeparate && pony === null) { setError('Choose a club pony or your own.'); return; }
     setBusy(true);
     const res = await onConfirm({ slot, player, ponyHire: ponyIsSeparate ? pony : true });
     setBusy(false);
@@ -183,7 +363,9 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
       {slot.coach && <div style={S.hint}>with {slot.coach}</div>}
       {slot.ground && <div style={S.hint}>📍 {slot.ground}</div>}
       <div style={{ ...S.hint, marginTop: '4px' }}>
-        {clubSessionBookings(slot).length} of {clubSessionPlaces(slot)} places taken · {left} left
+        {waiting
+          ? `Full · ${waitingFor(slot).length} on the waiting list. If a place comes up, the first who fits is booked in and emailed.`
+          : `${clubSessionBookings(slot).length} of ${clubSessionPlaces(slot)} places taken · ${left} left`}
       </div>
 
       {canPickPlayer && (
@@ -192,49 +374,35 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
           <select id="sess-who" className="input-field select-field" value={playerId}
             onChange={(e) => { setPlayerId(e.target.value); setError(''); }}
             style={{ width: '100%', padding: '9px 8px', fontSize: '13px' }}>
-            <option value="">— pick a player —</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {!who && <option value="">— pick a player —</option>}
+            {players.map(p => <option key={p.id} value={p.id}>{who && p.id === who.id ? `${p.name} (me)` : p.name}</option>)}
           </select>
         </>
       )}
 
-      {ponyIsSeparate && (
-        <label style={{ ...S.row, marginTop: '12px', cursor: 'pointer', fontSize: '13px' }}>
-          <input type="checkbox" checked={pony} onChange={(e) => setPony(e.target.checked)} />
-          <span>Pony hire</span>
-        </label>
+      {ponyIsSeparate ? (
+        <PonyChoice value={pony} onChange={(v) => { setPony(v); setError(''); }} withPony={withPony} without={without} />
+      ) : (
+        <div style={{ marginTop: '10px', padding: '10px 12px', background: 'var(--cream-warm)', borderRadius: '6px', fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}>
+          <span>The session</span><strong>£{chosen.money}</strong>
+        </div>
       )}
-
-      <div style={{ marginTop: '10px', padding: '10px 12px', background: 'var(--cream-warm)', borderRadius: '6px', fontSize: '13px', lineHeight: 1.6 }}>
-        {ponyIsSeparate ? (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', opacity: pony ? 1 : 0.55 }}>
-              <span>With pony hire</span><strong>£{withPony.money}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', opacity: pony ? 0.55 : 1 }}>
-              <span>Own pony</span><strong>£{without.money}</strong>
-            </div>
-          </>
-        ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>The session</span><strong>£{chosen.money}</strong>
-          </div>
-        )}
-        {chosen.detail && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
-      </div>
+      {chosen.detail && (!ponyIsSeparate || pony !== null) && <div style={{ ...S.hint, marginTop: '6px' }}>{chosen.detail}</div>}
 
       <div style={{ ...S.hint, marginTop: '8px' }}>
         {player
-          ? chosen.total > 0
-            ? `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
-            : `Nothing to pay — ${player.name}'s membership covers it.`
+          ? waiting
+            ? (chosen.total > 0 ? `Nothing now. If a place comes up it is £${chosen.money}, payable by card once online payment is live.` : 'Nothing to pay if a place comes up.')
+            : chosen.total > 0
+              ? `£${chosen.money}, payable by card once online payment is live — nothing is taken now.`
+              : `Nothing to pay — ${player.name}'s membership covers it.`
           : 'Pick a player to see what it costs.'}
       </div>
 
       <div style={{ ...S.row, marginTop: '12px' }}>
-        <button type="button" className="btn-primary" disabled={busy || !player} onClick={go}
-          style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player ? 0.6 : 1 }}>
-          {busy ? 'Booking…' : chosen.total > 0 ? `Book a place — £${chosen.money}` : 'Book a place'}
+        <button type="button" className="btn-primary" disabled={busy || !player || (ponyIsSeparate && pony === null)} onClick={go}
+          style={{ padding: '11px 18px', fontSize: '12px', opacity: busy || !player || (ponyIsSeparate && pony === null) ? 0.6 : 1 }}>
+          {busy ? (waiting ? 'Adding…' : 'Booking…') : ponyIsSeparate && pony === null ? 'Choose a pony option' : waiting ? 'Join the waiting list' : chosen.total > 0 ? `Book a place — £${chosen.money}` : 'Book a place'}
         </button>
         <button type="button" style={S.btn} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
@@ -246,14 +414,27 @@ function SessionSheet({ slot, kind, who, canPickPlayer, players, quote, onCancel
 
 // ── The captain's window editor ─────────────────────────────────────────────
 
-function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel }) {
+function SlotEditor({ draft, setDraft, clubSessions, grounds = [], onSave, onDelete, onCancel }) {
   const [error, setError] = useState('');
   const set = (k) => (e) => {
     const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setDraft(d => ({ ...d, [k]: v })); setError('');
   };
   const hours = windowHours(draft);
+  const cap = groundCap(draft.ground);
   const kinds = clubSessions || [];
+  // The ground sets the most riders: six in the arena, eight elsewhere. Picking
+  // one pulls the maximum (and a minimum above it) down to fit, and a fresh
+  // slot starts at the ground's full number.
+  const setGround = (e) => {
+    const g = e.target.value;
+    const c = groundCap(g);
+    setError('');
+    setDraft(d => {
+      const max = Math.min(Number(d.maxGroup) || c, c);
+      return { ...d, ground: g, maxGroup: d.id ? max : c, minGroup: Math.min(Number(d.minGroup) || 1, d.id ? max : c) };
+    });
+  };
   const kind = kinds.find(k => k.id === draft.kind) || null;
 
   // Picking a session fixes its shape from the catalogue — an hour, eight
@@ -265,9 +446,9 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
     setDraft(d => (k
       ? { ...d, kind: k.id, individual: false, group: false,
           end: fmtHM((parseHM(d.start) ?? 600) + (Number(k.hours) || 1) * 60),
-          maxGroup: Number(k.places) || MAX_GROUP, minGroup: 1 }
+          maxGroup: Math.min(Number(k.places) || MAX_GROUP, groundCap(d.ground)), minGroup: 1 }
       : { ...d, kind: '', individual: true, group: true,
-          minGroup: MIN_GROUP, maxGroup: MAX_GROUP }));
+          minGroup: Math.min(MIN_GROUP, groundCap(d.ground)), maxGroup: groundCap(d.ground) }));
   };
 
   // A session's end follows its start, because its length is the catalogue's.
@@ -281,6 +462,8 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
 
   const save = () => {
     if (!parseISO(draft.date)) { setError('Pick a date.'); return; }
+    if (!draft.ground) { setError('Pick where it is.'); return; }
+    if ((kind || draft.group) && Number(draft.maxGroup) > cap) { setError(`${draft.ground} takes at most ${cap} riders.`); return; }
     if (parseHM(draft.start) === null || parseHM(draft.end) === null) { setError('Times need to look like 14:00.'); return; }
     if (hours < 1) { setError('The window needs to be at least a whole hour, and end after it starts.'); return; }
     if (kind) {
@@ -289,7 +472,8 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
       onSave({ ...draft, id: draft.id || newSlotId(), individual: false, group: false, minGroup: 1, maxGroup: places });
       return;
     }
-    if (!draft.individual && !draft.group) { setError('Allow individual lessons, group lessons, or both.'); return; }
+    if (!draft.individual && !draft.group) { setError('Offer an individual lesson, a group lesson, or both.'); return; }
+    if (draft.group && Number(draft.minGroup) > Number(draft.maxGroup)) { setError('The group minimum cannot be more than the maximum.'); return; }
     onSave({ ...draft, id: draft.id || newSlotId(), kind: '', minGroup: Number(draft.minGroup) || MIN_GROUP, maxGroup: Number(draft.maxGroup) || MAX_GROUP });
   };
 
@@ -301,7 +485,7 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
         <>
           <label style={S.label}>What is it</label>
           <div style={S.row}>
-            <button type="button" style={S.chip(!kind)} aria-pressed={!kind} onClick={() => pickKind('')}>Coaching window</button>
+            <button type="button" style={S.chip(!kind)} aria-pressed={!kind} onClick={() => pickKind('')}>Lesson</button>
             {kinds.map(k => (
               <button key={k.id} type="button" style={S.chip(draft.kind === k.id)} aria-pressed={draft.kind === k.id}
                 onClick={() => pickKind(k.id)}>{k.label}</button>
@@ -330,9 +514,7 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
         <div style={{ ...S.hint, marginTop: '6px' }}>
           {kind
             ? `${kind.label} runs ${kind.hours} hour${kind.hours === 1 ? '' : 's'} — ${kind.chukkas} chukkas — so the finish follows the start.`
-            : hours === 1
-              ? 'A one-hour window: bookable as a single 1-hour lesson.'
-              : `A ${hours}-hour window: bookable as ${Array.from({ length: hours }, (_, i) => i + 1).join(' or ')} hour${hours > 1 ? 's' : ''} at a time.`}
+            : `One ${hours}-hour lesson, booked whole. The first booking decides whether it runs as an individual or a group lesson.`}
         </div>
       )}
 
@@ -343,19 +525,23 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
         </div>
         <div style={{ flex: '1 1 140px' }}>
           <label style={S.label} htmlFor="ls-ground">Where</label>
-          <input id="ls-ground" className="input-field" type="text" value={draft.ground} onChange={set('ground')} placeholder="e.g. Arena" style={{ width: '100%', padding: '9px', fontSize: '13px' }} />
+          <select id="ls-ground" className="input-field select-field" value={draft.ground} onChange={setGround} style={{ width: '100%', padding: '9px', fontSize: '13px' }}>
+            <option value="">— pick a ground —</option>
+            {grounds.map(g => <option key={g} value={g}>{g}</option>)}
+            {draft.ground && !grounds.includes(draft.ground) && <option value={draft.ground}>{draft.ground}</option>}
+          </select>
         </div>
       </div>
 
       {kind ? (
         <div style={{ ...S.row, marginTop: '10px' }}>
           <label style={{ fontSize: '12px', color: 'var(--muted)' }} htmlFor="ls-places">Places</label>
-          <input id="ls-places" className="input-field" type="number" min="1" max="20" value={draft.maxGroup} onChange={set('maxGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
-          <span style={S.hint}>the club runs {kind.places}</span>
+          <input id="ls-places" className="input-field" type="number" min="1" max={cap} value={draft.maxGroup} onChange={set('maxGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
+          <span style={S.hint}>up to {cap} {draft.ground ? `at ${draft.ground}` : 'riders'}</span>
         </div>
       ) : (
         <>
-          <label style={S.label}>Bookable as</label>
+          <label style={S.label}>Offer as</label>
           <div style={S.row}>
             <label style={{ ...S.row, gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
               <input type="checkbox" checked={draft.individual} onChange={set('individual')} /> Individual
@@ -366,19 +552,16 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
           </div>
           {draft.group && (
             <div style={{ ...S.row, marginTop: '8px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--muted)' }} htmlFor="ls-min">Group minimum</label>
-              <input id="ls-min" className="input-field" type="number" min="1" max="20" value={draft.minGroup} onChange={set('minGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
-              <label style={{ fontSize: '12px', color: 'var(--muted)' }} htmlFor="ls-max">most</label>
-              <input id="ls-max" className="input-field" type="number" min="1" max="20" value={draft.maxGroup} onChange={set('maxGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
+              <label style={{ fontSize: '12px', color: 'var(--muted)' }} htmlFor="ls-min">Group size: at least</label>
+              <input id="ls-min" className="input-field" type="number" min="1" max={cap} value={draft.minGroup} onChange={set('minGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
+              <label style={{ fontSize: '12px', color: 'var(--muted)' }} htmlFor="ls-max">at most</label>
+              <input id="ls-max" className="input-field" type="number" min="1" max={cap} value={draft.maxGroup} onChange={set('maxGroup')} style={{ width: '70px', padding: '7px', fontSize: '13px' }} />
+              <span style={S.hint}>{draft.ground ? `${draft.ground} takes up to ${cap}` : `up to ${cap}`}</span>
             </div>
           )}
         </>
       )}
 
-      <label style={{ ...S.row, gap: '6px', marginTop: '12px', fontSize: '13px', cursor: 'pointer' }}>
-        <input type="checkbox" checked={draft.ponyHireDefault} onChange={set('ponyHireDefault')} />
-        <span>Pony hire ticked by default</span>
-      </label>
 
       <label style={S.label} htmlFor="ls-note">Note <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
       <input id="ls-note" className="input-field" type="text" value={draft.note} onChange={set('note')} placeholder="Anything riders should know" style={{ width: '100%', padding: '9px', fontSize: '13px' }} />
@@ -399,13 +582,13 @@ function SlotEditor({ draft, setDraft, clubSessions, onSave, onDelete, onCancel 
 
 // ── One club session, and the places left in it ─────────────────────────────
 
-function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking }) {
+function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking, onWait, onLeaveWaiting, mineIds }) {
   const riders = clubSessionBookings(slot);
   const places = clubSessionPlaces(slot);
   const left = clubSessionSpots(slot);
 
   return (
-    <div style={{ ...S.card, borderColor: left ? 'var(--gold)' : 'var(--line)' }}>
+    <div data-slot-id={slot.id} style={{ ...S.card, borderColor: left ? 'var(--gold)' : 'var(--line)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div>
           <div style={{ fontSize: '13px', color: 'var(--muted)' }}>{slot.start}–{slot.end}</div>
@@ -416,7 +599,7 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
           <span style={S.badge(left ? 'open' : 'gone')}>
-            {left ? `${left} of ${places} left` : 'Full'}
+            {left ? `${left} of ${places} left` : waitingFor(slot).length ? `Full · ${waitingFor(slot).length} waiting` : 'Full'}
           </span>
           {captainMode && <button type="button" style={{ ...S.btn, padding: '4px 9px', fontSize: '11px' }} onClick={() => onEdit(slot)}>Edit</button>}
         </div>
@@ -434,10 +617,11 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
       )}
 
       <div style={{ ...S.row, marginTop: '11px' }}>
-        <button type="button" style={S.book(!left)} disabled={!left} onClick={() => onPick(slot)}>
-          {left ? 'Book a place' : 'Full'}
-        </button>
+        {left
+          ? <button type="button" style={S.book(false)} onClick={() => onPick(slot)}>Book a place</button>
+          : <button type="button" style={S.book(false)} onClick={() => onWait(slot)}>Join the waiting list</button>}
       </div>
+      <WaitingLine slot={slot} captainMode={captainMode} mineIds={mineIds} onLeave={onLeaveWaiting} />
 
       {captainMode && riders.length > 0 && (
         <div style={{ marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' }}>
@@ -456,69 +640,138 @@ function SessionCard({ slot, kind, captainMode, onPick, onEdit, onRemoveBooking 
   );
 }
 
-// ── One window, and what is left in it ──────────────────────────────────────
+// ── One lesson slot ─────────────────────────────────────────────────────────
+//
+// Shows what the window still has free, as individual or group, and the
+// groups already going that can be joined. A group below its minimum is
+// flagged, and the admin gets the three ways to settle it.
 
-function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBooking }) {
-  const sessions = availableSessions(slot, rates).filter(s => filter === 'all' || s.type === filter);
-  const open = sessions.filter(s => !s.blocked);
-  const booked = (slot.bookings || []).slice().sort((a, b) => parseHM(a.start) - parseHM(b.start));
+function SlotCard({ slot, rates, captainMode, onPick, onEdit, onRemoveBooking, onResolveGroup, onWait, onLeaveWaiting, mineIds }) {
+  const options = slotOptions(slot, rates);
+  const bookings = (slot.bookings || []).filter(b => b.type === 'individual' || b.type === 'group');
+  const groups = groupRanges(slot);
+  const short = shortGroups(slot);
+  const min = Math.max(1, Number(slot.minGroup) || MIN_GROUP);
+  const [busy, setBusy] = useState('');
+  const resolve = async (action, confirmText) => {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(action);
+    await onResolveGroup(slot, action);
+    setBusy('');
+  };
+  // The hours still free, as runs — "10:00–12:00" rather than every length.
+  const freeRuns = (combos) => {
+    const hours = [...new Set(combos.filter(c => c.hours === 1).map(c => parseHM(c.start)))].sort((x, y) => x - y);
+    const runs = [];
+    hours.forEach(h => { const last = runs[runs.length - 1]; if (last && last[1] === h) last[1] = h + 60; else runs.push([h, h + 60]); });
+    return runs.map(([x, y]) => `${fmtHM(x)}–${fmtHM(y)}`).join(', ');
+  };
+
+  const title = [slot.individual && 'Individual', slot.group && 'Group'].filter(Boolean).join(' or ') + ' lesson';
+  const badge = !options.length ? ['Full', 'gone']
+    : short.length ? [`${short[0].riders.length} of ${min} needed`, 'short']
+    : bookings.length ? ['Hours free', 'open']
+    : ['Available', 'open'];
 
   return (
-    <div style={S.card}>
+    <div data-slot-id={slot.id} style={{ ...S.card, borderColor: short.length ? 'var(--gold)' : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div>
-          <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
-            {slot.start}–{slot.end} <span style={{ opacity: 0.8 }}>({windowHours(slot)} hr window)</span>
-          </div>
-          <div style={{ fontSize: '16px', fontWeight: 600, margin: '2px 0' }}>
-            {[slot.individual && 'Individual', slot.group && 'Group'].filter(Boolean).join(' & ')} lesson
-          </div>
+          <div style={{ fontSize: '13px', color: 'var(--muted)' }}>{slot.start}–{slot.end}</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, margin: '2px 0' }}>{title}</div>
           {slot.coach && <div style={{ fontSize: '13px', color: 'var(--muted)' }}>with {slot.coach}</div>}
           {slot.ground && <div style={{ fontSize: '12px', color: 'var(--muted)' }}>📍 {slot.ground}</div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
-          <span style={S.badge(open.length ? 'open' : 'gone')}>
-            {open.length ? `${open.length} option${open.length === 1 ? '' : 's'}` : 'Fully booked'}
-          </span>
+          <span style={S.badge(badge[1])}>{badge[0]}</span>
           {captainMode && <button type="button" style={{ ...S.btn, padding: '4px 9px', fontSize: '11px' }} onClick={() => onEdit(slot)}>Edit</button>}
         </div>
       </div>
 
       {slot.note && <div style={{ ...S.hint, marginTop: '6px' }}>{slot.note}</div>}
 
-      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {sessions.map((s) => (
-          <div key={`${s.type}-${s.start}-${s.hours}`}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px', borderRadius: '7px',
-                     background: s.blocked ? 'transparent' : 'var(--cream)', border: '1px solid var(--line)',
-                     opacity: s.blocked ? 0.55 : 1 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                {rangeLabel(s.start, s.hours)} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {TYPE_LABEL[s.type]}</span>
-              </div>
-              {s.type === 'group' && !s.blocked && (
-                <div style={{ fontSize: '11px', color: s.needs > 0 ? 'var(--gold)' : 'var(--muted)' }}>
-                  {s.joined} booked{s.needs > 0 ? ` · needs ${s.needs} more (min ${slot.minGroup})` : ' · minimum met'}
+      {/* What is booked already: an individual lesson is private, a group is
+          open to view — deciding whether to join depends on who is in it. */}
+      {bookings.some(b => b.type === 'individual') && (
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--muted)' }}>
+          {bookings.filter(b => b.type === 'individual').map(b => rangeLabel(b.start, Number(b.hours) || 1)).join(', ')} · individual lesson{bookings.filter(b => b.type === 'individual').length === 1 ? '' : 's'} booked
+        </div>
+      )}
+
+      {options.length > 0 && (
+        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {options.flatMap((o) => [
+            ...o.joinable.map(j => (
+              <div key={`join-${j.start}-${j.hours}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 11px', borderRadius: '10px', border: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>Group · {j.label}</div>
+                  <div style={{ fontSize: '12px', color: j.needs > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                    {j.needs > 0 ? `${j.joined} of ${j.max} booked · needs ${j.needs} more to go ahead` : `${j.joined} of ${j.max} booked · going ahead`}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    {groups.find(g => g.start === j.start && g.hours === j.hours)?.riders.map(b => b.name).filter(Boolean).join(' · ')}
+                  </div>
                 </div>
-              )}
-              {s.blocked && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{s.blocked}</div>}
-            </div>
-            <button type="button" style={S.book(!!s.blocked)} disabled={!!s.blocked}
-              onClick={() => onPick(slot, s)}>
-              {s.blocked ? '—' : 'Book'}
+                <button type="button" style={S.book(false)} onClick={() => onPick(slot, { type: 'group', ...j })}>Join</button>
+              </div>
+            )),
+            ...(o.combos.length ? [(
+              <div key={`new-${o.type}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 11px', borderRadius: '10px', border: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{TYPE_LABEL[o.type]}{o.type === 'group' && o.joinable.length ? ' · new group' : ''}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                    {o.type === 'individual' ? 'Just you and the coach' : `${o.min}–${o.max} riders · be the first`} · free {freeRuns(o.combos)}
+                  </div>
+                </div>
+                <button type="button" style={S.book(false)} onClick={() => onPick(slot, { type: o.type, start: o.combos[0].start, hours: o.combos[0].hours, combos: o.combos, joined: 0, min: o.min, max: o.max, needs: o.type === 'group' ? o.min : 0, spots: o.type === 'group' ? o.max : 1 })}>Book</button>
+              </div>
+            )] : []),
+          ])}
+        </div>
+      )}
+
+      {!options.length && (
+        <div style={{ ...S.row, marginTop: '8px' }}>
+          <span style={{ ...S.hint, flex: 1 }}>Nothing left to book in this window.</span>
+          <button type="button" style={S.book(false)} onClick={() => onWait(slot)}>Join the waiting list</button>
+        </div>
+      )}
+      <WaitingLine slot={slot} captainMode={captainMode} mineIds={mineIds} onLeave={onLeaveWaiting} />
+
+      {captainMode && short.length > 0 && short.map(g => (
+        <div key={`short-${g.start}`} style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '10px', border: '1px dashed var(--gold)' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600 }}>Short of the minimum · {rangeLabel(g.start, g.hours)}</div>
+          <div style={{ ...S.hint, marginBottom: '8px' }}>{g.riders.length} booked, {min} needed. Your call:</div>
+          <div style={S.row}>
+            {g.riders.length > 1 && (
+              <button type="button" style={S.btn} disabled={!!busy} onClick={() => resolve('smaller')}>
+                {busy === 'smaller' ? 'Saving…' : `Run as a group of ${g.riders.length}`}
+              </button>
+            )}
+            {g.riders.length === 1 && (
+              <button type="button" style={S.btn} disabled={!!busy}
+                onClick={() => resolve('individual', `Make ${g.riders[0].name}'s booking an individual lesson? It is re-priced at the individual rate.`)}>
+                {busy === 'individual' ? 'Saving…' : 'Make it individual'}
+              </button>
+            )}
+            <button type="button" style={{ ...S.btn, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy}
+              onClick={() => resolve('cancel', `Cancel this group and take ${g.riders.length === 1 ? g.riders[0].name : `all ${g.riders.length} riders`} off?`)}>
+              {busy === 'cancel' ? 'Cancelling…' : 'Cancel the group'}
             </button>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
 
-      {captainMode && booked.length > 0 && (
+      {captainMode && bookings.length > 0 && (
         <div style={{ marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' }}>
           <div style={{ ...S.h, marginBottom: '5px' }}>Booked in</div>
-          {booked.map(b => (
+          {bookings.map(b => (
             <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '3px 0' }}>
               <span style={{ flex: 1 }}>
                 {b.name} · {rangeLabel(b.start, Number(b.hours) || 1)} · {TYPE_LABEL[b.type]}
-                {b.ponyHire ? ' · pony hire' : ' · own pony'}
+                {b.ponyHire ? ' · club pony' : ' · own pony'}
               </span>
               <button type="button" className="remove-btn" title={`Take ${b.name} off`} onClick={() => onRemoveBooking(slot, b)}>×</button>
             </div>
@@ -533,38 +786,110 @@ function SlotCard({ slot, filter, rates, captainMode, onPick, onEdit, onRemoveBo
 
 export default function LessonsBoard({
   slots, onSaveSlots, captainMode, canBookAsSelf, myPlayer, players, rates,
+  // A member may book themselves or anyone on their team — the same rule as
+  // chukkas. An admin may book anyone.
+  teammates = [],
   onOpenTerms = null,
-  quote, onBook, onCancelBooking,
+  quote, onBook, onCancelBooking, onResolveGroup, grounds = [],
   clubSessions = [], quoteSession, onBookSession,
+  // The waiting list: join with { slot, player, type?, hours?, ponyHire },
+  // leave with (slot, entry).
+  onJoinWaiting = null, onLeaveWaiting = null,
+  // Open the board on one date and bring one slot into view — how Home and
+  // the Thursday and Friday taps land here. { date: 'YYYY-MM-DD', slotId?,
+  // filter?, at } — `at` makes a repeat tap re-apply.
+  focus = null,
 }) {
   const today = isoOf(new Date());
   const [monday, setMonday] = useState(() => mondayOf(today));
   const [day, setDay] = useState(() => today);
+  // 'all' | 'lesson' | a club session kind id. Opening the board, or a focus
+  // from elsewhere, lands on Everything unless it says otherwise.
   const [filter, setFilter] = useState('all');
+  useEffect(() => {
+    if (!focus || !focus.date) return;
+    setMonday(mondayOf(focus.date));
+    setDay(focus.date);
+    setFilter(focus.filter || 'all');
+    setEditing(null); setPicking(null); setTaking(null); setNote('');
+    const t = setTimeout(() => {
+      const el = focus.slotId && document.querySelector(`[data-slot-id="${focus.slotId}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [focus && focus.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState(null);   // slot draft | null
   const [picking, setPicking] = useState(null);   // { slot, session } | null
   const [taking, setTaking] = useState(null);    // a club session slot | null
+  const [queueing, setQueueing] = useState(null); // a full slot, to join its waiting list | null
   const [note, setNote] = useState('');
   const kindOf = (slot) => clubSessions.find(k => k.id === slot.kind) || null;
 
+  const bookable = captainMode ? players : (myPlayer ? [myPlayer, ...teammates] : []);
+  const canPick = captainMode || (!!myPlayer && teammates.length > 0);
   const days = weekDays(monday);
-  const onDay = useMemo(() => slotsOn(slots, day), [slots, day]);
+  // A member sees what they could book and what they are already in; the rest
+  // — someone else's individual lesson, a full group or session — is only
+  // clutter for them. An admin sees every slot, because they run them all.
+  // "Mine" includes the team: a lesson booked for a teammate stays in view.
+  const ourIds = new Set([myPlayer, ...teammates].filter(Boolean).map(p => p.id));
+  const ourNames = new Set([myPlayer, ...teammates].filter(Boolean).map(p => String(p.name || '').trim().toLowerCase()));
+  const isMineIn = (sl) => !!myPlayer && (sl.bookings || []).some(b => (
+    (b.playerId != null && ourIds.has(b.playerId))
+    || ourNames.has(String(b.name || '').trim().toLowerCase())
+  ));
+  const isMineWaiting = (w) => !!myPlayer && ((w.playerId != null && w.playerId !== '' && ourIds.has(w.playerId)) || ourNames.has(String(w.name || '').trim().toLowerCase()));
+  // A full slot still shows while it is to come, so it can be waited for.
+  const visible = (sl) => captainMode || isMineIn(sl) || waitingFor(sl).some(isMineWaiting) || sl.date >= today || (isClubSession(sl)
+    ? clubSessionSpots(sl) > 0
+    : slotOptions(sl, rates).length > 0);
+  const onDay = useMemo(() => slotsOn(slots, day).filter(visible), [slots, day, captainMode, myPlayer, teammates, rates]); // eslint-disable-line react-hooks/exhaustive-deps
   // The filter picks which SLOTS appear: a coaching filter hides the club
   // sessions outright rather than showing an empty card for each.
-  const shown = useMemo(() => onDay.filter(sl => (
-    filter === 'all' ? true : filter === 'session' ? isClubSession(sl) : !isClubSession(sl)
-  )), [onDay, filter]);
-  const countOn = (iso) => slotsOn(slots, iso).length;
+  const ofKind = (sl, f) => (f === 'all' ? true : f === 'lesson' ? !isClubSession(sl) : sl.kind === f);
+  const shown = useMemo(() => onDay.filter(sl => ofKind(sl, filter)), [onDay, filter]);
+  // A filter chip is also a jump: it goes to the next of that kind that can
+  // still be booked, from today on, and brings it into view. With nothing
+  // bookable it goes to the next of that kind at all; with none, it stays.
+  const jumpTo = (f) => {
+    setFilter(f); setPicking(null); setTaking(null); setNote('');
+    const ahead = slots.filter(sl => sl.date >= today && ofKind(sl, f)).sort(bySlotTime);
+    const target = ahead.find(visible) || ahead[0];
+    if (!target) return;
+    setMonday(mondayOf(target.date)); setDay(target.date);
+    setTimeout(() => { const el = document.querySelector(`[data-slot-id="${target.id}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 120);
+  };
+  const countOn = (iso) => slotsOn(slots, iso).filter(visible).length;
   const mine = useMemo(
     () => (myPlayer ? bookingsFor(slots, { playerId: myPlayer.id, name: myPlayer.name }) : []),
     [slots, myPlayer]);
+  const mineWaiting = useMemo(
+    () => (myPlayer ? waitingEntriesFor(slots, { playerId: myPlayer.id, name: myPlayer.name }) : []),
+    [slots, myPlayer]);
+  const startWaiting = (sl) => {
+    if (!onJoinWaiting) return;
+    if (!captainMode && !canBookAsSelf) { setNote('Sign in to join the waiting list.'); return; }
+    setEditing(null); setPicking(null); setTaking(null); setNote(''); setQueueing(sl);
+  };
+  const confirmWaiting = async (args) => {
+    const res = await onJoinWaiting(args);
+    if (res && res.error) return res;
+    setQueueing(null);
+    setNote(res && res.message ? res.message : 'On the waiting list.');
+    return {};
+  };
+  const leaveWaiting = async (sl, w) => {
+    if (!onLeaveWaiting) return;
+    const res = await onLeaveWaiting(sl, w);
+    setNote((res && (res.message || res.error)) || `${w.name} is off the waiting list.`);
+  };
 
   // Keep the chosen day inside the week being looked at.
   const goWeek = (delta) => {
     const m = addDays(monday, delta * 7);
     setMonday(m);
     setDay(weekDays(m).includes(day) ? day : m);
-    setEditing(null); setPicking(null); setTaking(null); setNote('');
+    setEditing(null); setPicking(null); setTaking(null); setQueueing(null); setNote('');
   };
 
   const saveSlot = async (slot) => {
@@ -607,10 +932,10 @@ export default function LessonsBoard({
     return {};
   };
 
-  const confirmBooking = async ({ slot, session, player, ponyHire }) => {
+  const confirmBooking = async ({ slot, session, player, players: who, ponyHire }) => {
     const reason = blockedReason(slot, session.start, session.hours, session.type, rates);
     if (reason) { setPicking(null); setNote(reason); return { error: reason }; }
-    const res = await onBook({ slot, session, player, ponyHire });
+    const res = await onBook({ slot, session, player, players: who, ponyHire });
     if (res && res.error) return res;
     setPicking(null);
     setNote(res && res.message ? res.message : 'Booked.');
@@ -647,17 +972,18 @@ export default function LessonsBoard({
         })}
       </div>
 
-      {/* Filter */}
-      <div style={{ ...S.row, marginBottom: '12px' }}>
-        {[['all', clubSessions.length ? 'Everything' : 'All lessons'], ...(clubSessions.length ? [['session', 'Club sessions']] : []),
-          ['individual', 'Individual'], ['group', `Group (min ${MIN_GROUP})`]].map(([id, label]) => (
-          <button key={id} type="button" style={S.chip(filter === id)} onClick={() => setFilter(id)} aria-pressed={filter === id}>{label}</button>
-        ))}
-      </div>
+      {/* Filter — only where there is more than one kind of thing to see. */}
+      {clubSessions.length > 0 && (
+        <div style={{ ...S.row, marginBottom: '12px' }}>
+          {[['all', 'Everything'], ['lesson', 'Lessons'], ...clubSessions.map(k => [k.id, k.label])].map(([id, label]) => (
+            <button key={id} type="button" style={S.chip(filter === id)} onClick={() => jumpTo(id)} aria-pressed={filter === id}>{label}</button>
+          ))}
+        </div>
+      )}
 
       {captainMode && (
         <div style={{ ...S.row, marginBottom: '12px' }}>
-          <button type="button" style={S.btn} onClick={() => { setEditing({ ...blankSlot(day), id: '' }); setPicking(null); setTaking(null); setNote(''); }}>{clubSessions.length ? '＋ Coaching window' : '＋ Add a slot'}</button>
+          <button type="button" style={S.btn} onClick={() => { setEditing({ ...blankSlot(day), id: '' }); setPicking(null); setTaking(null); setNote(''); }}>{clubSessions.length ? '＋ Lesson' : '＋ Add a lesson'}</button>
           {clubSessions.map(k => (
             <button key={k.id} type="button" style={S.btn}
               onClick={() => {
@@ -674,22 +1000,35 @@ export default function LessonsBoard({
       {note && <div style={{ ...S.hint, color: 'var(--burgundy)', marginBottom: '10px' }}>{note}</div>}
 
       {editing && (
-        <SlotEditor draft={editing} setDraft={setEditing} clubSessions={clubSessions} onSave={saveSlot}
+        <SlotEditor draft={editing} setDraft={setEditing} clubSessions={clubSessions} grounds={grounds} onSave={saveSlot}
           onDelete={editing.id ? deleteSlot : null} onCancel={() => setEditing(null)} />
       )}
 
       {taking && (
         <SessionSheet
           slot={taking} kind={kindOf(taking)}
-          who={myPlayer} canPickPlayer={captainMode} players={players}
+          who={myPlayer} canPickPlayer={canPick} players={bookable}
           quote={quoteSession} onOpenTerms={onOpenTerms}
           onCancel={() => setTaking(null)} onConfirm={confirmPlace} />
       )}
 
+      {queueing && (isClubSession(queueing) ? (
+        <SessionSheet waiting
+          slot={queueing} kind={kindOf(queueing)}
+          who={myPlayer} canPickPlayer={canPick} players={bookable}
+          quote={quoteSession} onOpenTerms={onOpenTerms}
+          onCancel={() => setQueueing(null)} onConfirm={({ slot, player, ponyHire }) => confirmWaiting({ slot, player, ponyHire })} />
+      ) : (
+        <WaitLessonSheet slot={queueing} rates={rates}
+          who={myPlayer} canPickPlayer={canPick} players={bookable}
+          quote={quote} onOpenTerms={onOpenTerms}
+          onCancel={() => setQueueing(null)} onConfirm={confirmWaiting} />
+      ))}
+
       {picking && (
         <BookSheet
           slot={picking.slot} session={picking.session}
-          who={myPlayer} canPickPlayer={captainMode} players={players}
+          who={myPlayer} canPickPlayer={canPick} multi={!captainMode} players={bookable}
           quote={quote} onOpenTerms={onOpenTerms}
           onCancel={() => setPicking(null)} onConfirm={confirmBooking} />
       )}
@@ -698,7 +1037,7 @@ export default function LessonsBoard({
       {shown.length === 0 ? (
         <div style={{ ...S.card, textAlign: 'center', color: 'var(--muted)' }}>
           <div style={{ fontSize: '14px' }}>
-            {onDay.length ? `Nothing of that kind on ${dateLabel(day)}.` : `No lessons on ${dateLabel(day)}.`}
+            {onDay.length ? `Nothing of that kind on ${dateLabel(day)}.` : (captainMode ? `No lessons on ${dateLabel(day)}.` : `Nothing to book on ${dateLabel(day)}.`)}
           </div>
           {captainMode && <div style={{ ...S.hint, marginTop: '4px' }}>{clubSessions.length ? 'Add a slot or a session, or copy last week across.' : 'Add a slot, or copy last week across.'}</div>}
         </div>
@@ -709,19 +1048,26 @@ export default function LessonsBoard({
             setEditing(null); setPicking(null); setNote(''); setTaking(sl);
           }}
           onEdit={(sl) => { setPicking(null); setTaking(null); setNote(''); setEditing({ ...sl }); }}
-          onRemoveBooking={(sl, b) => onCancelBooking(sl, b)} />
+          onRemoveBooking={(sl, b) => onCancelBooking(sl, b)}
+          onWait={startWaiting} onLeaveWaiting={leaveWaiting} mineIds={isMineWaiting} />
       ) : (
-        <SlotCard key={slot.id} slot={slot} filter={filter === 'session' ? 'all' : filter} rates={rates} captainMode={captainMode}
+        <SlotCard key={slot.id} slot={slot} rates={rates} captainMode={captainMode}
           onPick={(sl, se) => {
             if (!captainMode && !canBookAsSelf) { setNote('Sign in to book a lesson.'); return; }
             setEditing(null); setTaking(null); setNote(''); setPicking({ slot: sl, session: se });
           }}
           onEdit={(sl) => { setPicking(null); setTaking(null); setNote(''); setEditing({ ...sl }); }}
-          onRemoveBooking={(sl, b) => onCancelBooking(sl, b)} />
+          onRemoveBooking={(sl, b) => onCancelBooking(sl, b)}
+          onWait={startWaiting} onLeaveWaiting={leaveWaiting} mineIds={isMineWaiting}
+          onResolveGroup={async (sl, action) => {
+            if (!onResolveGroup) return;
+            const res = await onResolveGroup(sl, action);
+            setNote((res && (res.message || res.error)) || '');
+          }} />
       )))}
 
       {/* Mine */}
-      {mine.length > 0 && (
+      {(mine.length > 0 || mineWaiting.length > 0) && (
         <div style={{ ...S.card, marginTop: '14px' }}>
           <div style={S.h}>{clubSessions.length ? 'Your bookings' : 'Your lessons'}</div>
           {mine.map(({ slot, booking }) => (
@@ -734,6 +1080,14 @@ export default function LessonsBoard({
                 {booking.ponyHire ? ' · pony hire' : ' · own pony'}
               </span>
               <button type="button" className="remove-btn" title="Cancel this lesson" onClick={() => onCancelBooking(slot, booking)}>×</button>
+            </div>
+          ))}
+          {mineWaiting.map(({ slot, entry, place }) => (
+            <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '4px 0', color: 'var(--muted)' }}>
+              <span style={{ flex: 1 }}>
+                {dateLabel(slot.date)} · {slot.start}–{slot.end} · {entry.type === 'session' ? ((kindOf(slot) && kindOf(slot).label) || slot.kind) : `${TYPE_LABEL[entry.type]} lesson`} · waiting list, number {place}
+              </span>
+              <button type="button" className="remove-btn" title="Leave the waiting list" onClick={() => leaveWaiting(slot, entry)}>×</button>
             </div>
           ))}
         </div>

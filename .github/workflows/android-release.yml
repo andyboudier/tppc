@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: true
+      site:
+        description: 'Which site the app loads: live, or dev for a test build (use the internal track)'
+        type: choice
+        options: [live, dev]
+        default: live
       play_track:
         description: 'Google Play track to upload to'
         type: choice
@@ -45,13 +50,13 @@ jobs:
           node-version: '22'
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
@@ -64,6 +69,31 @@ jobs:
 
       - name: Capacitor sync (Android)
         run: npx cap sync android
+        env:
+          APP_SITE: ${{ github.event.inputs.site || 'live' }}
+
+      # Native Google sign-in needs the club's Firebase config for the Android
+      # app; without it the sign-in plugin fails when the app starts. Stop
+      # here with a clear message instead of shipping that.
+      - name: Check the Firebase config for native sign-in
+        run: |
+          SITE="${{ github.event.inputs.site || 'live' }}"
+          if [ "$SITE" = "dev" ] && [ "${{ github.event.inputs.play_track || 'internal' }}" != "internal" ]; then
+            echo "::error::A build that loads the dev site may only go to the internal testing track."
+            exit 1
+          fi
+          # Always the live project's file, whichever site: Google lets an
+          # Android package + signing key belong to one project only, and
+          # the live project has them. The native side only fetches the
+          # Google credential; the site's own Firebase signs in with it, and
+          # the dev project safelists the live web client for that
+          # (docs/NATIVE_SIGN_IN.md).
+          SRC="android/firebase/live/google-services.json"
+          if [ ! -f "$SRC" ]; then
+            echo "::error::$SRC is missing. Download google-services.json for the Android app uk.co.tedworthparkpolo.chukkas from the live Firebase project and commit it there. See docs/NATIVE_SIGN_IN.md."
+            exit 1
+          fi
+          cp "$SRC" android/app/google-services.json
 
       - name: Decode upload keystore
         run: |
