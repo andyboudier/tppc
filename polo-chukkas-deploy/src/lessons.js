@@ -1,34 +1,37 @@
-// Coaching lessons: the windows a captain opens, and the bookings inside them.
+// Coaching lessons: the windows an admin puts on, and who books them.
 //
-// A captain does not book out individual hours — they say "the coach is free
-// Friday 13:00 to 15:00" and let people take what they need from it. So a slot
-// here is a WINDOW, and a booking takes a sub-range of it:
+// A slot is a WINDOW — "the coach is free 09:00–12:00" — sold by the hour.
+// The admin says what it may be booked as: individual lessons, group lessons
+// (with their own minimum and maximum), or either. A booking claims a range
+// inside it, and the rest of the window stays open:
 //
-//   Friday 13:00–15:00  ->  13:00 (1 hr)   14:00 (1 hr)   13:00 (2 hrs)
+//   individual  one rider has the coach for those hours; nobody else can
+//               book across them.
+//   group       riders join the same range until the maximum; a second group
+//               cannot overlap it (one coach, one string of ponies). Below
+//               the minimum it still takes bookings and shows "needs N more",
+//               and the admin decides — cancel it, make it an individual
+//               lesson (with one rider), or run it as a smaller group.
 //
-// which is exactly how the brief described it ("can either be booked as a
-// 1 hour or a 2 hour lesson"). Once someone takes 13:00–14:00 on their own,
-// the 2-hour option is gone but 14:00–15:00 is still there.
-//
-// Two kinds of lesson share a window:
-//
-//   individual  one rider has the coach to themselves for that range.
-//   group       several riders share one range. Groups need a minimum (4 by
-//               the brief); below it the session still takes bookings and is
-//               shown as not yet viable, because the captain — not the app —
-//               decides whether to run a short group.
+// So 09:00–12:00 with an individual lesson at 09:00 still offers 10:00 and
+// 11:00, for an hour or two, as individual or group.
 //
 // Everything here is pure: no storage, no React, no money. Pricing stays in
 // the app, because each club has its own rate card — Druids sells a
 // semi-private lesson where TPPC sells a group one, and neither uses the
 // other's ids. The app passes its card in as `rates`
-// ({ individual: { 1: '<id>', 2: '<id>' }, group: {…} }) and this module only
-// offers lengths that card actually prices: a club with no two-hour rate does
-// not offer two-hour lessons, rather than quoting a price nobody agreed.
+// ({ individual: { 1: '<id>', 2: '<id>' }, group: {…} }), and a type is only
+// offered for a slot whose length that card prices.
 
 export const MIN_GROUP = 4;      // the brief's "minimum 4 people"
 export const MAX_GROUP = 6;      // default cap; a slot may override it
 export const MAX_HOURS = 4;      // longest single booking we will offer
+
+// The most riders a ground takes: the arena is smaller, so six there and
+// eight anywhere else — the same numbers the chukka days cap at.
+export const ARENA_MAX = 6;
+export const FIELD_MAX = 8;
+export const groundCap = (ground) => (String(ground || '').trim().toLowerCase().includes('arena') ? ARENA_MAX : FIELD_MAX);
 
 // ── Times ───────────────────────────────────────────────────────────────────
 
@@ -95,19 +98,19 @@ export const blankSlot = (date) => ({
   id: '',
   date: date || '',
   start: '10:00',
-  end: '12:00',
+  end: '11:00',
   coach: '',
   ground: '',
-  // Empty means a coaching window, sliced up by the hour. A kind makes this a
+  // Empty means a coaching window, sold by the hour. A kind makes this a
   // club session instead — see "Club sessions" below.
   kind: '',
   individual: true,
   group: true,
   minGroup: MIN_GROUP,
   maxGroup: MAX_GROUP,
-  ponyHireDefault: true,   // the brief: pony hire ticked by default
   note: '',
   bookings: [],
+  waiting: [],
 });
 
 export const newSlotId = () => `ls-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -134,15 +137,15 @@ export const normaliseSlot = (raw) => {
     start: fmtHM(parseHM(raw.start) ?? 600),
     end: fmtHM(parseHM(raw.end) ?? 720),
     kind: String(raw.kind || '').trim(),
-    // A club session is one block at one price, so it is never also offered
-    // as a coaching window — otherwise the hour-by-hour machinery would find
-    // sub-ranges inside it and sell the same evening twice.
+    // A club session is one block at one price with its own places, so it is
+    // never also offered as an individual or group lesson — otherwise the
+    // same evening could be sold twice.
     individual: !String(raw.kind || '').trim() && raw.individual !== false,
     group: !String(raw.kind || '').trim() && raw.group !== false,
     minGroup: Math.max(1, Number(raw.minGroup) || MIN_GROUP),
     maxGroup: Math.max(1, Number(raw.maxGroup) || MAX_GROUP),
-    ponyHireDefault: raw.ponyHireDefault !== false,
     bookings: Array.isArray(raw.bookings) ? raw.bookings.filter(b => b && b.id && parseHM(b.start) !== null) : [],
+    waiting: Array.isArray(raw.waiting) ? raw.waiting.filter(w => w && w.id && (w.name || w.playerId)) : [],
   };
   return windowHours(slot) > 0 ? slot : null;
 };
@@ -157,10 +160,35 @@ export const normaliseSlots = (raw) => {
 export const bySlotTime = (a, b) =>
   a.date === b.date ? (parseHM(a.start) - parseHM(b.start)) : (a.date < b.date ? -1 : 1);
 
-// ── What can be booked in a window ──────────────────────────────────────────
+// ── What a slot can be booked as ────────────────────────────────────────────
 
-// Every whole-hour sub-range of the window, shortest first at each start.
-// A 2-hour window yields 13:00 1hr, 13:00 2hr, 14:00 1hr.
+// Kept for callers that list the lengths a card prices.
+export const hoursOffered = (rates, type) =>
+  Object.keys((rates && rates[type]) || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+
+const lessonBookings = (slot) => (slot.bookings || []).filter(b => b.type === 'individual' || b.type === 'group');
+
+// ── What can be booked in a window ──────────────────────────────────────────
+//
+// A window is the coach's time, sold by the hour. An individual lesson owns
+// its hours outright; a group shares its hours only with itself (one coach,
+// one string of ponies); whatever is left of the window stays open to either.
+// So a 09:00–12:00 window with an individual lesson at 09:00 still offers
+// 10:00–11:00, 11:00–12:00 and 10:00–12:00, as individual or as group.
+
+const spanOf = (start, hours) => {
+  const a = parseHM(start);
+  return a === null ? null : [a, a + (Number(hours) || 1) * 60];
+};
+const clash = (aStart, aHours, bStart, bHours) => {
+  const a = spanOf(aStart, aHours), b = spanOf(bStart, bHours);
+  return !!a && !!b && a[0] < b[1] && b[0] < a[1];
+};
+export const sameRange = (b, start, hours) => b.start === start && (Number(b.hours) || 1) === Number(hours);
+
+// Every whole-hour sub-range of the window, shortest first at each start —
+// a 2-hour window yields 13:00 1hr, 13:00 2hr, 14:00 1hr. `lengths` limits
+// it to the lengths the club prices.
 export function sessionOptions(slot, lengths) {
   const total = windowHours(slot);
   if (!total || isClubSession(slot)) return [];
@@ -177,90 +205,94 @@ export function sessionOptions(slot, lengths) {
   return out;
 }
 
-// What each kind of lesson may be booked as, given the club's own rate card:
-// a club with no two-hour rate simply does not offer two-hour lessons, rather
-// than being quoted a price nobody agreed. `rates` is { individual: {1:id,…} }.
-export const hoursOffered = (rates, type) =>
-  Object.keys((rates && rates[type]) || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
-
-const spanOf = (start, hours) => {
-  const a = parseHM(start);
-  return a === null ? null : [a, a + hours * 60];
+// The groups in a slot, one per range, with who is in each.
+export const groupBookings = (slot, start, hours) => (slot.bookings || []).filter(b => b.type === 'group'
+  && (start == null || sameRange(b, start, hours)));
+export const groupRanges = (slot) => {
+  const seen = new Map();
+  for (const b of groupBookings(slot)) {
+    const key = `${b.start} ${Number(b.hours) || 1}`;
+    if (!seen.has(key)) seen.set(key, { start: b.start, hours: Number(b.hours) || 1, riders: [] });
+    seen.get(key).riders.push(b);
+  }
+  return [...seen.values()].sort((a, b) => parseHM(a.start) - parseHM(b.start));
 };
 
-const clash = (aStart, aHours, bStart, bHours) => {
-  const a = spanOf(aStart, aHours), b = spanOf(bStart, bHours);
-  if (!a || !b) return false;
-  return a[0] < b[1] && b[0] < a[1];
-};
-
-export const sameSession = (b, start, hours, type) =>
-  b.start === start && Number(b.hours) === hours && b.type === type;
-
-// Who is already in this exact group session.
-export const groupBookings = (slot, start, hours) =>
-  (slot.bookings || []).filter(b => sameSession(b, start, hours, 'group'));
-
-// Why an option cannot be taken, or null if it can.
-//
-// An individual booking owns its range outright. A group session shares its
-// range only with itself: two different groups cannot run at once, because
-// there is one coach and one string of ponies.
+// Why a range cannot be booked as `type`, or null if it can.
 export function blockedReason(slot, start, hours, type, rates) {
-  if (isClubSession(slot)) return 'That is a club session, not a coaching window.';
+  if (isClubSession(slot)) return 'That is a club session, not a lesson.';
+  if (type !== 'individual' && type !== 'group') return 'Unknown lesson type.';
   if (type === 'individual' && !slot.individual) return 'Individual lessons are not offered in this slot.';
   if (type === 'group' && !slot.group) return 'Group lessons are not offered in this slot.';
-  if (rates && !hoursOffered(rates, type).includes(hours)) return `The club has no ${hours}-hour ${type} rate.`;
-  const opts = sessionOptions(slot);
-  if (!opts.some(o => o.start === start && o.hours === hours)) return 'That is outside the slot.';
-
-  for (const b of (slot.bookings || [])) {
+  const h = Number(hours) || 1;
+  if (rates && !hoursOffered(rates, type).includes(h)) return `The club has no ${h}-hour ${type} rate.`;
+  if (!sessionOptions(slot).some(o => o.start === start && o.hours === h)) return 'That is outside the slot.';
+  for (const b of lessonBookings(slot)) {
     const bh = Number(b.hours) || 1;
-    if (!clash(start, hours, b.start, bh)) continue;
+    if (!clash(start, h, b.start, bh)) continue;
     if (b.type === 'individual') return `Taken — ${b.name || 'someone'} has ${rangeLabel(b.start, bh)}.`;
     if (type === 'individual') return `Taken — a group has ${rangeLabel(b.start, bh)}.`;
-    if (!sameSession(b, start, hours, 'group')) return `A group already has ${rangeLabel(b.start, bh)}.`;
+    if (!sameRange(b, start, h)) return `A group already has ${rangeLabel(b.start, bh)}.`;
   }
-  if (type === 'group' && groupBookings(slot, start, hours).length >= slot.maxGroup) return 'That group is full.';
+  if (type === 'group' && groupBookings(slot, start, h).length >= Math.max(1, Number(slot.maxGroup) || MAX_GROUP)) return 'That group is full.';
   return null;
 }
 
 export const canBook = (slot, start, hours, type, rates) => blockedReason(slot, start, hours, type, rates) === null;
 
-// The options actually worth showing, each with its state.
-export function availableSessions(slot, rates) {
+// What the slot offers right now, one entry per type, each with the ranges
+// still free (`combos`) and, for a group, the groups already going that can
+// be joined. A type with nothing free and nothing to join is not returned.
+export function slotOptions(slot, rates) {
   if (isClubSession(slot)) return [];
+  const min = Math.max(1, Number(slot.minGroup) || MIN_GROUP);
+  const max = Math.max(1, Number(slot.maxGroup) || MAX_GROUP);
   const out = [];
   for (const type of ['individual', 'group']) {
-    if (type === 'individual' && !slot.individual) continue;
-    if (type === 'group' && !slot.group) continue;
-    for (const o of sessionOptions(slot, rates ? hoursOffered(rates, type) : null)) {
-      const reason = blockedReason(slot, o.start, o.hours, type, rates);
-      const joined = type === 'group' ? groupBookings(slot, o.start, o.hours).length : 0;
-      out.push({
-        ...o, type, blocked: reason, joined,
-        needs: type === 'group' ? Math.max(0, slot.minGroup - joined) : 0,
-        spots: type === 'group' ? Math.max(0, slot.maxGroup - joined) : (reason ? 0 : 1),
-      });
-    }
+    if (!slot[type]) continue;
+    const lengths = rates ? hoursOffered(rates, type) : null;
+    const combos = sessionOptions(slot, lengths).filter(o => !blockedReason(slot, o.start, o.hours, type, rates));
+    const joinable = type === 'group'
+      ? groupRanges(slot).filter(g => g.riders.length < max).map(g => ({
+          start: g.start, hours: g.hours, label: rangeLabel(g.start, g.hours), joined: g.riders.length, min, max,
+          needs: Math.max(0, min - g.riders.length), spots: Math.max(0, max - g.riders.length),
+        }))
+      : [];
+    // Ranges a group is already in are offered as joins, not as fresh groups.
+    const fresh = type === 'group' ? combos.filter(c => !joinable.some(j => j.start === c.start && j.hours === c.hours)) : combos;
+    if (!fresh.length && !joinable.length) continue;
+    out.push({ type, min, max, combos: fresh, joinable });
   }
   return out;
 }
 
-// A group that has not reached its minimum yet — shown, but flagged.
-export const groupShort = (slot, start, hours) => {
-  const n = groupBookings(slot, start, hours).length;
-  return n > 0 && n < slot.minGroup;
+// Groups that have people in them but not yet their minimum — the admin's call.
+export const shortGroups = (slot) => groupRanges(slot).filter(g => g.riders.length < Math.max(1, Number(slot.minGroup) || MIN_GROUP));
+export const groupShort = (slot) => shortGroups(slot).length > 0;
+
+// The admin's answers to a short group, as new slots (money stays in the app).
+//   runSmaller  the minimum comes down to the riders the smallest group has.
+export const runAsSmallerGroup = (slot) => {
+  const n = Math.min(...shortGroups(slot).map(g => g.riders.length));
+  return { ...slot, minGroup: Math.max(1, Number.isFinite(n) ? n : 1) };
 };
+//   toIndividual  a group of one becomes an individual lesson over the same
+//   hours; the slot offers individual from now on, since that is what it is.
+export function groupToIndividual(slot) {
+  const g = shortGroups(slot).find(x => x.riders.length === 1);
+  if (!g) return { ok: false, error: 'Only a group of one can become an individual lesson.', slot };
+  const booking = { ...g.riders[0], type: 'individual' };
+  return { ok: true, booking, slot: { ...slot, individual: true, bookings: (slot.bookings || []).map(b => (b.id === booking.id ? booking : b)) } };
+}
 
 // ── Club sessions ───────────────────────────────────────────────────────────
 //
-// A coaching window is the coach's availability, sold by the hour and sliced
-// up. A club session is not: it is one block of time at one price with a set
-// number of places, and you are either in it or you are not. Tedworth's Ladies
-// Only and Instructional Chukkas evenings are that shape — an hour, two
-// chukkas, up to eight riders — and putting them through the window machinery
-// would offer sub-ranges of an evening that is sold whole.
+// A coaching lesson is offered as individual or group and becomes whichever
+// is booked first. A club session is neither: it is one block of time at one
+// price with a set number of places, and you are either in it or you are not.
+// Tedworth's Ladies Only and Instructional Chukkas evenings are that shape —
+// an hour, two chukkas, up to eight riders — priced from the chukka tariff
+// rather than the lesson rate card.
 //
 // So a slot carries a `kind`, and a kind makes it a session. What the kinds
 // ARE — their names, their length, their places and above all their price —
@@ -311,22 +343,90 @@ export function addClubSessionBooking(slot, rider) {
   // start and hours come from the slot, not the caller: a place is the whole
   // session, and letting them be passed in is how half-sessions would appear.
   const entry = {
-    id: newBookingId(), at: Date.now(), ponyHire: true, ...rider,
+    id: newBookingId(), at: Date.now(), ponyHire: false, ...rider,
     type: 'session', kind: slot.kind, start: slot.start, hours: windowHours(slot) || 1,
   };
   return { ok: true, slot: { ...slot, bookings: [...(slot.bookings || []), entry] }, booking: entry };
 }
 
+// ── Waiting lists ───────────────────────────────────────────────────────────
+//
+// A full club session, or a coaching window with nothing left, takes a
+// waiting list on the slot itself (`slot.waiting`, in order). An entry says
+// who, and what they would take:
+//   session                       a place in the session
+//   individual | group, hours     any free range of that length in the window
+//                                 (a group may also join one already going)
+// Joining costs nothing and is not a booking. When a place or an hour comes
+// free, `promoteWaiting` books the first entries that now fit, in order, and
+// reports them so the app can tell each one.
+
+export const waitingFor = (slot) => (slot && Array.isArray(slot.waiting) ? slot.waiting : []);
+
+export function addWaiting(slot, entry) {
+  const list = waitingFor(slot);
+  if (list.some(w => sameRider(w, entry || {}))) return { ok: false, error: `${(entry && entry.name) || 'They'} ${entry && entry.name ? 'is' : 'are'} already on the waiting list.`, slot };
+  if ((slot.bookings || []).some(b => sameRider(b, entry || {}))) return { ok: false, error: `${(entry && entry.name) || 'They'} already ${entry && entry.name ? 'has' : 'have'} a place.`, slot };
+  const type = isClubSession(slot) ? 'session' : (entry.type === 'group' ? 'group' : 'individual');
+  const w = { id: newBookingId(), at: Date.now(), ponyHire: false, ...entry, type,
+    hours: type === 'session' ? (windowHours(slot) || 1) : Math.max(1, Number(entry.hours) || 1) };
+  return { ok: true, slot: { ...slot, waiting: [...list, w] }, entry: w };
+}
+
+export const removeWaiting = (slot, waitId) => ({ ...slot, waiting: waitingFor(slot).filter(w => w.id !== waitId) });
+
+// Book whoever on the waiting list now fits, first come first served. A
+// group entry joins a group already going in preference to starting one.
+export function promoteWaiting(slot, rates) {
+  let next = slot;
+  const promoted = [];
+  for (const w of waitingFor(slot)) {
+    let res = null;
+    const rider = { playerId: w.playerId || '', name: w.name, ponyHire: !!w.ponyHire, uid: w.uid || '', bookedBy: w.bookedBy || '', promotedAt: Date.now(), waitedSince: w.at };
+    if (w.type === 'session') {
+      if (clubSessionSpots(next) <= 0) continue;
+      res = addClubSessionBooking(next, rider);
+    } else {
+      const opts = slotOptions(next, rates).find(o => o.type === w.type);
+      if (!opts) continue;
+      const join = w.type === 'group' ? opts.joinable.find(j => j.hours === w.hours) : null;
+      const fresh = opts.combos.find(c => c.hours === w.hours);
+      const pick = join || fresh;
+      if (!pick) continue;
+      res = addBooking(next, { ...rider, type: w.type, start: pick.start, hours: pick.hours }, rates);
+    }
+    if (!res || !res.ok) continue;
+    next = removeWaiting(res.slot, w.id);
+    promoted.push({ waiting: w, booking: res.booking });
+  }
+  return { slot: next, promoted };
+}
+
+// Everything a player is waiting for, soonest slot first.
+export function waitingEntriesFor(slots, { playerId, name }) {
+  const out = [];
+  const n = (x) => String(x || '').trim().toLowerCase();
+  for (const s of slots) {
+    waitingFor(s).forEach((w, i) => {
+      const mine = (playerId && w.playerId === playerId) || (!w.playerId && name && n(w.name) === n(name));
+      if (mine) out.push({ slot: s, entry: w, place: i + 1 });
+    });
+  }
+  return out.sort((x, y) => bySlotTime(x.slot, y.slot));
+}
+
 // ── Bookings ────────────────────────────────────────────────────────────────
 
 export function addBooking(slot, booking, rates) {
-  const reason = blockedReason(slot, booking.start, Number(booking.hours) || 1, booking.type, rates);
+  const start = booking.start || slot.start;
+  const hours = Math.max(1, Number(booking.hours) || 1);
+  const reason = blockedReason(slot, start, hours, booking.type, rates);
   if (reason) return { ok: false, error: reason, slot };
-  if ((slot.bookings || []).some(b => b.playerId && b.playerId === booking.playerId
-      && clash(booking.start, Number(booking.hours) || 1, b.start, Number(b.hours) || 1))) {
-    return { ok: false, error: `${booking.name || 'They'} already have a lesson at that time.`, slot };
+  const bh = (b) => Number(b.hours) || 1;
+  if (lessonBookings(slot).some(b => b.playerId && b.playerId === booking.playerId && clash(start, hours, b.start, bh(b)))) {
+    return { ok: false, error: `${booking.name || 'They'} already ${booking.name ? 'has' : 'have'} a lesson then.`, slot };
   }
-  const entry = { id: newBookingId(), at: Date.now(), ponyHire: true, ...booking, hours: Number(booking.hours) || 1 };
+  const entry = { id: newBookingId(), at: Date.now(), ponyHire: false, ...booking, start, hours };
   return { ok: true, slot: { ...slot, bookings: [...(slot.bookings || []), entry] }, booking: entry };
 }
 
@@ -366,7 +466,7 @@ export function copyWeek(slots, fromMonday, toMonday) {
     const key = `${date} ${s.start} ${s.end}`;
     if (taken.has(key)) { skipped.push(s); continue; }
     taken.add(key);
-    made.push({ ...s, id: newSlotId(), date, bookings: [] });
+    made.push({ ...s, id: newSlotId(), date, bookings: [], waiting: [] });
   }
   return { slots: [...slots, ...made].sort(bySlotTime), made, skipped };
 }
