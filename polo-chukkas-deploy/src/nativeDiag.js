@@ -8,7 +8,12 @@ import { Capacitor } from '@capacitor/core';
 export function installNativeDiag() {
   if (!Capacitor.isNativePlatform()) return;
   let taps = [];
-  document.addEventListener('click', () => {
+  // iPhones do not always send a click for a tap on plain background, so
+  // count touches (and clicks, for Android) — one per tap either way.
+  let lastTouch = 0;
+  const onTap = (e) => {
+    if (e.type === 'touchend') lastTouch = Date.now();
+    else if (Date.now() - lastTouch < 800) return;
     const now = Date.now();
     taps = taps.filter((t) => now - t < 3000).concat(now);
     if (taps.length < 6 || document.getElementById('native-diag')) return;
@@ -28,5 +33,7 @@ export function installNativeDiag() {
     box.textContent = `App check\n\n${lines.join('\n')}\n\n(Tap this box to close. A screenshot of it helps.)`;
     box.addEventListener('click', (e) => { e.stopPropagation(); box.remove(); });
     document.body.appendChild(box);
-  }, true);
+  };
+  document.addEventListener('touchend', onTap, { capture: true, passive: true });
+  document.addEventListener('click', onTap, true);
 }
