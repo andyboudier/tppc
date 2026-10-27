@@ -633,7 +633,10 @@ amendment and cancellation — chukkas, waiting lists, lessons, sessions,
 tournament entries — is also sent to the office, `NOTIFY` in `_club.js`
 (info@, helen@, bradley@tedworthparkpolo.com; `NOTIFY_EMAILS` in Vercel
 overrides). The office copy is not held back by `REMINDERS_ALLOW`, which still
-gates the member's own email.
+gates the member's own email. A cancellation carries the entry's name as well as
+its `playerId` (`cancelWho`), so removing a captain-typed entry with no
+player record still tells the office and the admins' phones; only the
+member's own email needs the record.
 
 **Push notifications (web only).** `src/push.js` subscribes a browser (Home's
 footer: "Turn on notifications") and keeps the subscription in the shared doc
