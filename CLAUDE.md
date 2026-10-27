@@ -16,6 +16,22 @@ secret that must not pass through the chat, or when it is destructive or
 irreversible enough to confirm first (deleting data, wiping DNS, spending money,
 publishing to the live clubs). Check the result afterwards either way.
 
+The owner has asked, more than once, not to be asked permission. So do not end
+a reply with "Shall I…?" or "Do you want me to…?" for a follow-up that is part
+of the request or plainly helps it and can be undone — do it, then say what was
+done. Ask only for the exceptions above, or for a choice that really is the
+owner's to make (wording members will read, money, who is an admin).
+`.claude/settings.json` pre-approves the tools this work uses, so the session
+does not stop for prompts either; the mode dropdown's **Auto** covers the rest.
+
+**Did that email go?** Every booking email, refused booking-email request and
+reminder run is written to the shared document `email-log` (newest 500 rows,
+`logEmail` in `api/_reminders.js`): when, what, member sent or why not, office
+sent or why not, phones pushed, and Resend's ids. No addresses, because the
+shared collection is readable without signing in. Read it with
+`GET …/documents/shared/email-log?key=<web API key>`; Vercel Hobby keeps only
+an hour of logs, so this is the record.
+
 ## Keep all four apps in sync
 
 TPPC is one of **four near-identical apps** — three clubs and the PoloACT demo:

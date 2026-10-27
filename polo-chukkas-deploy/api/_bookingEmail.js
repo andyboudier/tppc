@@ -36,7 +36,7 @@
 
 import {
   DAYS, storageKey, longDate, londonParts, makeReader, projectOf, recordFor, json, crestImg, signOff, settings, CLUB,
-  esc, firstName, normEmail, normName, SESSION_NAMES, sendMail, notifyList,
+  esc, firstName, normEmail, normName, SESSION_NAMES, sendMail, notifyList, logEmail, resendId,
 } from './_reminders.js';
 import { pushTo } from './_push.js';
 
@@ -334,7 +334,8 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
       const mail = renderBookingEmail({ req, found, person, appUrl });
       const r = await sendMail(env, fetchImpl, { to, subject: mail.subject, html: mail.html, text: mail.text });
       out.sent = r.ok;
-      if (!r.ok) out.why = `Resend ${r.status}`;
+      if (r.ok) out.id = await resendId(r);
+      else out.why = `Resend ${r.status}`;
     }
   }
 
@@ -343,8 +344,9 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
   const office = notifyList(env);
   if (office.length && canMail) {
     const r = await sendMail(env, fetchImpl, { to: office, subject: note.subject, html: note.html, text: note.text });
-    if (r.ok) out.notified = office.length;
-  }
+    if (r.ok) { out.notified = office.length; out.officeId = await resendId(r); }
+    else out.officeWhy = `Resend ${r.status}`;
+  } else out.officeWhy = office.length ? 'No RESEND_API_KEY.' : 'No office addresses.';
 
   // Phones: the admins for every event, and the member booked in from a
   // waiting list.
@@ -357,5 +359,14 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
       { title: 'A place came up — you’re booked', body: pushBody, url: appUrl, tag: 'promoted' });
     out.pushed += m.sent || 0;
   }
+
+  // What went, for the log (no addresses: see logEmail).
+  await logEmail(env, fetchImpl, {
+    at: now, type: 'booking', event: req.event, kind: req.kind, promoted: !!req.promoted,
+    who: note.who, what: `${found.title}${note.when ? ` · ${note.when}` : ''}`,
+    member: req.kind === 'tournament' ? 'none' : out.sent ? 'sent' : (out.why || 'not sent'),
+    office: out.notified ? 'sent' : (out.officeWhy || 'not sent'), pushed: out.pushed,
+    ids: [out.id, out.officeId].filter(Boolean),
+  });
   return { status: 200, body: out };
 }
