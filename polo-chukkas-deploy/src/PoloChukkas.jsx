@@ -1740,6 +1740,13 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const rec = playerDb.find(x => sameName(x.name, entry.name));
     return rec ? rec.id : null;
   };
+  // Whose booking a cancellation was, for its email: the player record when
+  // the entry has one, and the name always. A captain-typed entry has no
+  // record, and the office and the admins still need telling it went.
+  const cancelWho = (entry) => {
+    const pid = playerIdFor(entry);
+    return { ...(pid != null ? { playerId: String(pid) } : {}), name: String((entry && entry.name) || '').trim().slice(0, 80) };
+  };
   const entryIsMe = (p) => !!(p && myPlayer && (p.playerId === myPlayer.id || (!p.playerId && sameName(p.name, myPlayer.name))));
   const entryIsTeammate = (p) => !!(p && teammates.some(t => p.playerId === t.id || (!p.playerId && sameName(p.name, t.name))));
   const canRemoveEntry = (p) => {
@@ -2964,10 +2971,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const freed = { ...current, bookings: (current.bookings || []).filter(b => !ids.has(b.id)) };
     const { slot: next, promoted } = promoteLessonWaiting(freed, LESSON_SLOT_RATES);
     await saveLessonSlots(lessonSlots.map(s => (s.id === slot.id ? next : s)));
-    bookings.forEach(b => {
-      const pid = playerIdFor(b);
-      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'lesson', slotId: slot.id, bookingId: b.id, playerId: String(pid), type: b.type });
-    });
+    bookings.forEach(b => bookingEmail({ event: 'cancelled', kind: 'lesson', slotId: slot.id, bookingId: b.id, type: b.type, ...cancelWho(b) }));
     promoted.forEach(({ booking }) => bookingEmail({ event: 'booked', kind: 'lesson', slotId: slot.id, bookingId: booking.id, promoted: true }));
     return promoted;
   };
@@ -3002,8 +3006,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     if (!mine) return { error: 'You can take yourself or your team off the waiting list.' };
     const current = lessonSlots.find(s => s.id === slot.id) || slot;
     await saveLessonSlots(lessonSlots.map(s => (s.id === current.id ? removeLessonWaiting(current, entry.id) : s)));
-    const pid = playerIdFor(entry);
-    if (pid != null) bookingEmail({ event: 'cancelled', kind: 'lessonwait', slotId: current.id, bookingId: entry.id, playerId: String(pid) });
+    bookingEmail({ event: 'cancelled', kind: 'lessonwait', slotId: current.id, bookingId: entry.id, ...cancelWho(entry) });
     return { message: `${entry.name} is off the waiting list.` };
   };
   const cancelLessonBooking = (slot, booking) => cancelLessonBookings(slot, [booking]);
@@ -3684,8 +3687,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const gone = players.find(p => p.id === id);
     const day = activeDay;
     saveRoster(players.filter(p => p.id !== id)).then(() => {
-      const pid = playerIdFor(gone);
-      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'chukka', day, entryId: String(id), playerId: String(pid) });
+      if (gone) bookingEmail({ event: 'cancelled', kind: 'chukka', day, entryId: String(id), ...cancelWho(gone) });
     });
     saveSchedule(null);
   };
@@ -3749,8 +3751,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
     const gone = waitingList.find(w => w.id === id);
     const day = activeDay;
     saveWaitlist(waitingList.filter(w => w.id !== id)).then(() => {
-      const pid = playerIdFor(gone);
-      if (pid != null) bookingEmail({ event: 'cancelled', kind: 'waitlist', day, entryId: String(id), playerId: String(pid) });
+      if (gone) bookingEmail({ event: 'cancelled', kind: 'waitlist', day, entryId: String(id), ...cancelWho(gone) });
     });
   };
 
