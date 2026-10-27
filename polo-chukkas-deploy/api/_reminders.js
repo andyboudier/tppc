@@ -70,27 +70,46 @@ export async function sendMail(env, fetchImpl, { to, subject, html, text }) {
 // what was sent, so "did that email go?" can be answered without Resend's
 // dashboard. No addresses — the shared collection is readable by anyone — just
 // what was sent, whether it went, and Resend's id to look it up there.
-// Best effort: a failed log write never stops or fails a send.
+// Best effort: a failed log write never stops or fails a send. Where the
+// rules want a signed-in writer (Druids, Vaux), it signs in anonymously, as
+// the app itself does there; the token is kept while the function is warm.
 export const LOG_KEEP = 500;
+let anon = { token: '', until: 0 };
+async function anonToken(apiKey, fetchImpl) {
+  if (anon.token && Date.now() < anon.until) return anon.token;
+  const r = await fetchImpl(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }),
+  });
+  if (!r.ok) return '';
+  const d = await r.json();
+  anon = { token: d.idToken || '', until: Date.now() + (Number(d.expiresIn || 3600) - 300) * 1000 };
+  return anon.token;
+}
 export async function logEmail(env, fetchImpl, rows) {
   const list = (Array.isArray(rows) ? rows : [rows]).filter(Boolean);
   if (!list.length) return false;
   const { projectId, apiKey } = projectOf(env);
   const doc = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/shared/email-log`;
   const key = apiKey ? `key=${apiKey}` : '';
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  let token = anon.token && Date.now() < anon.until ? anon.token : '';
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      const r = await fetchImpl(`${doc}${key ? `?${key}` : ''}`);
-      if (!r.ok && r.status !== 404) return false;
+      const auth = token ? { Authorization: `Bearer ${token}` } : {};
+      const r = await fetchImpl(`${doc}${key ? `?${key}` : ''}`, { headers: auth });
+      if (!r.ok && r.status !== 404) {
+        if (r.status === 403 && !token && apiKey && (token = await anonToken(apiKey, fetchImpl))) continue;
+        return false;
+      }
       const d = r.ok ? await r.json() : null;
       const old = json(d && d.fields && d.fields.value ? d.fields.value.stringValue : null, []);
       const next = [...(Array.isArray(old) ? old : []), ...list].slice(-LOG_KEEP);
       const guard = d ? `currentDocument.updateTime=${encodeURIComponent(d.updateTime)}` : 'currentDocument.exists=false';
       const w = await fetchImpl(`${doc}?updateMask.fieldPaths=value&${guard}${key ? `&${key}` : ''}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...auth },
         body: JSON.stringify({ fields: { value: { stringValue: JSON.stringify(next) } } }),
       });
       if (w.ok) return true;
+      if (w.status === 403 && !token && apiKey && (token = await anonToken(apiKey, fetchImpl))) continue;
     } catch (e) { return false; }
   }
   return false;
