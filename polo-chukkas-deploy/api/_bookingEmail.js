@@ -350,11 +350,11 @@ export async function sendBookingEmail({ req, idToken, env, fetchImpl = fetch, n
   // waiting list.
   const title = `${note.who} ${note.verb}`;
   const pushBody = `${found.title}${note.when ? ` · ${note.when}` : ''}`;
-  const a = await pushTo(env, read, { emails: admins }, { title, body: pushBody, url: appUrl, tag: `${req.kind}-${req.event}` });
+  const a = await pushTo(env, read, { emails: admins }, { title, body: pushBody, url: appUrl, tag: `${req.kind}-${req.event}` }, fetchImpl);
   out.pushed += a.sent || 0;
   if (req.promoted && person) {
     const m = await pushTo(env, read, { emails: [to], uids: [found.entry && found.entry.uid] },
-      { title: 'A place came up — you’re booked', body: pushBody, url: appUrl, tag: 'promoted' });
+      { title: 'A place came up — you’re booked', body: pushBody, url: appUrl, tag: 'promoted' }, fetchImpl);
     out.pushed += m.sent || 0;
   }
   return { status: 200, body: out };

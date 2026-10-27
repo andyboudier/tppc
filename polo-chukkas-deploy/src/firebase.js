@@ -28,6 +28,11 @@ const FROM_ENV = env.VITE_FIREBASE_PROJECT_ID ? {
 } : null;
 
 export const firebaseConfig = FROM_ENV || LIVE;
+// The store apps' Android build always carries the live project's
+// google-services.json (an Android package can be registered in one project
+// only), so a phone's push token there belongs to the live project even when
+// the app shows the dev site — src/push.js records which.
+export const LIVE_PROJECT_ID = LIVE.projectId;
 
 // The one mistake that must be impossible: a dev build quietly falling back to
 // the club's live data because its variables were missing. Design work clears

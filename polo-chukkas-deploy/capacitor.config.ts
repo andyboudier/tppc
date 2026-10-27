@@ -49,14 +49,16 @@ const config: CapacitorConfig = {
       showSpinner: false,
       splashImmersive: true,
     },
-    PushNotifications: {
-      presentationOptions: ['badge', 'sound', 'alert'],
-    },
     StatusBar: {
       style: 'DARK', // dark icons on the cream header
       backgroundColor: '#f4ecd8',
       overlaysWebView: false,
     },
+    // Native push (@capacitor-firebase/messaging): admins hear of every
+    // booking event, and a member booked in from a waiting list hears too,
+    // through Firebase Cloud Messaging (APNs on iPhone). src/push.js keeps
+    // each phone's token in push-subs; api/_push.js sends. Shown even with
+    // the app open.
     FirebaseMessaging: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
@@ -80,6 +82,7 @@ const config: CapacitorConfig = {
         // package name (capawesome-team/capacitor-firebase#959).
         packageOptions: {
           '@capacitor-firebase/authentication': { symlink: true },
+          '@capacitor-firebase/messaging': { symlink: true },
         },
         // Google Sign-In only: leave the Facebook SDK out of the app.
         packageTraits: {

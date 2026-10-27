@@ -36,7 +36,7 @@ ls -1 node_modules/@capacitor 2>&1 || echo "(none)"
 
 # Fail loudly (with a directory listing) if any SPM-referenced plugin package is
 # still missing, so the cause is obvious in the build logs.
-for p in app splash-screen status-bar local-notifications push-notifications ios; do
+for p in app splash-screen status-bar local-notifications ios; do
   if [ ! -d "node_modules/@capacitor/$p" ]; then
     echo "ERROR: node_modules/@capacitor/$p missing after npm install" >&2
     ls -la node_modules/@capacitor 2>/dev/null || echo "(no node_modules/@capacitor at all)"

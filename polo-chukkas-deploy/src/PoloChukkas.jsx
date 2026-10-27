@@ -5950,7 +5950,7 @@ const [ponyHire, setPonyHire] = useState(false);  // signup: needs to hire a pon
   const [pushMessage, setPushMessage] = useState('');
   useEffect(() => {
     if (!auth.user || !pushSupported()) { setPushStatus('unsupported'); return; }
-    pushState().then(setPushStatus).catch(() => {});
+    pushState({ uid: auth.user.uid, email: auth.user.email }).then(setPushStatus).catch(() => {});
   }, [auth.user && auth.user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
   const togglePush = async () => {
     setPushMessage('');

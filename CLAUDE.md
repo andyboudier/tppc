@@ -243,12 +243,15 @@ The three clubs' Watch apps show the notice too, above their tabs — `Notice`,
 `ios/App/<club> Watch Watch App/ContentView.swift`. No push is involved: the
 Watch already reads `shared/<key>` from the Firestore REST API, so this is one
 more fetch of the same document. Two lines with the whole notice on a tap, and
-no dismiss on the wrist. Push notifications proper are **not** wired anywhere:
-`@capacitor/push-notifications` is a dependency and `capacitor.config.ts`
-declares options, but there is no entitlement, no `aps-environment`, no
-`registerForRemoteNotifications`, and nothing stores tokens or sends. The
-Live Activity is local too (`pushType: nil`). The demo has no native project,
-so nothing Watch-shaped applies to it.
+no dismiss on the wrist. Push notifications reach the store apps from 1.2.0
+(see "Push notifications" below and `docs/NATIVE_PUSH.md`). The live-score
+Live Activity is local (`pushType: nil`): the app starts and updates it while
+it is open. `LiveScoreActivityPlugin` lives inside the app, so Capacitor 8
+does not register it from `packageClassList`; `MainViewController.swift`
+(Main.storyboard's bridge view controller) registers it in
+`capacitorDidLoad` — before 1.2.0 nothing did, and the Live Activity could
+not start. The demo has no native project, so nothing Watch-shaped applies
+to it.
 
 Coaching lessons live behind a captain-only **Lessons** tab (`lessons.js` for
 the model, `LessonsBoard.jsx` for the diary; both in the demo's resync list,
@@ -646,7 +649,18 @@ booked in from a waiting list; who is an admin is decided on the server, never
 from the subscription. It needs `VITE_VAPID_PUBLIC_KEY`, `VAPID_PUBLIC_KEY`,
 `VAPID_SUBJECT` and the sensitive `VAPID_PRIVATE_KEY` on the Vercel project;
 without the private key nothing is sent. On an iPhone it works only from the
-Home Screen web app. The store apps would need APNs/FCM, which is not wired.
+Home Screen web app. **In the store apps (1.2.0 on)** the same switch uses
+the phone's own notifications: `@capacitor-firebase/messaging` gives a
+Firebase Cloud Messaging token, stored in `push-subs` as `{ fcm, platform,
+project }` (`@capacitor/push-notifications` is gone — the two plugins
+clash). `pushTo` sends those through FCM HTTP v1, signed with a service
+account per project from any `FIREBASE_SERVICE_ACCOUNT*` variable on the
+Vercel project (an RS256 JWT with Node's crypto, no library). An iPhone
+token belongs to the site's own project (dev or live, set when the app is
+built); an Android one always to the live project, which is why TPPC-Dev
+holds both keys. `AppDelegate.swift` hands the APNs token to the plugin, the
+App ID has Push Notifications, and the APNs key is uploaded in each Firebase
+project — owner steps in `docs/NATIVE_PUSH.md`.
 
 **Lesson waiting lists.** A full club session (Ladies, Instructional) or a
 coaching window with no length left offers **Join the waiting list**

@@ -106,7 +106,7 @@ app and plist.
 - **Scene lifecycle (iOS 27).** An app built with the iOS 27 SDK that has
   not adopted UIScene stops at launch. `App/SceneDelegate.swift` and the
   scene manifest in `Info.plist` do that; keep both.
-- **Version.** Both apps are now **1.1.0**. That is `MARKETING_VERSION` in the
+- **Version.** Both apps are now **1.2.0** (native notifications; 1.1.0 brought native sign-in). That is `MARKETING_VERSION` in the
   Xcode project for the app, widget and Watch targets, and `versionName` in
   `android/app/build.gradle`. Change them together.
 
