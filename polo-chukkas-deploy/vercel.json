@@ -69,5 +69,10 @@
       "source": "/__/firebase/:path*",
       "destination": "https://tppc-dev.firebaseapp.com/__/firebase/:path*"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "app-test": false
+    }
+  }
 }
