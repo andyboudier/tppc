@@ -66,6 +66,41 @@ export async function sendMail(env, fetchImpl, { to, subject, html, text }) {
   return r;
 }
 
+// The email log: one shared document, `email-log`, the newest LOG_KEEP rows of
+// what was sent, so "did that email go?" can be answered without Resend's
+// dashboard. No addresses — the shared collection is readable by anyone — just
+// what was sent, whether it went, and Resend's id to look it up there.
+// Best effort: a failed log write never stops or fails a send.
+export const LOG_KEEP = 500;
+export async function logEmail(env, fetchImpl, rows) {
+  const list = (Array.isArray(rows) ? rows : [rows]).filter(Boolean);
+  if (!list.length) return false;
+  const { projectId, apiKey } = projectOf(env);
+  const doc = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/shared/email-log`;
+  const key = apiKey ? `key=${apiKey}` : '';
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const r = await fetchImpl(`${doc}${key ? `?${key}` : ''}`);
+      if (!r.ok && r.status !== 404) return false;
+      const d = r.ok ? await r.json() : null;
+      const old = json(d && d.fields && d.fields.value ? d.fields.value.stringValue : null, []);
+      const next = [...(Array.isArray(old) ? old : []), ...list].slice(-LOG_KEEP);
+      const guard = d ? `currentDocument.updateTime=${encodeURIComponent(d.updateTime)}` : 'currentDocument.exists=false';
+      const w = await fetchImpl(`${doc}?updateMask.fieldPaths=value&${guard}${key ? `&${key}` : ''}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { value: { stringValue: JSON.stringify(next) } } }),
+      });
+      if (w.ok) return true;
+    } catch (e) { return false; }
+  }
+  return false;
+}
+
+// Resend answers a send with { id }; the log keeps it.
+export const resendId = async (r) => {
+  try { const d = await r.clone().json(); return (d && d.id) || ''; } catch (e) { return ''; }
+};
+
 export const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 export const normEmail = (s) => String(s || '').trim().toLowerCase();
 
@@ -245,6 +280,7 @@ export async function runReminders({ when, env, now = new Date(), dry = false, d
   const live = env.REMINDERS_LIVE === '1';
   const { appUrl, from } = settings(env);
   const report = { when, date: target.iso, booked: people.length, noEmail, sent: [], held: [], failed: [] };
+  const ids = [];
 
   for (const person of people) {
     const permitted = live || allow.includes(person.email);
@@ -255,8 +291,12 @@ export async function runReminders({ when, env, now = new Date(), dry = false, d
     }
     const mail = renderEmail({ when, target, person, appUrl });
     const r = await sendMail(env, fetchImpl, { to: person.email, subject: mail.subject, html: mail.html, text: mail.text });
-    if (r.ok) report.sent.push(person.email);
+    if (r.ok) { report.sent.push(person.email); ids.push(await resendId(r)); }
     else report.failed.push({ to: person.email, status: r.status, body: (await r.text()).slice(0, 200) });
+  }
+  if (!dry && (people.length || noEmail)) {
+    await logEmail(env, fetchImpl, { at: now.getTime(), type: 'reminders', when, date: target.iso,
+      sent: report.sent.length, failed: report.failed.map((f) => f.status), held: report.held.length, noEmail, ids: ids.filter(Boolean) });
   }
   // Addresses stay out of the log unless they were on the test list anyway.
   report.held = report.held.map((h) => (allow.includes(h.to) ? h : { ...h, to: '(member)' }));
