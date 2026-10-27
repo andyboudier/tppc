@@ -16,8 +16,12 @@
 //     promoted              (booked from a waiting list by somebody else's
 //                            cancellation: any signed-in caller may send it,
 //                            as long as the booking says it was just promoted)
-//     playerId, type }      (cancelled only: the booking has gone, so whose it
+//     playerId, type,       (cancelled only: the booking has gone, so whose it
 //                            was, and for a lesson what sort it was)
+//     name }                (cancelled: the entry's name, which stands in for
+//                            playerId when a captain typed the entry and there
+//                            is no player record — the office copy and the
+//                            admins' phones still hear of it; no member email)
 //
 // Every request also tells the office (NOTIFY in _club.js, or NOTIFY_EMAILS)
 // in a short email, and the admins' phones if they have notifications on.
@@ -224,6 +228,9 @@ export function renderBookingEmail({ req, found, person, appUrl }) {
 const EVENTS = ['booked', 'amended', 'cancelled'];
 const KINDS = ['chukka', 'waitlist', 'lesson', 'lessonwait', 'tournament'];
 const ID = /^[A-Za-z0-9_.-]{1,80}$/;
+// A cancelled booking's name, for the office copy when it had no player
+// record (a captain-typed entry): shown, never used to find anyone.
+const cancelName = (b) => String((b && b.name) || '').trim().slice(0, 80);
 
 export const validRequest = (b) => !!b && EVENTS.includes(b.event) && KINDS.includes(b.kind) && (
   b.kind === 'lesson' || b.kind === 'lessonwait'
@@ -231,13 +238,14 @@ export const validRequest = (b) => !!b && EVENTS.includes(b.event) && KINDS.incl
     : b.kind === 'tournament'
       ? ID.test(String(b.fixtureId || '')) && ID.test(String(b.entryId || ''))
       : !!DAYS[b.day] && ID.test(String(b.entryId || ''))
-) && (b.event !== 'cancelled' || b.kind === 'tournament' || ID.test(String(b.playerId || '')));
+) && (b.event !== 'cancelled' || b.kind === 'tournament' || ID.test(String(b.playerId || '')) || !!cancelName(b));
 
 // The office email: one line for what happened, then the detail lines.
 export function renderNotify({ req, found, person, caller, appUrl }) {
   const verb = req.promoted ? 'booked from the waiting list' : req.event === 'cancelled' ? (req.kind === 'lessonwait' || req.kind === 'waitlist' ? 'left the waiting list' : req.kind === 'tournament' ? 'withdrawn' : 'cancelled')
     : req.event === 'amended' ? 'updated' : req.kind === 'lessonwait' || req.kind === 'waitlist' ? 'joined the waiting list' : req.kind === 'tournament' ? 'entered' : 'booked';
-  const who = req.kind === 'tournament' ? ((found.entry && found.entry.team) || 'A team') : ((person && person.name) || (found.entry && found.entry.name) || 'Someone');
+  const who = req.kind === 'tournament' ? ((found.entry && found.entry.team) || 'A team')
+    : ((person && person.name) || (found.entry && found.entry.name) || (req.event === 'cancelled' && cancelName(req)) || 'Someone');
   const when = found.dateText || (found.date ? `${longDate(found.date)}${found.time ? ` · ${found.time}` : ''}` : '');
   const subject = `${CLUB.short || CLUB.name}: ${who} ${verb} — ${found.title}${when ? `, ${when}` : ''}`;
   const lines = [];

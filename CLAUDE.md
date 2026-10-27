@@ -43,12 +43,17 @@ that ARE the demo — `storage.js`, `trophyStore.js`, `demoSeed.js`,
 `DemoChrome.jsx`, `main.jsx`, `index.html`, `vite.config.js` — are left alone,
 because they are the demo's browser-backed replacements for Firestore.
 
-## Sign-in and roles (switched off for the clubs)
+## Sign-in and roles
+
+**Sign-in is on at all three clubs** (TPPC since 26 October 2026), switched on
+by the deployment, not the code: `VITE_SIGN_IN_LIVE=1` on the club's Vercel
+project. What follows describes the provider and how it began dormant; the
+dormant mode is still what a build without that variable gets.
 
 `src/auth.js` defines a small `window.auth` contract the app reads the way it
 reads `window.storage`. The default provider it installs is **sign-in off**:
 nobody logs in, anyone may book, the captain PIN opens everything — the app as
-the clubs have always run it. Keep it that way here unless the club asks.
+the clubs always ran it before sign-in.
 
 All three clubs now also ship `src/authFirebase.js`, a real Firebase Auth
 provider on the club's own project. It is **dormant**: `SIGN_IN_LIVE` is false, so
@@ -396,7 +401,63 @@ is no dev iOS or Android build — Xcode Cloud is connected to this repo only, a
 the Android workflow runs by hand. None of this applies to Druids or Vaux, which
 have no dev clone.
 
-**Dev-only so far: sign-in is live, and the app opens on Home.**
+**All three clubs now run the dev design, with sign-in on.** Druids and Vaux
+took it first (Druids #61, Vaux #70, live on 10 October 2026); TPPC took it
+on 26 October 2026 by merging tppc-dev (the merge above): the Home tab,
+member roles, email links finished in the app, booking and reminder emails,
+the lessons rework, the tournament walk-through and the fixtures archive. The dev design names no club: `TERMS_CLUB` in each
+`terms.js` is the one block that is the club's — name, short name, place, a
+`slug` for device keys and calendar files, the crest, the app's own
+burgundy and the dark palette — and `HomeDashboard.jsx`, `luxTheme.js`,
+`AuthActionPage.jsx`, `home.js` and `TermsSheet.jsx` read it (tppc-dev #34),
+so those files are byte-identical across the apps. The emails do the same
+through `api/_club.js`, which also holds what `src` cannot give a serverless
+function: the day table (it mirrors `DAY_CONFIG`; keep the two in step), the
+day-key suffix rule, the Firebase project and the app's address. Porting the
+main component is not a clean patch — a third of the hunks reject against a
+club's file — so `scripts/port_club.py` in the session scratchpad did the
+rest by anchor; the club differences it keeps are no club sessions, no
+waiting list, no membership-record fields, Druids' student tier, and Vaux's
+military tournaments (its own card prices them). Sign-in is switched on by
+`VITE_SIGN_IN_LIVE=1` on the Vercel project (set on `druids-tpd4` and `vaux`,
+with `VITE_FIXED_ADMIN_EMAILS`, `REMINDERS_ALLOW` and `APP_URL`); unset it and
+the app is the captain-PIN-only one again. Those two clubs sign the app in
+**anonymously** so that their Firestore rules accept its writes (TPPC's rules
+do not need it), and the two sessions share one Firebase Auth: an anonymous
+user reads as signed out in `authFirebase.js`, and `firebase.js` signs in
+anonymously whenever the state settles on nobody — at start and again after
+a member signs out — never once at load, which would displace a member
+coming back from a Google or Apple redirect (Druids #62, Vaux #71). TPPC's
+rules are still fully open, so it needs no anonymous session.
+
+### Store readiness (October 2026)
+
+Druids and Vaux are live with sign-in, so their store apps must let a member
+delete their account from inside the app and must publish a privacy policy.
+Both now carry the TPPC-Dev pieces (druids #64, vaux #73; tppc-dev #38):
+**Delete my account** in Your profile (`window.auth.deleteAccount`, which
+confirms the member, revokes Apple's token and unlinks the club's player
+record through the app's `beforeAccountDelete`), a privacy notice in
+`privacy.js` shown by `TermsSheet` (`doc="privacy"`, `?privacy=1`), and
+`scripts/legal-pages.mjs`, which writes `public/privacy.html`, `terms.html`
+and `delete-account.html` from `privacy.js` and `terms.js` on every
+`npm run build`. `privacy.js` is the same file in every club but its
+`PRIVACY_CLUB` block (contact details, the rates a record carries, and
+switches for web push and office copies). Edit the `.js`, never the `.html`.
+
+The store apps are this site in a web view, and Google refuses sign-in there.
+`authFirebase.js` therefore uses the native plugin
+`@capacitor-firebase/authentication` when the app has it, and otherwise offers
+email and password only (`methodsHere`). TPPC's store apps carry the
+plugin from 1.1.0 (tppc-dev #39; approved October 2026), with the Firebase
+config files and the Sign in with Apple capability set up as in
+`docs/NATIVE_SIGN_IN.md`; Druids' and Vaux's apps stay password-only until
+they get the same.
+
+The demo's resync list carries `privacy.js` and `scripts/legal-pages.mjs`:
+`TermsSheet.jsx` imports `privacy.js`, so a resync without it breaks the
+demo's build.
+**Sign-in is live, and the app opens on Home** (TPPC-Dev first; TPPC live since 26 October 2026, set the same way on the `tppc-chukkas` Vercel project).
 
 TPPC-Dev runs with sign-in **on**, set by the deployment rather than the code:
 `VITE_SIGN_IN_LIVE=1` and `VITE_FIXED_ADMIN_EMAILS` (Andy's club address) are
@@ -572,7 +633,10 @@ amendment and cancellation — chukkas, waiting lists, lessons, sessions,
 tournament entries — is also sent to the office, `NOTIFY` in `_club.js`
 (info@, helen@, bradley@tedworthparkpolo.com; `NOTIFY_EMAILS` in Vercel
 overrides). The office copy is not held back by `REMINDERS_ALLOW`, which still
-gates the member's own email.
+gates the member's own email. A cancellation carries the entry's name as well as
+its `playerId` (`cancelWho`), so removing a captain-typed entry with no
+player record still tells the office and the admins' phones; only the
+member's own email needs the record.
 
 **Push notifications (web only).** `src/push.js` subscribes a browser (Home's
 footer: "Turn on notifications") and keeps the subscription in the shared doc
@@ -698,7 +762,11 @@ and `UIApplicationSceneManifest` in `Info.plist` (which names it and
 `Main.storyboard`) are that adoption; the scene's URL and user-activity events
 go through Capacitor's `SceneDelegateProxy`, which hands them to plugins as the
 AppDelegate's did. Store builds made before it (1.0.15) still run, being built
-with the older SDK; every build from Xcode 27 on needs it.
+with the older SDK; every build from Xcode 27 on needs it. Druids and Vaux carry the same
+adoption (druids #65, vaux #74), but their Capacitor is 8.3.4, which has no
+`SceneDelegateProxy`, so their `SceneDelegate.swift` hands URLs and links to
+`ApplicationDelegateProxy` itself — keep that difference if either is moved
+to Capacitor 8.5.
 
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
@@ -740,19 +808,20 @@ domains; (4) point the vercel.json rewrites at
 `VITE_FIREBASE_AUTH_DOMAIN`). Check (1) and (2) before (5) by asking
 identitytoolkit `accounts:createAuthUri` for each provider with that handler
 as `continueUri` and opening the URI it returns: a mismatch shows at once.
-The rewrites and crons in vercel.json name the dev project; bringing them back
-to TPPC means pointing them at the club's own.
+`vercel.json`'s `/__/auth` and `/__/firebase` rewrites name the Firebase
+project, so they are the one place the two repos' configs differ: TPPC points
+at `tedworth-park-polo.firebaseapp.com`, tppc-dev at `tppc-dev.firebaseapp.com`.
+`APP_URL` in `api/_club.js` differs the same way. Keep both on merges.
 
-When this is brought back to TPPC it applies to Druids and Vaux too, but
-Druids always suffixes day keys and has no waiting list, each club's day names,
-crest and palette differ (the theme's gold and burgundy would need each club's
-own), and the clubs keep sign-in dormant unless they ask.
+Druids always suffixes day keys and has no waiting list, and each club's day
+names, crest and palette differ, so a change here reaches Druids and Vaux by
+port, not by copy.
 
 ### Things that differ between the apps, and must not be "fixed"
 
-- Sign-in is on only in the **demo**. The three clubs ship the real provider
-  but dormant (`SIGN_IN_LIVE` false), so they behave exactly as `window.auth`
-  at its default does; only the captain's bench on Lessons drives it.
+- Sign-in is on in the demo and in all three clubs, by `VITE_SIGN_IN_LIVE=1` on
+  each Vercel project; unset it and that club is the captain-PIN-only app
+  again (`window.auth` at its default).
 - Only **TPPC** still has a programme front sheet. Druids and Vaux open straight
   onto the running order, so anything cover-page-shaped applies to TPPC alone.
 - Vaux's programme is the tournament-times card: black, Oswald, one page per day.
