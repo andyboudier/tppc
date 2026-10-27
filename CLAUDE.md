@@ -762,7 +762,11 @@ and `UIApplicationSceneManifest` in `Info.plist` (which names it and
 `Main.storyboard`) are that adoption; the scene's URL and user-activity events
 go through Capacitor's `SceneDelegateProxy`, which hands them to plugins as the
 AppDelegate's did. Store builds made before it (1.0.15) still run, being built
-with the older SDK; every build from Xcode 27 on needs it.
+with the older SDK; every build from Xcode 27 on needs it. Druids and Vaux carry the same
+adoption (druids #65, vaux #74), but their Capacitor is 8.3.4, which has no
+`SceneDelegateProxy`, so their `SceneDelegate.swift` hands URLs and links to
+`ApplicationDelegateProxy` itself — keep that difference if either is moved
+to Capacitor 8.5.
 
 **Links from emails open in the app.** A password reset, an address to
 confirm or restore, and a sign-in link opened on another device are finished
